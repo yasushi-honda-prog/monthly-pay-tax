@@ -1,60 +1,69 @@
 # ハンドオフメモ - monthly-pay-tax
 
 **更新日**: 2026-02-07
-**フェーズ**: 0 - インフラ準備完了 / 実装計画前
+**フェーズ**: 1 - Cloud Run + BigQuery 本番稼働中
 
 ## 現在の状態
 
-GAS（Google Apps Script）で運用していた月次給与データ集約スクリプトを、GCP（Cloud Run + BigQuery）ベースの分析基盤に移行するプロジェクト。
+GASからCloud Run + BigQueryへの移行が完了し、本番稼働中。毎朝6時にCloud Schedulerが自動実行。
 
 ### 完了済み
 
 | 項目 | 状態 | 詳細 |
 |------|------|------|
 | GASコードのclasp clone | ✅ | アカウント: yasushi-honda@tadakayo.jp |
-| GitHubリポジトリ | ✅ | https://github.com/yasushi-honda-prog/monthly-pay-tax (public) |
-| GCPプロジェクト | ✅ | プロジェクトID: `monthly-pay-tax` |
-| 環境分離 | ✅ | .envrc, .gitconfig.local, gcloud config 設定済み |
+| GitHubリポジトリ | ✅ | yasushi-honda-prog/monthly-pay-tax (public) |
+| GCPプロジェクト | ✅ | `monthly-pay-tax` |
+| 環境分離 | ✅ | .envrc, .gitconfig.local, gcloud config |
+| GCP API有効化 | ✅ | BigQuery, Sheets, Run, AR, Scheduler, Build |
+| サービスアカウント | ✅ | `pay-collector@monthly-pay-tax.iam.gserviceaccount.com` |
+| Domain-Wide Delegation | ✅ | Workload Identity + IAM signBlob（キーレス） |
+| BigQueryスキーマ | ✅ | `pay_reports.gyomu_reports`, `pay_reports.hojo_reports` |
+| Cloud Run デプロイ | ✅ | v2, 2GiB メモリ, asia-northeast1 |
+| Cloud Scheduler | ✅ | 毎朝6時JST、OIDC認証 |
+| Artifact Registry | ✅ | クリーンアップポリシー: 最新2イメージ保持 |
+| E2Eテスト | ✅ | 190件巡回、gyomu: 14,029行、hojo: 942行、217.5秒 |
+| ADR-0001 | ✅ | アーキテクチャ決定記録 |
 
-### 未完了（次セッション）
+### 未完了
 
 | 項目 | 優先度 | 備考 |
 |------|--------|------|
-| `/impl-plan` で実装計画策定 | **最優先** | Cloud Run + BigQuery + 可視化の設計 |
-| BigQuery API有効化 | 高 | GCPプロジェクトでAPI有効化が必要 |
-| Cloud Run デプロイ基盤 | 高 | Python + Sheets API + BigQuery Client |
-| 可視化レイヤー決定 | 中 | Looker Studio（即時）→ Streamlit（カスタム） |
+| Looker Studio接続 | 高 | BQネイティブコネクタで接続 |
+| BQカラム名の意味付け | 中 | col_b~col_kを実際のフィールド名に変更 |
+| Gitコミット＆push | 高 | 今セッションの変更をコミット |
 
-## アーキテクチャ決定事項
-
-### 採用: パターンB（Cloud Run全置換）
+## アーキテクチャ
 
 ```
-Cloud Scheduler (毎日定時)
-    │
+Cloud Scheduler (毎朝6時JST)
+    │ OIDC認証
     ▼
-Cloud Run (Python)
-    ├─ Google Sheets API で200件巡回
-    ├─ データ整形
-    └─ BigQuery に投入
+Cloud Run (Python 3.12 / Flask / gunicorn)
+    ├─ Workload Identity + IAM signBlob でDWD認証
+    ├─ 管理表 → 190件のURLリスト取得
+    ├─ 各スプレッドシート巡回 → Sheets API v4 でデータ収集
+    ├─ pandas DataFrame に整形
+    └─ BigQuery に load_table_from_dataframe (WRITE_TRUNCATE)
           │
           ▼
-    可視化レイヤー
-    ├─ Looker Studio（すぐ使える）
-    └─ Streamlit or カスタムHTML（後から追加）
+    BigQuery (pay_reports dataset)
+    ├─ gyomu_reports: 14,029行
+    └─ hojo_reports: 942行
+          │
+          ▼
+    Looker Studio（未接続）
 ```
 
-**理由**: 200件のスプレッドシート巡回はGASの6分制限を超えるため
+## GCPリソース一覧
 
-### 既存GASの概要（移行元）
-
-- `consolidateReports()`: 管理表URLリストから各スプレッドシートのデータを収集
-- 2種類のシートを対象:
-  - `【都度入力】業務報告` (7行目〜, B〜K列)
-  - `【月１入力】補助＆立替報告＋月締め` (4行目〜, B〜K列)
-- 各行に元URL付加 → 集約先スプレッドシートに全件書き込み
-- 管理表: `1fBNfkFBARSpT-OpLOytbAfoa0Xo5LTWv7irimssxcUU`
-- 集約先: `16V9fs2kf2IzxdVz1GOJHY9mR1MmGjbmwm5L0ECiMLrc`
+| リソース | 名前 | リージョン |
+|---------|------|----------|
+| Cloud Run | pay-collector | asia-northeast1 |
+| BigQuery Dataset | pay_reports | asia-northeast1 |
+| Artifact Registry | cloud-run-images | asia-northeast1 |
+| Cloud Scheduler | pay-collector-daily | asia-northeast1 |
+| Service Account | pay-collector | - |
 
 ## 環境情報
 
@@ -63,6 +72,6 @@ Cloud Run (Python)
 | GCPプロジェクトID | `monthly-pay-tax` |
 | GCPアカウント | yasushi-honda@tadakayo.jp |
 | GitHub | yasushi-honda-prog/monthly-pay-tax |
-| Gitユーザー | yasushi-honda / yasushi-honda@tadakayo.jp |
-| GASスクリプトID | `1D4FgEZRhg3X9rgU2EMjqnAN_6yQCmtP3Ixzo0pl87yR-aD9tNHLKRl-M` |
-| gcloud config名 | `monthly-pay-tax` |
+| Cloud Run URL | `https://pay-collector-209715990891.asia-northeast1.run.app` |
+| SA Email | `pay-collector@monthly-pay-tax.iam.gserviceaccount.com` |
+| DWD Client ID | `105293708004584950257` |
