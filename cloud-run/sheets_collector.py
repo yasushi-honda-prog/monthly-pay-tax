@@ -63,10 +63,6 @@ def _extract_spreadsheet_id(url: str) -> str:
     return match.group(1)
 
 
-def _col_letter_to_index(letter: str) -> int:
-    """列文字を0-indexedの数値に変換 (A=0, B=1, ..., K=10)"""
-    return ord(letter.upper()) - ord("A")
-
 
 def get_url_list(service) -> list[str]:
     """管理表からURLリストを取得（GAS Step 1に対応）"""

@@ -7,7 +7,7 @@ import logging
 import os
 import time
 
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify
 
 import sheets_collector
 import bq_loader
