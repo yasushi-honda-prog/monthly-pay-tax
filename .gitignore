@@ -1,6 +1,9 @@
 .gh/
 .env
 .envrc
+.gitconfig.local
+.sa-key.json
 __pycache__/
 *.pyc
 .venv/
+.pytest_cache/
