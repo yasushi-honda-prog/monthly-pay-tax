@@ -69,6 +69,5 @@ TABLE_COLUMNS = {
     BQ_TABLE_MEMBERS: [
         "report_url", "member_id", "nickname",
         "gws_account", "full_name",
-        "qualification_allowance", "position_rate",
     ],
 }

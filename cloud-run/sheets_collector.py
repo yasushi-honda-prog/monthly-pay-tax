@@ -173,10 +173,10 @@ def collect_members(service) -> list[list]:
     """タダメンMマスタを取得
 
     GASバインドSSの「タダメンM」シートからメンバー情報を取得。
-    A~G列: 報告シートURL, タダメンID, ニックネーム, GWSアカウント, 本名, 資格手当, 役職手当率
+    A~E列: 報告シートURL, タダメンID, ニックネーム, GWSアカウント, 本名
     """
     sheet = service.spreadsheets()
-    range_notation = f"'{config.MEMBER_SHEET_NAME}'!A{config.MEMBER_START_ROW}:G"
+    range_notation = f"'{config.MEMBER_SHEET_NAME}'!A{config.MEMBER_START_ROW}:E"
 
     try:
         result = sheet.values().get(

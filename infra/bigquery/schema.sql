@@ -43,7 +43,5 @@ CREATE TABLE IF NOT EXISTS `monthly-pay-tax.pay_reports.members` (
   nickname STRING,                       -- ニックネーム
   gws_account STRING,                    -- GWSアカウント
   full_name STRING,                      -- 本名
-  qualification_allowance STRING,        -- 資格手当
-  position_rate STRING,                  -- 役職手当率
   ingested_at TIMESTAMP NOT NULL         -- データ取得日時
 );

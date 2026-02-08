@@ -1,7 +1,7 @@
 """月次報酬ダッシュボード
 
 BigQueryのpay_reportsデータセットを可視化するStreamlitアプリ。
-統計分析スプレッドシート「月別報酬＆源泉徴収」を中心に再現。
+BQ VIEWs (v_gyomu_enriched, v_hojo_enriched) 経由でデータを取得。
 Cloud IAP経由でtadakayo.jpドメインのみアクセス可能。
 """
 
@@ -190,52 +190,48 @@ def load_data(query: str):
 # --- データ読み込み ---
 @st.cache_data(ttl=3600)
 def load_hojo_with_members():
-    """補助報告 + メンバー名を結合して取得"""
+    """補助報告（VIEW経由: メンバー結合 + 年月正規化済み）"""
     query = f"""
     SELECT
-        m.nickname,
-        m.full_name,
-        h.year,
-        h.month,
-        h.hours,
-        h.compensation,
-        h.dx_subsidy,
-        h.reimbursement,
-        h.total_amount,
-        h.monthly_complete,
-        m.qualification_allowance,
-        m.position_rate
-    FROM `{PROJECT_ID}.{DATASET}.hojo_reports` h
-    LEFT JOIN `{PROJECT_ID}.{DATASET}.members` m
-        ON h.source_url = m.report_url
-    WHERE h.year IS NOT NULL
-    ORDER BY h.year, h.month
+        nickname,
+        full_name,
+        year,
+        month,
+        hours,
+        compensation,
+        dx_subsidy,
+        reimbursement,
+        total_amount,
+        monthly_complete
+    FROM `{PROJECT_ID}.{DATASET}.v_hojo_enriched`
+    WHERE year IS NOT NULL
+    ORDER BY year, month
     """
     return load_data(query)
 
 
 @st.cache_data(ttl=3600)
 def load_gyomu_with_members():
-    """業務報告 + メンバー名を結合して取得"""
+    """業務報告（VIEW経由: メンバー結合 + 月抽出 + 距離分離済み）"""
     query = f"""
     SELECT
-        m.nickname,
-        g.year,
-        g.date,
-        g.day_of_week,
-        g.activity_category,
-        g.work_category,
-        g.sponsor,
-        g.description,
-        g.unit_price,
-        g.hours,
-        g.amount
-    FROM `{PROJECT_ID}.{DATASET}.gyomu_reports` g
-    LEFT JOIN `{PROJECT_ID}.{DATASET}.members` m
-        ON g.source_url = m.report_url
-    WHERE g.year IS NOT NULL
-        AND (g.date IS NOT NULL OR g.amount IS NOT NULL)
-    ORDER BY g.year, g.date
+        nickname,
+        year,
+        date,
+        month,
+        day_of_week,
+        activity_category,
+        work_category,
+        sponsor,
+        description,
+        unit_price,
+        work_hours,
+        travel_distance_km,
+        amount
+    FROM `{PROJECT_ID}.{DATASET}.v_gyomu_enriched`
+    WHERE year IS NOT NULL
+        AND (date IS NOT NULL OR amount IS NOT NULL)
+    ORDER BY year, date
     """
     return load_data(query)
 
@@ -269,27 +265,19 @@ with st.sidebar:
         query = f"""
         SELECT nickname, has_empty FROM (
             SELECT DISTINCT nickname, FALSE AS has_empty FROM (
-                SELECT m.nickname
-                FROM `{PROJECT_ID}.{DATASET}.hojo_reports` h
-                LEFT JOIN `{PROJECT_ID}.{DATASET}.members` m ON h.source_url = m.report_url
+                SELECT nickname FROM `{PROJECT_ID}.{DATASET}.v_hojo_enriched`
                 UNION DISTINCT
-                SELECT m.nickname
-                FROM `{PROJECT_ID}.{DATASET}.gyomu_reports` g
-                LEFT JOIN `{PROJECT_ID}.{DATASET}.members` m ON g.source_url = m.report_url
+                SELECT nickname FROM `{PROJECT_ID}.{DATASET}.v_gyomu_enriched`
             )
             WHERE nickname IS NOT NULL AND TRIM(nickname) != ''
             UNION ALL
             SELECT '(未設定)' AS nickname, TRUE AS has_empty FROM (
                 SELECT 1 FROM (
-                    SELECT m.nickname
-                    FROM `{PROJECT_ID}.{DATASET}.hojo_reports` h
-                    LEFT JOIN `{PROJECT_ID}.{DATASET}.members` m ON h.source_url = m.report_url
-                    WHERE m.nickname IS NULL OR TRIM(m.nickname) = ''
+                    SELECT nickname FROM `{PROJECT_ID}.{DATASET}.v_hojo_enriched`
+                    WHERE nickname IS NULL OR TRIM(nickname) = ''
                     UNION ALL
-                    SELECT m.nickname
-                    FROM `{PROJECT_ID}.{DATASET}.gyomu_reports` g
-                    LEFT JOIN `{PROJECT_ID}.{DATASET}.members` m ON g.source_url = m.report_url
-                    WHERE m.nickname IS NULL OR TRIM(m.nickname) = ''
+                    SELECT nickname FROM `{PROJECT_ID}.{DATASET}.v_gyomu_enriched`
+                    WHERE nickname IS NULL OR TRIM(nickname) = ''
                 ) LIMIT 1
             )
         )
@@ -341,13 +329,13 @@ st.markdown("""
 
 # --- タブ ---
 tab1, tab2, tab3 = st.tabs([
-    "月別報酬＆源泉徴収",
+    "月別報酬サマリー",
     "スポンサー別業務委託費",
     "業務報告一覧",
 ])
 
 
-# ===== Tab 1: 月別報酬＆源泉徴収 =====
+# ===== Tab 1: 月別報酬サマリー =====
 with tab1:
     try:
         df_hojo = load_hojo_with_members()
@@ -362,12 +350,10 @@ with tab1:
         for col in ["hours", "compensation", "dx_subsidy", "reimbursement", "total_amount"]:
             df_hojo[col] = clean_numeric(df_hojo[col])
 
-        df_hojo["year"] = valid_years(df_hojo["year"])
+        # VIEWで年月はINT64に正規化済み
         df_hojo = df_hojo[df_hojo["year"].notna()]
         df_hojo["year"] = df_hojo["year"].astype(int)
-        df_hojo["month"] = df_hojo["month"].apply(
-            lambda x: int(float(x)) if str(x).replace(".", "").isdigit() and 1 <= int(float(x)) <= 12 else None
-        )
+        df_hojo["month"] = df_hojo["month"].astype("Int64")
 
         filtered = df_hojo[df_hojo["year"] == selected_year]
         if selected_month != "全月":
@@ -433,14 +419,15 @@ with tab2:
     else:
         df_gyomu = fill_empty_nickname(df_gyomu)
         df_gyomu["amount_num"] = clean_numeric(df_gyomu["amount"])
-        df_gyomu["month_num"] = df_gyomu["date"].astype(str).apply(
-            lambda x: x.split("/")[0] if "/" in str(x) else ""
-        )
+        # VIEWで月抽出済み（month列）
+        df_gyomu["month_num"] = df_gyomu["month"].astype("Int64").astype(str).replace("<NA>", "")
         df_gyomu["year"] = valid_years(df_gyomu["year"])
         df_gyomu = df_gyomu[df_gyomu["year"].notna()]
         df_gyomu["year"] = df_gyomu["year"].astype(int)
 
         filtered_g = df_gyomu[df_gyomu["year"] == selected_year]
+        if selected_month != "全月":
+            filtered_g = filtered_g[filtered_g["month_num"] == str(int(selected_month.replace("月", "")))]
 
         # タブ内フィルター（スポンサーのみ）
         sponsors = filtered_g["sponsor"].dropna().unique().tolist()
@@ -519,6 +506,9 @@ with tab3:
         df_gyomu_all["year"] = df_gyomu_all["year"].astype(int)
 
         result = df_gyomu_all[df_gyomu_all["year"] == selected_year]
+        if selected_month != "全月":
+            month_val = int(selected_month.replace("月", ""))
+            result = result[result["month"] == month_val]
 
         # タブ内フィルター
         categories = ["全分類"] + sorted(
@@ -540,7 +530,7 @@ with tab3:
                     "nickname", "date", "day_of_week",
                     "activity_category", "work_category",
                     "sponsor", "description",
-                    "unit_price", "hours", "amount",
+                    "unit_price", "work_hours", "travel_distance_km", "amount",
                 ]
             ].rename(columns={
                 "nickname": "メンバー",
@@ -551,7 +541,8 @@ with tab3:
                 "sponsor": "スポンサー",
                 "description": "内容",
                 "unit_price": "単価",
-                "hours": "時間",
+                "work_hours": "時間",
+                "travel_distance_km": "移動距離(km)",
                 "amount": "金額",
             }),
             use_container_width=True,
