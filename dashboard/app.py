@@ -5,8 +5,12 @@ BQ VIEWs (v_gyomu_enriched, v_hojo_enriched) 経由でデータを取得。
 Cloud IAP経由でtadakayo.jpドメインのみアクセス可能。
 """
 
+import logging
+
 import streamlit as st
 from google.cloud import bigquery
+
+logger = logging.getLogger(__name__)
 
 st.set_page_config(
     page_title="タダカヨ 月次報酬ダッシュボード",
@@ -377,6 +381,7 @@ with tab1:
     try:
         df_comp = load_monthly_compensation()
     except Exception as e:
+        logger.error("v_monthly_compensation取得失敗: %s", e, exc_info=True)
         st.error(f"データ取得エラー: {e}")
         st.stop()
 
@@ -393,16 +398,15 @@ with tab1:
         num_cols = [
             "work_hours", "hour_compensation", "travel_distance_km",
             "distance_compensation", "subtotal_compensation",
-            "position_adjusted_compensation", "qualification_allowance",
-            "qualification_adjusted_compensation", "withholding_target_amount",
+            "position_rate", "position_adjusted_compensation",
+            "qualification_allowance", "qualification_adjusted_compensation",
+            "withholding_target_amount", "withholding_tax",
             "dx_subsidy", "reimbursement", "payment",
             "donation_payment", "daily_wage_count", "full_day_compensation",
             "total_work_hours",
         ]
         for col in num_cols:
             df_comp[col] = df_comp[col].fillna(0).astype(float)
-        df_comp["withholding_tax"] = df_comp["withholding_tax"].fillna(0).astype(float)
-        df_comp["position_rate"] = df_comp["position_rate"].fillna(0).astype(float)
 
         filtered = df_comp[df_comp["year"] == selected_year]
         if selected_month != "全月":

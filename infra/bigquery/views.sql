@@ -271,106 +271,95 @@ base_calc AS (
     ON k.source_url = g.source_url AND k.year = g.year AND k.month = g.month
   LEFT JOIN hojo_agg h
     ON k.source_url = h.source_url AND k.year = h.year AND k.month = h.month
+),
+
+-- ─── CTE 6: 源泉対象額 → 源泉徴収を事前計算 ───
+with_tax AS (
+  SELECT
+    bc.*,
+    -- T: 源泉対象業務合計金額
+    CASE
+      WHEN bc.is_licensed THEN bc.qualification_adjusted + bc.dx_subsidy + bc.reimbursement
+      ELSE bc.withholding_eligible_amount
+    END AS withholding_target_amount,
+    -- U: 源泉 = -FLOOR(T * 0.1021)  ※法人・寄付は除外
+    CASE
+      WHEN NOT bc.is_corporate AND NOT bc.is_donation THEN
+        -1 * CAST(FLOOR(
+          CASE
+            WHEN bc.is_licensed THEN bc.qualification_adjusted + bc.dx_subsidy + bc.reimbursement
+            ELSE bc.withholding_eligible_amount
+          END * 0.1021
+        ) AS INT64)
+      ELSE 0
+    END AS withholding_tax
+  FROM base_calc bc
 )
 
--- ─── 最終 SELECT: 源泉 → 支払い を算出 ───
+-- ─── 最終 SELECT: 支払い を算出 ───
 SELECT
-  bc.year,
-  bc.month,
-  bc.member_id,
-  bc.nickname,
-  bc.full_name,
-  bc.is_corporate,
-  bc.is_donation,
-  bc.is_licensed,
-  bc.report_url,
+  t.year,
+  t.month,
+  t.member_id,
+  t.nickname,
+  t.full_name,
+  t.is_corporate,
+  t.is_donation,
+  t.is_licensed,
+  t.report_url,
 
   -- K: 時間
-  bc.work_hours,
+  t.work_hours,
   -- L: (時間)報酬
-  bc.hour_compensation,
+  t.hour_compensation,
   -- M: 距離
-  bc.travel_distance_km,
+  t.travel_distance_km,
   -- N: (距離)報酬
-  bc.distance_compensation,
+  t.distance_compensation,
   -- O: (小計)報酬
-  bc.subtotal AS subtotal_compensation,
+  t.subtotal AS subtotal_compensation,
   -- P: 役職手当率
-  COALESCE(bc.position_rate, 0) AS position_rate,
+  COALESCE(t.position_rate, 0) AS position_rate,
   -- Q: (役職手当率計算)報酬
-  bc.position_adjusted AS position_adjusted_compensation,
+  t.position_adjusted AS position_adjusted_compensation,
   -- R: 資格手当
-  bc.effective_qualification_allowance AS qualification_allowance,
+  t.effective_qualification_allowance AS qualification_allowance,
   -- S: (資格手当加算)報酬
-  bc.qualification_adjusted AS qualification_adjusted_compensation,
-
+  t.qualification_adjusted AS qualification_adjusted_compensation,
   -- T: 源泉対象業務合計金額
-  CASE
-    -- 士業: S + V + W 全額
-    WHEN bc.is_licensed THEN bc.qualification_adjusted + bc.dx_subsidy + bc.reimbursement
-    -- 通常: 源泉対象業務分類の金額合計
-    ELSE bc.withholding_eligible_amount
-  END AS withholding_target_amount,
-
-  -- U: 源泉 = -ROUNDDOWN(T * 0.1021)  ※法人・寄付は除外
-  CASE
-    WHEN NOT bc.is_corporate AND NOT bc.is_donation THEN
-      -1 * CAST(FLOOR(
-        CASE
-          WHEN bc.is_licensed THEN bc.qualification_adjusted + bc.dx_subsidy + bc.reimbursement
-          ELSE bc.withholding_eligible_amount
-        END * 0.1021
-      ) AS INT64)
-    ELSE 0
-  END AS withholding_tax,
-
+  t.withholding_target_amount,
+  -- U: 源泉
+  t.withholding_tax,
   -- V: DX補助
-  bc.dx_subsidy,
+  t.dx_subsidy,
   -- W: 立替
-  bc.reimbursement,
+  t.reimbursement,
 
   -- J: 支払い（条件分岐）
   CASE
-    -- データなし
-    WHEN bc.qualification_adjusted = 0 AND bc.dx_subsidy = 0 AND bc.reimbursement = 0 THEN NULL
-    -- 特定メンバー(b16b4132): DX + 立替のみ
-    WHEN bc.member_id = 'b16b4132' THEN bc.dx_subsidy + bc.reimbursement
-    -- 寄付メンバー: 立替のみ
-    WHEN bc.is_donation THEN
-      CASE WHEN bc.reimbursement = 0 THEN NULL ELSE bc.reimbursement END
-    -- 通常: S + U + V + W
-    ELSE
-      bc.qualification_adjusted
-      + CASE
-          WHEN NOT bc.is_corporate AND NOT bc.is_donation THEN
-            -1 * CAST(FLOOR(
-              CASE
-                WHEN bc.is_licensed THEN bc.qualification_adjusted + bc.dx_subsidy + bc.reimbursement
-                ELSE bc.withholding_eligible_amount
-              END * 0.1021
-            ) AS INT64)
-          ELSE 0
-        END
-      + bc.dx_subsidy
-      + bc.reimbursement
+    WHEN t.qualification_adjusted = 0 AND t.dx_subsidy = 0 AND t.reimbursement = 0 THEN NULL
+    WHEN t.member_id = 'b16b4132' THEN t.dx_subsidy + t.reimbursement
+    WHEN t.is_donation THEN
+      CASE WHEN t.reimbursement = 0 THEN NULL ELSE t.reimbursement END
+    ELSE t.qualification_adjusted + t.withholding_tax + t.dx_subsidy + t.reimbursement
   END AS payment,
 
   -- AA: 寄付支払い
   CASE
-    WHEN bc.is_donation AND bc.qualification_adjusted > 0
-    THEN bc.qualification_adjusted
+    WHEN t.is_donation AND t.qualification_adjusted > 0
+    THEN t.qualification_adjusted
     ELSE NULL
   END AS donation_payment,
 
   -- AB: 1立て件数
-  bc.daily_wage_count,
+  t.daily_wage_count,
   -- AC: 1立て報酬（全日稼働分）
-  bc.full_day_compensation,
+  t.full_day_compensation,
   -- AD: 総稼働時間
-  bc.total_work_hours
+  t.total_work_hours
 
-FROM base_calc bc
-WHERE bc.qualification_adjusted > 0
-   OR bc.dx_subsidy > 0
-   OR bc.reimbursement > 0
-   OR bc.work_hours > 0;
+FROM with_tax t
+WHERE t.qualification_adjusted > 0
+   OR t.dx_subsidy > 0
+   OR t.reimbursement > 0
+   OR t.work_hours > 0;
