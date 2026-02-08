@@ -27,10 +27,10 @@ VALUES
   ('出張タダスク講師（旧ルール）', NULL);
 
 -- 士業さん（全ての金額に源泉計算：加算も全部）
--- 國吉 宏明（クニ）: タダスク研修講師
+-- 士業メンバー1: タダスク研修講師
 INSERT INTO `monthly-pay-tax.pay_reports.withholding_targets` (work_category, licensed_member_id)
 VALUES ('タダスク研修講師', '2d0910f7');
 
--- 山本 武尊（タケルン）: 出張タダスク講師
+-- 士業メンバー2: 出張タダスク講師
 INSERT INTO `monthly-pay-tax.pay_reports.withholding_targets` (work_category, licensed_member_id)
 VALUES ('出張タダスク講師', '144dcaaf');
