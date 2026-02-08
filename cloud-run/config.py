@@ -17,9 +17,12 @@ MASTER_SHEET_NAME = "報告シート（「説明用」以外はタダメンMか�
 URL_COLUMN_INDEX = 0  # A列
 URL_START_ROW = 2
 
-# GASバインドスプレッドシート（タダメンMマスタの所在）
+# GASバインドスプレッドシート（旧タダメンMマスタの所在、参照用）
 GAS_SPREADSHEET_ID = "16V9fs2kf2IzxdVz1GOJHY9mR1MmGjbmwm5L0ECiMLrc"
-MEMBER_SHEET_NAME = "タダメンM"
+
+# タダメンMマスタ（管理表から直接読み取り、A:K列の完全データ）
+MEMBER_SPREADSHEET_ID = MASTER_SPREADSHEET_ID  # 管理表に完全データあり
+MEMBER_SHEET_NAME = "報告シート（「説明用」以外はタダメンMから関数生成）M"
 MEMBER_START_ROW = 2  # 1行目はヘッダー
 
 # スキップ対象URL
@@ -69,5 +72,8 @@ TABLE_COLUMNS = {
     BQ_TABLE_MEMBERS: [
         "report_url", "member_id", "nickname",
         "gws_account", "full_name",
+        "qualification_allowance", "position_rate",
+        "corporate_sheet", "donation_sheet",
+        "qualification_sheet", "sheet_number",
     ],
 }

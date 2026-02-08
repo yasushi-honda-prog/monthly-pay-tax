@@ -36,12 +36,24 @@ CREATE TABLE IF NOT EXISTS `monthly-pay-tax.pay_reports.hojo_reports` (
   ingested_at TIMESTAMP NOT NULL         -- データ取得日時
 );
 
--- タダメンMマスタ（メンバー情報）
+-- タダメンMマスタ（メンバー情報、管理表 A:K 列）
 CREATE TABLE IF NOT EXISTS `monthly-pay-tax.pay_reports.members` (
   report_url STRING NOT NULL,            -- 報告シートURL（gyomu/hojoのsource_urlと結合キー）
   member_id STRING,                      -- タダメンID
   nickname STRING,                       -- ニックネーム
   gws_account STRING,                    -- GWSアカウント
   full_name STRING,                      -- 本名
+  qualification_allowance STRING,        -- 資格手当（現在空）
+  position_rate STRING,                  -- 役職手当率（現在空）
+  corporate_sheet STRING,                -- 法人シート（シート番号）
+  donation_sheet STRING,                 -- 寄付先シート（シート番号）
+  qualification_sheet STRING,            -- 資格手当加算先シート（シート番号）
+  sheet_number STRING,                   -- シート番号（法人/寄付判定に使用）
   ingested_at TIMESTAMP NOT NULL         -- データ取得日時
+);
+
+-- 源泉対象リスト（源泉徴収対象の業務分類 + 士業メンバー）
+CREATE TABLE IF NOT EXISTS `monthly-pay-tax.pay_reports.withholding_targets` (
+  work_category STRING NOT NULL,         -- 源泉対象の業務分類
+  licensed_member_id STRING              -- 士業さんのタダメンID（全額源泉対象）
 );

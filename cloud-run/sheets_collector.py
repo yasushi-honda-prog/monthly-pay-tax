@@ -172,15 +172,16 @@ def collect_all_data(service) -> dict[str, list[list]]:
 def collect_members(service) -> list[list]:
     """タダメンMマスタを取得
 
-    GASバインドSSの「タダメンM」シートからメンバー情報を取得。
-    A~E列: 報告シートURL, タダメンID, ニックネーム, GWSアカウント, 本名
+    管理表のタダメンMシートからメンバー情報を取得。
+    A~K列: 報告シートURL, タダメンID, ニックネーム, GWSアカウント, 本名,
+           資格手当, 役職手当率, 法人シート, 寄付先シート, 資格手当加算先シート, シート番号
     """
     sheet = service.spreadsheets()
-    range_notation = f"'{config.MEMBER_SHEET_NAME}'!A{config.MEMBER_START_ROW}:E"
+    range_notation = f"'{config.MEMBER_SHEET_NAME}'!A{config.MEMBER_START_ROW}:K"
 
     try:
         result = sheet.values().get(
-            spreadsheetId=config.GAS_SPREADSHEET_ID,
+            spreadsheetId=config.MEMBER_SPREADSHEET_ID,
             range=range_notation,
         ).execute()
     except Exception as e:
@@ -206,6 +207,8 @@ def collect_members(service) -> list[list]:
 def run_collection() -> dict[str, list[list]]:
     """データ収集のエントリポイント"""
     service = _build_sheets_service()
+    # membersを先に読む（1 APIコールのみ、レート制限回避）
+    members = collect_members(service)
     all_data = collect_all_data(service)
-    all_data[config.BQ_TABLE_MEMBERS] = collect_members(service)
+    all_data[config.BQ_TABLE_MEMBERS] = members
     return all_data
