@@ -1,46 +1,62 @@
 """アーキテクチャドキュメント（Mermaid図 + 説明）"""
 
 import streamlit as st
+import streamlit.components.v1 as components
 
 
-def render_mermaid(code: str, height: int = 400):
+def render_mermaid(code: str, height: int = 500):
     """Mermaid図をダークモード対応でレンダリング"""
     html = f"""
-    <div id="mermaid-container">
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+        <style>
+            body {{
+                background: transparent;
+                margin: 0;
+                padding: 0;
+                display: flex;
+                justify-content: center;
+                align-items: flex-start;
+            }}
+            .mermaid {{
+                width: 100%;
+            }}
+            .mermaid svg {{
+                width: 100% !important;
+                max-height: {height - 20}px;
+            }}
+        </style>
+    </head>
+    <body>
         <pre class="mermaid">{code}</pre>
-    </div>
-    <script type="module">
-        import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';
-        const isDark = window.matchMedia('(prefers-color-scheme: dark)').matches
-            || document.body.classList.contains('stAppDark')
-            || document.documentElement.getAttribute('data-theme') === 'dark';
-        mermaid.initialize({{
-            startOnLoad: true,
-            theme: isDark ? 'dark' : 'default',
-            themeVariables: isDark ? {{
-                primaryColor: '#1e3a5f',
-                primaryTextColor: '#e0e0e0',
-                lineColor: '#4a9eff',
-                secondaryColor: '#2d2d2d',
-                tertiaryColor: '#1a1a2e',
-            }} : {{
-                primaryColor: '#e8f4fd',
-                primaryTextColor: '#1a1a1a',
-                lineColor: '#0EA5E9',
-            }},
-            flowchart: {{ curve: 'basis', padding: 20 }},
-            fontSize: 14,
-        }});
-    </script>
-    <style>
-        #mermaid-container {{
-            display: flex;
-            justify-content: center;
-            padding: 1rem 0;
-        }}
-    </style>
+        <script>
+            const isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+            mermaid.initialize({{
+                startOnLoad: true,
+                theme: isDark ? 'dark' : 'default',
+                themeVariables: isDark ? {{
+                    primaryColor: '#1e3a5f',
+                    primaryTextColor: '#e0e0e0',
+                    lineColor: '#4a9eff',
+                    secondaryColor: '#2d2d2d',
+                    tertiaryColor: '#1a1a2e',
+                    fontSize: '18px',
+                }} : {{
+                    primaryColor: '#e8f4fd',
+                    primaryTextColor: '#1a1a1a',
+                    lineColor: '#0EA5E9',
+                    fontSize: '18px',
+                }},
+                flowchart: {{ curve: 'basis', padding: 20, nodeSpacing: 50, rankSpacing: 60 }},
+                fontSize: 18,
+            }});
+        </script>
+    </body>
+    </html>
     """
-    st.html(html)
+    components.html(html, height=height)
 
 
 st.header("アーキテクチャ")
@@ -62,7 +78,7 @@ graph LR
     BQ -->|VIEWs| DB[Cloud Run<br/>pay-dashboard]
     BR[ブラウザ] -->|HTTPS *.run.app| DB
     DB -->|Streamlit OIDC<br/>Google OAuth| GOOG[Google IdP<br/>tadakayo.jp]
-""")
+""", height=350)
 
 st.markdown("""
 | コンポーネント | 仕様 |
@@ -96,7 +112,7 @@ graph TD
     BQ --> VH[v_hojo_enriched]
     VG --> VMC[v_monthly_compensation]
     VH --> VMC
-""")
+""", height=600)
 
 
 # === 3. BQスキーマ ER図 ===
@@ -143,7 +159,7 @@ erDiagram
         STRING role
         STRING display_name
     }
-""", height=500)
+""", height=650)
 
 
 # === 4. VIEW計算チェーン ===
@@ -162,7 +178,7 @@ graph TD
     CTE5[base_calc<br/>小計 → 役職手当 → 資格手当] --> CTE6
     CTE6[with_tax<br/>源泉対象額 → 源泉徴収] --> FINAL
     FINAL[最終SELECT<br/>支払い = 報酬 + 源泉 + DX + 立替]
-""")
+""", height=550)
 
 st.markdown("""
 | CTE | 内容 | 主要カラム |
@@ -192,4 +208,4 @@ graph TD
     BQ -->|BQ障害時| FB{フォールバック}
     FB -->|初期管理者| ADMIN
     FB -->|その他| DENY
-""")
+""", height=600)
