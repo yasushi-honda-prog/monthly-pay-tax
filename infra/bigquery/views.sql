@@ -132,17 +132,17 @@ gyomu_agg AS (
     SUM(SAFE_CAST(g.work_hours AS FLOAT64)) AS work_hours,
     -- L: (時間)報酬 = 所要時間ありの金額合計
     SUM(CASE WHEN g.work_hours IS NOT NULL AND g.work_hours != ''
-         THEN SAFE_CAST(g.amount AS FLOAT64) END) AS hour_compensation,
+         THEN SAFE_CAST(REGEXP_REPLACE(g.amount, r'[^0-9.\-]', '') AS FLOAT64) END) AS hour_compensation,
     -- M: 距離
     SUM(SAFE_CAST(g.travel_distance_km AS FLOAT64)) AS travel_distance_km,
     -- N: (距離)報酬 = 移動距離ありの金額合計
     SUM(CASE WHEN g.travel_distance_km IS NOT NULL AND g.travel_distance_km != ''
-         THEN SAFE_CAST(g.amount AS FLOAT64) END) AS distance_compensation,
+         THEN SAFE_CAST(REGEXP_REPLACE(g.amount, r'[^0-9.\-]', '') AS FLOAT64) END) AS distance_compensation,
     -- AB: 1立て件数
     SUM(g.daily_wage_flag) AS daily_wage_count,
     -- AC: 全日稼働の報酬（1立て報酬）
     SUM(CASE WHEN REGEXP_CONTAINS(g.work_category, r'全日稼働')
-         THEN SAFE_CAST(g.amount AS FLOAT64) END) AS full_day_compensation,
+         THEN SAFE_CAST(REGEXP_REPLACE(g.amount, r'[^0-9.\-]', '') AS FLOAT64) END) AS full_day_compensation,
     -- AD: 総稼働時間（1立て込み）
     SUM(g.total_work_hours) AS total_work_hours,
     -- 源泉対象業務分類のみの金額合計（士業以外用）
@@ -150,7 +150,7 @@ gyomu_agg AS (
            SELECT DISTINCT work_category
            FROM `monthly-pay-tax.pay_reports.withholding_targets`
            WHERE licensed_member_id IS NULL
-         ) THEN SAFE_CAST(g.amount AS FLOAT64) END) AS withholding_eligible_amount
+         ) THEN SAFE_CAST(REGEXP_REPLACE(g.amount, r'[^0-9.\-]', '') AS FLOAT64) END) AS withholding_eligible_amount
   FROM `monthly-pay-tax.pay_reports.v_gyomu_enriched` g
   WHERE g.year IS NOT NULL AND g.month IS NOT NULL
   GROUP BY g.source_url, SAFE_CAST(g.year AS INT64), g.month
@@ -163,9 +163,9 @@ hojo_agg AS (
     h.year,
     h.month,
     -- V: DX補助
-    SUM(SAFE_CAST(NULLIF(h.dx_subsidy, '') AS FLOAT64)) AS dx_subsidy,
+    SUM(SAFE_CAST(REGEXP_REPLACE(NULLIF(h.dx_subsidy, ''), r'[^0-9.\-]', '') AS FLOAT64)) AS dx_subsidy,
     -- W: 立替
-    SUM(SAFE_CAST(NULLIF(h.reimbursement, '') AS FLOAT64)) AS reimbursement
+    SUM(SAFE_CAST(REGEXP_REPLACE(NULLIF(h.reimbursement, ''), r'[^0-9.\-]', '') AS FLOAT64)) AS reimbursement
   FROM `monthly-pay-tax.pay_reports.v_hojo_enriched` h
   WHERE h.year IS NOT NULL AND h.month IS NOT NULL
   GROUP BY h.source_url, h.year, h.month
@@ -178,8 +178,8 @@ member_attrs AS (
     m.member_id,
     m.nickname,
     m.full_name,
-    SAFE_CAST(NULLIF(m.position_rate, '') AS FLOAT64) AS position_rate,
-    SAFE_CAST(NULLIF(m.qualification_allowance, '') AS FLOAT64) AS qualification_allowance,
+    SAFE_CAST(NULLIF(CAST(m.position_rate AS STRING), '') AS FLOAT64) AS position_rate,
+    SAFE_CAST(NULLIF(CAST(m.qualification_allowance AS STRING), '') AS FLOAT64) AS qualification_allowance,
     m.sheet_number,
     m.corporate_sheet,
     m.donation_sheet,
@@ -208,8 +208,8 @@ member_attrs AS (
     CASE
       WHEN COALESCE(TRIM(m.sheet_number), '') != ''
         AND TRIM(m.sheet_number) = TRIM(m.qualification_sheet)
-        AND SAFE_CAST(NULLIF(m.qualification_allowance, '') AS FLOAT64) > 0
-      THEN SAFE_CAST(m.qualification_allowance AS FLOAT64)
+        AND SAFE_CAST(NULLIF(CAST(m.qualification_allowance AS STRING), '') AS FLOAT64) > 0
+      THEN SAFE_CAST(CAST(m.qualification_allowance AS STRING) AS FLOAT64)
       ELSE 0
     END AS effective_qualification_allowance
   FROM `monthly-pay-tax.pay_reports.members` m

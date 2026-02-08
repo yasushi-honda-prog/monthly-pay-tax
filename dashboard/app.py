@@ -211,6 +211,43 @@ def load_hojo_with_members():
 
 
 @st.cache_data(ttl=3600)
+def load_monthly_compensation():
+    """月別報酬＆源泉徴収（v_monthly_compensation VIEW）"""
+    query = f"""
+    SELECT
+        year,
+        month,
+        member_id,
+        nickname,
+        full_name,
+        is_corporate,
+        is_donation,
+        is_licensed,
+        work_hours,
+        hour_compensation,
+        travel_distance_km,
+        distance_compensation,
+        subtotal_compensation,
+        position_rate,
+        position_adjusted_compensation,
+        qualification_allowance,
+        qualification_adjusted_compensation,
+        withholding_target_amount,
+        withholding_tax,
+        dx_subsidy,
+        reimbursement,
+        payment,
+        donation_payment,
+        daily_wage_count,
+        full_day_compensation,
+        total_work_hours
+    FROM `{PROJECT_ID}.{DATASET}.v_monthly_compensation`
+    ORDER BY year, month
+    """
+    return load_data(query)
+
+
+@st.cache_data(ttl=3600)
 def load_gyomu_with_members():
     """業務報告（VIEW経由: メンバー結合 + 月抽出 + 距離分離済み）"""
     query = f"""
@@ -338,44 +375,58 @@ tab1, tab2, tab3 = st.tabs([
 # ===== Tab 1: 月別報酬サマリー =====
 with tab1:
     try:
-        df_hojo = load_hojo_with_members()
+        df_comp = load_monthly_compensation()
     except Exception as e:
         st.error(f"データ取得エラー: {e}")
         st.stop()
 
-    if df_hojo.empty:
+    if df_comp.empty:
         st.info("データがありません")
     else:
-        df_hojo = fill_empty_nickname(df_hojo)
-        for col in ["hours", "compensation", "dx_subsidy", "reimbursement", "total_amount"]:
-            df_hojo[col] = clean_numeric(df_hojo[col])
+        df_comp = fill_empty_nickname(df_comp)
+        # VIEWで数値計算済み（FLOAT64/INT64）、year/monthはINT64
+        df_comp = df_comp[df_comp["year"].notna()]
+        df_comp["year"] = df_comp["year"].astype(int)
+        df_comp["month"] = df_comp["month"].astype("Int64")
 
-        # VIEWで年月はINT64に正規化済み
-        df_hojo = df_hojo[df_hojo["year"].notna()]
-        df_hojo["year"] = df_hojo["year"].astype(int)
-        df_hojo["month"] = df_hojo["month"].astype("Int64")
+        # 数値カラムの型統一
+        num_cols = [
+            "work_hours", "hour_compensation", "travel_distance_km",
+            "distance_compensation", "subtotal_compensation",
+            "position_adjusted_compensation", "qualification_allowance",
+            "qualification_adjusted_compensation", "withholding_target_amount",
+            "dx_subsidy", "reimbursement", "payment",
+            "donation_payment", "daily_wage_count", "full_day_compensation",
+            "total_work_hours",
+        ]
+        for col in num_cols:
+            df_comp[col] = df_comp[col].fillna(0).astype(float)
+        df_comp["withholding_tax"] = df_comp["withholding_tax"].fillna(0).astype(float)
+        df_comp["position_rate"] = df_comp["position_rate"].fillna(0).astype(float)
 
-        filtered = df_hojo[df_hojo["year"] == selected_year]
+        filtered = df_comp[df_comp["year"] == selected_year]
         if selected_month != "全月":
             filtered = filtered[filtered["month"] == int(selected_month.replace("月", ""))]
         if selected_members:
             filtered = filtered[filtered["nickname"].isin(selected_members)]
 
         # KPIカード
-        k1, k2, k3, k4 = st.columns(4)
+        k1, k2, k3, k4, k5 = st.columns(5)
         with k1:
-            render_kpi("総報酬", f"¥{filtered['compensation'].sum():,.0f}")
+            render_kpi("総支払額", f"¥{filtered['payment'].sum():,.0f}")
         with k2:
-            render_kpi("総時間", f"{filtered['hours'].sum():,.1f}h")
+            render_kpi("業務報酬", f"¥{filtered['qualification_adjusted_compensation'].sum():,.0f}")
         with k3:
-            render_kpi("DX補助", f"¥{filtered['dx_subsidy'].sum():,.0f}")
+            render_kpi("源泉徴収", f"¥{filtered['withholding_tax'].sum():,.0f}")
         with k4:
-            render_kpi("総額合計", f"¥{filtered['total_amount'].sum():,.0f}")
+            render_kpi("DX補助", f"¥{filtered['dx_subsidy'].sum():,.0f}")
+        with k5:
+            render_kpi("立替", f"¥{filtered['reimbursement'].sum():,.0f}")
 
-        # メンバー×月ピボット
-        st.subheader("メンバー別 月次総額")
+        # メンバー×月ピボット（支払額）
+        st.subheader("メンバー別 月次支払額")
         pivot = filtered.pivot_table(
-            values="total_amount",
+            values="payment",
             index="nickname",
             columns="month",
             aggfunc="sum",
@@ -391,10 +442,43 @@ with tab1:
             use_container_width=True,
         )
 
+        # メンバー別詳細テーブル
+        st.subheader("メンバー別 報酬明細")
+        detail = filtered.groupby("nickname").agg(
+            時間=("work_hours", "sum"),
+            時間報酬=("hour_compensation", "sum"),
+            距離報酬=("distance_compensation", "sum"),
+            小計=("subtotal_compensation", "sum"),
+            役職手当後=("position_adjusted_compensation", "sum"),
+            資格手当加算後=("qualification_adjusted_compensation", "sum"),
+            源泉対象額=("withholding_target_amount", "sum"),
+            源泉徴収=("withholding_tax", "sum"),
+            DX補助=("dx_subsidy", "sum"),
+            立替=("reimbursement", "sum"),
+            支払い=("payment", "sum"),
+        ).sort_values("支払い", ascending=False)
+        st.dataframe(
+            detail.style.format({
+                "時間": "{:,.1f}",
+                "時間報酬": "¥{:,.0f}",
+                "距離報酬": "¥{:,.0f}",
+                "小計": "¥{:,.0f}",
+                "役職手当後": "¥{:,.0f}",
+                "資格手当加算後": "¥{:,.0f}",
+                "源泉対象額": "¥{:,.0f}",
+                "源泉徴収": "¥{:,.0f}",
+                "DX補助": "¥{:,.0f}",
+                "立替": "¥{:,.0f}",
+                "支払い": "¥{:,.0f}",
+            }),
+            use_container_width=True,
+        )
+
         # 月次推移チャート
-        st.subheader("月次報酬推移")
+        st.subheader("月次推移")
         monthly = filtered.groupby("month").agg(
-            報酬=("compensation", "sum"),
+            業務報酬=("qualification_adjusted_compensation", "sum"),
+            源泉徴収=("withholding_tax", "sum"),
             DX補助=("dx_subsidy", "sum"),
             立替=("reimbursement", "sum"),
         ).reset_index()
@@ -403,7 +487,7 @@ with tab1:
         )
         monthly = monthly.sort_values("month")
         monthly = monthly.set_index("month")
-        st.bar_chart(monthly[["報酬", "DX補助", "立替"]])
+        st.bar_chart(monthly[["業務報酬", "源泉徴収", "DX補助", "立替"]])
 
 
 # ===== Tab 2: スポンサー別業務委託費 =====

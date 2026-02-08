@@ -61,8 +61,13 @@ def load_to_bigquery(table_name: str, rows: list[list]) -> int:
 
     df = _rows_to_dataframe(rows, columns)
 
+    # BQスキーマを明示（pandas型推論でSTRING→INTEGERに変わるのを防止）
+    schema = [bigquery.SchemaField(col, "STRING") for col in columns]
+    schema.append(bigquery.SchemaField("ingested_at", "TIMESTAMP"))
+
     job_config = bigquery.LoadJobConfig(
         write_disposition=bigquery.WriteDisposition.WRITE_TRUNCATE,
+        schema=schema,
     )
 
     job = client.load_table_from_dataframe(df, table_id, job_config=job_config)
