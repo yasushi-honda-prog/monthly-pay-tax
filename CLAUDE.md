@@ -29,6 +29,7 @@ SA鍵ファイルは使わない（ローカル開発時のみ `SA_KEY_PATH` 環
   - `tests/` - テストディレクトリ（未実装）
 - `コード.js` - 旧GASコード（参照用、稼働していない）
 - `infra/bigquery/schema.sql` - BQテーブルスキーマ定義
+  - `infra/bigquery/views.sql` - BQ VIEW定義（v_gyomu_enriched, v_hojo_enriched）
 - `infra/ar-cleanup-policy.json` - Artifact Registryクリーンアップポリシー
 - `docs/adr/` - Architecture Decision Records
 - `docs/handoff/LATEST.md` - ハンドオフドキュメント
@@ -55,7 +56,8 @@ gcloud run deploy pay-collector \
 | SA | `pay-collector@monthly-pay-tax.iam.gserviceaccount.com` |
 | Cloud Run URL | `https://pay-collector-209715990891.asia-northeast1.run.app` |
 | BQデータセット | `pay_reports` |
-| BQテーブル | `gyomu_reports`（業務報告）, `hojo_reports`（補助報告） |
+| BQテーブル | `gyomu_reports`, `hojo_reports`, `members` |
+| BQ VIEWs | `v_gyomu_enriched`, `v_hojo_enriched` |
 | AR | `cloud-run-images`（最新2イメージ保持） |
 
 ## BQスキーマ
@@ -64,18 +66,28 @@ gcloud run deploy pay-collector \
 
 - `gyomu_reports`: source_url, year, date, day_of_week, activity_category, work_category, sponsor, description, unit_price, hours, amount
 - `hojo_reports`: source_url, year, month, hours, compensation, dx_subsidy, reimbursement, total_amount, monthly_complete, dx_receipt, expense_receipt
-- `members`: report_url, member_id, nickname, gws_account, full_name, qualification_allowance, position_rate
+- `members`: report_url, member_id, nickname, gws_account, full_name
 
 `source_url`（gyomu/hojo）= `report_url`（members）で結合してメンバー名を取得。
+
+### BQ VIEWs（データ加工レイヤー）
+
+GASバインドSSのスプレッドシート関数パイプラインをSQLで再現。ダッシュボードはVIEW経由でデータを取得。
+
+- `v_gyomu_enriched`: メンバーJOIN + 月抽出 + 距離分離（自家用車使用→travel_distance_km） + 1立てフラグ（日給制） + 総稼働時間（全日/半日稼働加算）
+- `v_hojo_enriched`: メンバーJOIN + 年月正規化（数値年/日付文字列/Excelシリアル値の3形式対応）
+
+定義: `infra/bigquery/views.sql`
 
 ## ダッシュボード
 
 `dashboard/` - Streamlitアプリ（別Cloud Runサービス `pay-dashboard`）
 
-- URL: `https://pay-dashboard-209715990891.asia-northeast1.run.app`
+- アクセスURL: `https://34.107.163.68.sslip.io/`（Cloud IAP経由、tadakayo.jpドメインのみ）
+- Cloud Run直接URL: `https://pay-dashboard-209715990891.asia-northeast1.run.app`（ingress制限で直接アクセス不可）
 - 512MiBメモリ、SA: `pay-collector@...`（BQ読み取り用）
 - 3タブ構成: 月別報酬サマリー / スポンサー別業務委託費 / 業務報告一覧
-- BQの `members` テーブルと結合してメンバー名を表示
+- BQ VIEWs経由でメンバー結合・データ加工済みのデータを取得
 
 ## 環境分離
 
