@@ -460,6 +460,7 @@ with tab1:
             DX補助=("dx_subsidy", "sum"),
             立替=("reimbursement", "sum"),
             支払い=("payment", "sum"),
+            寄付支払い=("donation_payment", "sum"),
         ).sort_values("支払い", ascending=False)
         st.dataframe(
             detail.style.format({
@@ -474,6 +475,7 @@ with tab1:
                 "DX補助": "¥{:,.0f}",
                 "立替": "¥{:,.0f}",
                 "支払い": "¥{:,.0f}",
+                "寄付支払い": "¥{:,.0f}",
             }),
             use_container_width=True,
         )
