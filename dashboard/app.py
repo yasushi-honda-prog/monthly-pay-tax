@@ -1,11 +1,11 @@
 """タダカヨ 月次報酬ダッシュボード - エントリポイント
 
-Cloud IAP認証 + BQホワイトリスト照合 → st.navigationでページルーティング。
+Streamlit OIDC認証 + BQホワイトリスト照合 → st.navigationでページルーティング。
 """
 
 import streamlit as st
 
-from lib.auth import get_iap_user_email, get_user_role
+from lib.auth import get_user_email, get_user_role
 from lib.styles import apply_custom_css
 
 st.set_page_config(
@@ -17,13 +17,19 @@ st.set_page_config(
 apply_custom_css()
 
 # --- 認証 ---
-email = get_iap_user_email()
+if not st.user.is_logged_in:
+    st.markdown("### タダカヨ 月次報酬ダッシュボード")
+    st.button("Googleでログイン", on_click=st.login)
+    st.stop()
+
+email = get_user_email()
 role = get_user_role(email)
 
 if role is None:
     st.error("アクセス権限がありません。管理者にお問い合わせください。")
     if email:
         st.caption(f"ログイン中: {email}")
+    st.button("ログアウト", on_click=st.logout)
     st.stop()
 
 # --- ページ定義 ---
@@ -46,5 +52,10 @@ else:
 # ユーザー情報をsession_stateに保存（各ページで参照）
 st.session_state["user_email"] = email
 st.session_state["user_role"] = role
+
+# サイドバーにユーザー情報 + ログアウトボタン
+with st.sidebar:
+    st.caption(f"{email}")
+    st.button("ログアウト", on_click=st.logout)
 
 nav.run()

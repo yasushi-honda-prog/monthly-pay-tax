@@ -1,4 +1,4 @@
-"""IAP認証 + BQホワイトリスト照合"""
+"""Streamlit OIDC認証 + BQホワイトリスト照合"""
 
 import logging
 
@@ -11,10 +11,11 @@ from lib.constants import INITIAL_ADMIN_EMAIL, USERS_TABLE
 logger = logging.getLogger(__name__)
 
 
-def get_iap_user_email() -> str:
-    """Cloud IAPヘッダーからユーザーメールを取得"""
-    headers = st.context.headers
-    return headers.get("X-Goog-Authenticated-User-Email", "").replace("accounts.google.com:", "")
+def get_user_email() -> str:
+    """Streamlit OIDC (st.user) からユーザーメールを取得"""
+    if st.user.is_logged_in:
+        return st.user.email or ""
+    return ""
 
 
 def _fetch_user_role(email: str) -> str | None:
@@ -62,7 +63,12 @@ def clear_role_cache():
 
 def require_auth() -> tuple[str, str]:
     """認証を要求。(email, role)を返す。未認証ならst.stopで停止。"""
-    email = get_iap_user_email()
+    if not st.user.is_logged_in:
+        st.markdown("### タダカヨ 月次報酬ダッシュボード")
+        st.button("Googleでログイン", on_click=st.login)
+        st.stop()
+
+    email = get_user_email()
     role = get_user_role(email)
 
     if role is None:
