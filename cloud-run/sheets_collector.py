@@ -176,11 +176,11 @@ def collect_members(service) -> list[list]:
     A~E列: 報告シートURL, タダメンID, ニックネーム, GWSアカウント, 本名
     """
     sheet = service.spreadsheets()
-    range_notation = f"'{config.MEMBER_SHEET_NAME}'!A{config.MEMBER_START_ROW}:E"
+    range_notation = f"'{config.MEMBER_SHEET_NAME}'!A{config.MEMBER_START_ROW}:K"
 
     try:
         result = sheet.values().get(
-            spreadsheetId=config.GAS_SPREADSHEET_ID,
+            spreadsheetId=config.MEMBER_SPREADSHEET_ID,
             range=range_notation,
         ).execute()
     except Exception as e:
