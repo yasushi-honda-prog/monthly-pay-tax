@@ -51,14 +51,12 @@ SELECT
     WHEN REGEXP_CONTAINS(g.work_category, r'日給制') THEN 1
     ELSE NULL
   END AS daily_wage_flag,
-  -- 総稼働時間: 所要時間 + 全日稼働(+6h) / 半日稼働(+3h)
-  SAFE_CAST(
-    CASE WHEN g.work_category = '自家用車使用' THEN NULL ELSE g.hours END
-    AS FLOAT64
-  ) + CASE
+  -- 総稼働時間: 全日稼働→6h / 半日稼働→3h に置換、それ以外は所要時間
+  CASE
+    WHEN g.work_category = '自家用車使用' THEN NULL
     WHEN REGEXP_CONTAINS(g.work_category, r'全日稼働') THEN 6.0
     WHEN REGEXP_CONTAINS(g.work_category, r'半日稼働') THEN 3.0
-    ELSE 0.0
+    ELSE SAFE_CAST(g.hours AS FLOAT64)
   END AS total_work_hours,
   g.ingested_at
 FROM `monthly-pay-tax.pay_reports.gyomu_reports` g
