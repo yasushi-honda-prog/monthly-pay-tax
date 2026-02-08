@@ -451,6 +451,7 @@ with tab1:
         detail = filtered.groupby("nickname").agg(
             時間=("work_hours", "sum"),
             時間報酬=("hour_compensation", "sum"),
+            距離=("travel_distance_km", "sum"),
             距離報酬=("distance_compensation", "sum"),
             小計=("subtotal_compensation", "sum"),
             役職手当後=("position_adjusted_compensation", "sum"),
@@ -461,11 +462,15 @@ with tab1:
             立替=("reimbursement", "sum"),
             支払い=("payment", "sum"),
             寄付支払い=("donation_payment", "sum"),
+            一立て件数=("daily_wage_count", "sum"),
+            一立て報酬=("full_day_compensation", "sum"),
+            総稼働時間=("total_work_hours", "sum"),
         ).sort_values("支払い", ascending=False)
         st.dataframe(
             detail.style.format({
                 "時間": "{:,.1f}",
                 "時間報酬": "¥{:,.0f}",
+                "距離": "{:,.1f}",
                 "距離報酬": "¥{:,.0f}",
                 "小計": "¥{:,.0f}",
                 "役職手当後": "¥{:,.0f}",
@@ -476,6 +481,9 @@ with tab1:
                 "立替": "¥{:,.0f}",
                 "支払い": "¥{:,.0f}",
                 "寄付支払い": "¥{:,.0f}",
+                "一立て件数": "{:,.0f}",
+                "一立て報酬": "¥{:,.0f}",
+                "総稼働時間": "{:,.1f}",
             }),
             use_container_width=True,
         )
