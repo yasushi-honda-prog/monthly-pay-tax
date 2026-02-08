@@ -9,12 +9,18 @@ GCP_PROJECT_ID = os.environ.get("GCP_PROJECT_ID", "monthly-pay-tax")
 BQ_DATASET = os.environ.get("BQ_DATASET", "pay_reports")
 BQ_TABLE_GYOMU = "gyomu_reports"
 BQ_TABLE_HOJO = "hojo_reports"
+BQ_TABLE_MEMBERS = "members"
 
 # 管理表スプレッドシート
 MASTER_SPREADSHEET_ID = "1fBNfkFBARSpT-OpLOytbAfoa0Xo5LTWv7irimssxcUU"
 MASTER_SHEET_NAME = "報告シート（「説明用」以外はタダメンMから関数生成）M"
 URL_COLUMN_INDEX = 0  # A列
 URL_START_ROW = 2
+
+# GASバインドスプレッドシート（タダメンMマスタの所在）
+GAS_SPREADSHEET_ID = "16V9fs2kf2IzxdVz1GOJHY9mR1MmGjbmwm5L0ECiMLrc"
+MEMBER_SHEET_NAME = "タダメンM"
+MEMBER_START_ROW = 2  # 1行目はヘッダー
 
 # スキップ対象URL
 SKIP_URLS = [
@@ -45,3 +51,24 @@ SHEET_CONFIGS = [
         "num_columns": 10,
     },
 ]
+
+# テーブル別カラム名定義
+TABLE_COLUMNS = {
+    BQ_TABLE_GYOMU: [
+        "source_url",
+        "year", "date", "day_of_week",
+        "activity_category", "work_category", "sponsor",
+        "description", "unit_price", "hours", "amount",
+    ],
+    BQ_TABLE_HOJO: [
+        "source_url",
+        "year", "month", "hours",
+        "compensation", "dx_subsidy", "reimbursement",
+        "total_amount", "monthly_complete", "dx_receipt", "expense_receipt",
+    ],
+    BQ_TABLE_MEMBERS: [
+        "report_url", "member_id", "nickname",
+        "gws_account", "full_name",
+        "qualification_allowance", "position_rate",
+    ],
+}

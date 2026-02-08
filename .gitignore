@@ -3,6 +3,7 @@
 .envrc
 .gitconfig.local
 .sa-key.json
+dashboard/.streamlit/secrets.toml
 __pycache__/
 *.pyc
 .venv/
