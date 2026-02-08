@@ -1,14 +1,24 @@
 # ハンドオフメモ - monthly-pay-tax
 
 **更新日**: 2026-02-09
-**フェーズ**: 6 - 認証方式移行（IAP → Streamlit OIDC）
+**フェーズ**: 6完了 + Mermaid図修正
 
 ## 現在の状態
 
 Cloud Run + BigQuery + Streamlitダッシュボード本番稼働中。
 ダッシュボードをマルチページ化し、BQベースのユーザー認可、アーキテクチャドキュメント、管理設定を追加。
 
-### 今回の変更（Phase 6: IAP → Streamlit OIDC移行）
+### 今回の変更（PR #10: Mermaid図レンダリング修正）
+
+1. **`streamlit-mermaid` → `components.html()` + Mermaid.js v11 CDN**: サードパーティライブラリを廃止し、CDN直接読み込みに変更
+2. **ダークモード対応**: `prefers-color-scheme` メディアクエリでライト/ダーク自動切替
+3. **erDiagram PKアノテーション削除**: パースエラーの原因だった `PK` を除去
+4. **図のサイズ改善**: SVG幅100%、フォント18px、ノード間隔拡大、各図の高さを個別設定
+5. **`streamlit-mermaid==0.2.0` を requirements.txt から削除**
+
+**技術的教訓**: `st.html()` はsandboxed iframeでESMモジュールインポートがブロックされる → `streamlit.components.v1.html()` + 通常の `<script>` タグで解決
+
+### 前回の変更（Phase 6: IAP → Streamlit OIDC移行）
 
 1. **認証方式変更**: Cloud IAP → Streamlit OIDC（Google OAuth, `st.login`/`st.user`）
 2. **アクセスURL変更**: `sslip.io`（自己署名証明書） → `*.run.app`（Google管理SSL証明書）
@@ -18,7 +28,7 @@ Cloud Run + BigQuery + Streamlitダッシュボード本番稼働中。
 6. **Secret Manager**: `dashboard-auth-config` → `/app/.streamlit/secrets.toml`にマウント
 7. **Cloud Run設定**: `ingress=all` + `allUsers:run.invoker`（アプリ層で認証）
 
-### 前回までの変更（Phase 5: Dashboard Multipage）
+### Phase 5: Dashboard Multipage
 
 1. **マルチページ化**: app.py（649行） → app.py（ルーター ~50行） + pages/ + lib/
 2. **BQユーザー認可**: `dashboard_users` テーブル + IAP email照合 + admin/viewer ロール
@@ -33,7 +43,7 @@ Cloud Run + BigQuery + Streamlitダッシュボード本番稼働中。
 ```
 dashboard/
   app.py                    # エントリポイント: 認証 + st.navigation ルーター
-  requirements.txt          # streamlit-mermaid 追加
+  requirements.txt          # Mermaid.js CDN利用（streamlit-mermaid廃止）
   pages/
     dashboard.py            # 既存3タブ（app.pyから抽出）
     architecture.py         # Mermaidアーキテクチャ図
@@ -86,7 +96,7 @@ gcloud run deploy pay-dashboard \
 ### デプロイ済み状態
 
 - **Collector**: rev 00013（members A:K対応 + 先行読み取り）
-- **Dashboard**: rev 00029（Streamlit OIDC認証、Secret Managerマウント）
+- **Dashboard**: rev 00034（Mermaid.js CDN + ダークモード + 図サイズ改善）
 - **BQ VIEWs**: v_gyomu_enriched, v_hojo_enriched, v_monthly_compensation デプロイ済み
 - **BQ Table**: withholding_targets, dashboard_users シードデータ投入済み
 
