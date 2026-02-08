@@ -1,45 +1,103 @@
 # ハンドオフメモ - monthly-pay-tax
 
 **更新日**: 2026-02-08
-**フェーズ**: 4 完了 - 月別報酬＆源泉徴収VIEW + ダッシュボードTab1全面改修
+**フェーズ**: 5 - ダッシュボードマルチページ化 + 認可 + ドキュメント
 
 ## 現在の状態
 
 Cloud Run + BigQuery + Streamlitダッシュボード本番稼働中。
-PR #4 マージ済み。v_monthly_compensation VIEW + withholding_targets テーブル + ダッシュボードTab1改修。
+ダッシュボードをマルチページ化し、BQベースのユーザー認可、アーキテクチャドキュメント、管理設定を追加。
 
-### 今回の変更（Phase 4）
+### 今回の変更（Phase 5: Dashboard Multipage）
 
-1. **v_monthly_compensation VIEW**: 月別報酬＆源泉徴収の完全計算パイプライン（6 CTE構成）
-   - gyomu_agg → hojo_agg → member_attrs → all_keys → base_calc → with_tax → 最終SELECT
-   - 源泉徴収: -FLOOR(T * 0.1021)、法人/寄付は免除、士業は全額対象
-2. **withholding_targets テーブル**: 源泉対象15業務分類 + 士業2名のシードデータ
-3. **members拡張**: A:K列（qualification_allowance, position_rate, corporate_sheet, donation_sheet, qualification_sheet, sheet_number）
-4. **ダッシュボードTab1**: KPI cards(5項目) + メンバー×月ピボット + 報酬明細テーブル + 月次推移チャート
-5. **コレクター修正**: members先行読み取り（レート制限対策）+ 明示的BQスキーマ
-6. **safe-refactor**: SQL DRY化（with_tax CTE）、logging追加、num_cols統合
+1. **マルチページ化**: app.py（649行） → app.py（ルーター ~50行） + pages/ + lib/
+2. **BQユーザー認可**: `dashboard_users` テーブル + IAP email照合 + admin/viewer ロール
+3. **ユーザー管理ページ**: admin専用。追加/削除/ロール変更（BQ DML、重複チェック付き）
+4. **アーキテクチャページ**: 5つのMermaid図（全体構成/データフロー/ER図/VIEW計算チェーン/認証フロー）
+5. **ヘルプページ**: ページガイド/フィルター使い方/用語集/FAQ
+6. **管理設定ページ**: admin専用。キャッシュクリア/BQテーブル情報/ユーザー統計
+7. **共有ライブラリ**: lib/auth.py, lib/bq_client.py, lib/styles.py, lib/constants.py
+
+### ファイル構成
+
+```
+dashboard/
+  app.py                    # エントリポイント: 認証 + st.navigation ルーター
+  requirements.txt          # streamlit-mermaid 追加
+  pages/
+    dashboard.py            # 既存3タブ（app.pyから抽出）
+    architecture.py         # Mermaidアーキテクチャ図
+    user_management.py      # 管理者: ホワイトリスト管理
+    admin_settings.py       # 管理者: 設定・システム情報
+    help.py                 # ヘルプ/マニュアル
+  lib/
+    __init__.py
+    auth.py                 # IAP認証 + BQホワイトリスト照合
+    bq_client.py            # 共有BQクライアント + load_data()
+    styles.py               # 共有CSS
+    constants.py            # 定数
+```
+
+### デプロイ前の手順
+
+1. **BQテーブル作成**: `dashboard_users` テーブルを作成
+2. **シードデータ投入**: 初期管理者をINSERT
+3. **Cloud Runデプロイ**: `dashboard/` ディレクトリからビルド + デプロイ
+4. **IAP経由で動作確認**
+
+```bash
+# 1. BQテーブル作成
+bq query --use_legacy_sql=false "$(cat <<'EOF'
+CREATE TABLE IF NOT EXISTS `monthly-pay-tax.pay_reports.dashboard_users` (
+  email STRING NOT NULL,
+  role STRING NOT NULL,
+  display_name STRING,
+  added_by STRING NOT NULL,
+  created_at TIMESTAMP NOT NULL,
+  updated_at TIMESTAMP NOT NULL
+)
+EOF
+)"
+
+# 2. シードデータ
+bq query --use_legacy_sql=false "$(cat <<'EOF'
+INSERT INTO `monthly-pay-tax.pay_reports.dashboard_users`
+  (email, role, display_name, added_by, created_at, updated_at)
+VALUES
+  ('yasushi-honda@tadakayo.jp', 'admin', 'Y.Honda', 'system', CURRENT_TIMESTAMP(), CURRENT_TIMESTAMP())
+EOF
+)"
+
+# 3. デプロイ
+cd dashboard
+gcloud builds submit --tag asia-northeast1-docker.pkg.dev/monthly-pay-tax/cloud-run-images/pay-dashboard
+gcloud run deploy pay-dashboard \
+  --image asia-northeast1-docker.pkg.dev/monthly-pay-tax/cloud-run-images/pay-dashboard \
+  --platform managed --region asia-northeast1 --memory 512Mi \
+  --no-allow-unauthenticated
+```
 
 ### スプレッドシートの役割整理
 
 | SS | 用途 | BQ取り込み |
 |----|------|-----------|
-| 管理表（`1fBN...`） | URLリスト + タダメンMマスタ（A:K完全） | ✅ 対象 |
-| 190個の個別報告SS | gyomu/hojoデータ | ✅ 対象 |
-| GASバインドSS（`16V9...`） | 旧タダメンM参照（A:E） | ❌ 使用しない |
-| 統計分析SS（`1Kyv...`） | **参照・確認用** | ❌ 対象外 |
+| 管理表（`1fBN...`） | URLリスト + タダメンMマスタ（A:K完全） | 対象 |
+| 190個の個別報告SS | gyomu/hojoデータ | 対象 |
+| GASバインドSS（`16V9...`） | 旧タダメンM参照（A:E） | 使用しない |
+| 統計分析SS（`1Kyv...`） | **参照・確認用** | 対象外 |
 
 ### 次のアクション
 
-1. **レート制限改善**: バッチの~380回のSheets API読み取りでレート制限に到達 → backoff/リトライ追加を検討
-2. **将来課題**: position_rate/qualification_allowanceの一部メンバーで0値 → データ投入確認
-3. **SAキー**: `431e84cf...` → SYSTEM_MANAGED確認済み、対応不要
+1. **デプロイ**: BQテーブル作成 → シード投入 → Cloud Runデプロイ → IAP動作確認
+2. **レート制限改善**: バッチの~380回のSheets API読み取りでレート制限に到達 → backoff/リトライ追加を検討
+3. **将来課題**: position_rate/qualification_allowanceの一部メンバーで0値 → データ投入確認
 
 ### デプロイ済み状態
 
-- **Collector**: rev 00013（members A:K対応 + 先行読み取り）✅
-- **Dashboard**: rev 00025（Tab1全面改修 + logging）✅
-- **BQ VIEWs**: v_gyomu_enriched, v_hojo_enriched, v_monthly_compensation デプロイ済み ✅
-- **BQ Table**: withholding_targets シードデータ投入済み ✅
+- **Collector**: rev 00013（members A:K対応 + 先行読み取り）
+- **Dashboard**: **未デプロイ**（マルチページ化の変更待ち）
+- **BQ VIEWs**: v_gyomu_enriched, v_hojo_enriched, v_monthly_compensation デプロイ済み
+- **BQ Table**: withholding_targets シードデータ投入済み、**dashboard_users 未作成**
 
 ## アーキテクチャ
 
@@ -61,16 +119,16 @@ Cloud Run "pay-collector" (Python 3.12 / Flask / gunicorn / 2GiB)
     ├─ hojo_reports: ~1,100行（補助＆立替報告）
     ├─ members: 190行（タダメンMマスタ、A:K完全）
     ├─ withholding_targets: 17行（源泉対象リスト）
+    ├─ dashboard_users: ダッシュボードアクセス制御
     ├─ v_gyomu_enriched: VIEW（メンバーJOIN + 月抽出 + 距離分離 + 総稼働時間）
     ├─ v_hojo_enriched: VIEW（メンバーJOIN + 年月正規化）
     └─ v_monthly_compensation: VIEW（月別報酬＆源泉徴収 6 CTE）
           │
           ▼
-Cloud Run "pay-dashboard" (Streamlit / 512MiB)
+Cloud Run "pay-dashboard" (Streamlit / 512MiB / マルチページ)
     アクセス: https://34.107.163.68.sslip.io/ (Cloud IAP経由)
-    Tab1: 月別報酬サマリー（v_monthly_compensation）
-    Tab2: スポンサー別業務委託費（v_gyomu_enriched）
-    Tab3: 業務報告一覧（v_gyomu_enriched）
+    認証: IAP → BQ dashboard_users → admin/viewer ロール分岐
+    ページ: ダッシュボード / アーキテクチャ / ヘルプ / ユーザー管理(admin) / 管理設定(admin)
 ```
 
 ## 環境情報
@@ -93,6 +151,8 @@ Cloud Run "pay-dashboard" (Streamlit / 512MiB)
 **members**: report_url, member_id, nickname, gws_account, full_name, qualification_allowance, position_rate, corporate_sheet, donation_sheet, qualification_sheet, sheet_number, ingested_at
 
 **withholding_targets**: work_category, licensed_member_id
+
+**dashboard_users**: email, role, display_name, added_by, created_at, updated_at
 
 結合キー: `source_url` (gyomu/hojo) = `report_url` (members)
 

@@ -57,3 +57,19 @@ CREATE TABLE IF NOT EXISTS `monthly-pay-tax.pay_reports.withholding_targets` (
   work_category STRING NOT NULL,         -- 源泉対象の業務分類
   licensed_member_id STRING              -- 士業さんのタダメンID（全額源泉対象）
 );
+
+-- ダッシュボードユーザー（ホワイトリスト + ロール管理）
+CREATE TABLE IF NOT EXISTS `monthly-pay-tax.pay_reports.dashboard_users` (
+  email STRING NOT NULL,                 -- GWSメールアドレス
+  role STRING NOT NULL,                  -- "admin" | "viewer"
+  display_name STRING,                   -- 表示名
+  added_by STRING NOT NULL,              -- 追加者メールアドレス
+  created_at TIMESTAMP NOT NULL,         -- 作成日時
+  updated_at TIMESTAMP NOT NULL          -- 更新日時
+);
+
+-- シード: 初期管理者
+-- INSERT INTO `monthly-pay-tax.pay_reports.dashboard_users`
+--   (email, role, display_name, added_by, created_at, updated_at)
+-- VALUES
+--   ('yasushi-honda@tadakayo.jp', 'admin', 'Y.Honda', 'system', CURRENT_TIMESTAMP(), CURRENT_TIMESTAMP());

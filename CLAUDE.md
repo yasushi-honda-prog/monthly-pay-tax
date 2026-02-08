@@ -27,9 +27,20 @@ SA鍵ファイルは使わない（ローカル開発時のみ `SA_KEY_PATH` 環
   - `bq_loader.py` - BigQueryへのデータロード（pandas DataFrame経由）
   - `config.py` - GCPプロジェクトID、BQテーブル名、マスタスプレッドシートID等の設定値
   - `tests/` - テストディレクトリ（未実装）
+- `dashboard/` - Streamlitダッシュボード（マルチページ構成）
+  - `app.py` - エントリポイント（認証 + st.navigation ルーター）
+  - `pages/dashboard.py` - 既存3タブ（月別報酬/スポンサー別/業務報告一覧）
+  - `pages/architecture.py` - Mermaidアーキテクチャ図
+  - `pages/user_management.py` - ユーザー管理（admin専用、BQ DML）
+  - `pages/admin_settings.py` - 管理設定（admin専用）
+  - `pages/help.py` - ヘルプ/マニュアル
+  - `lib/auth.py` - IAP認証 + BQホワイトリスト照合
+  - `lib/bq_client.py` - 共有BQクライアント
+  - `lib/styles.py` - 共有CSS
+  - `lib/constants.py` - 定数
 - `コード.js` - 旧GASコード（参照用、稼働していない）
-- `infra/bigquery/schema.sql` - BQテーブルスキーマ定義
-  - `infra/bigquery/views.sql` - BQ VIEW定義（v_gyomu_enriched, v_hojo_enriched）
+- `infra/bigquery/schema.sql` - BQテーブルスキーマ定義（dashboard_users含む）
+  - `infra/bigquery/views.sql` - BQ VIEW定義（v_gyomu_enriched, v_hojo_enriched, v_monthly_compensation）
 - `infra/ar-cleanup-policy.json` - Artifact Registryクリーンアップポリシー
 - `docs/adr/` - Architecture Decision Records
 - `docs/handoff/LATEST.md` - ハンドオフドキュメント
@@ -56,18 +67,19 @@ gcloud run deploy pay-collector \
 | SA | `pay-collector@monthly-pay-tax.iam.gserviceaccount.com` |
 | Cloud Run URL | `https://pay-collector-209715990891.asia-northeast1.run.app` |
 | BQデータセット | `pay_reports` |
-| BQテーブル | `gyomu_reports`, `hojo_reports`, `members`, `withholding_targets` |
+| BQテーブル | `gyomu_reports`, `hojo_reports`, `members`, `withholding_targets`, `dashboard_users` |
 | BQ VIEWs | `v_gyomu_enriched`, `v_hojo_enriched`, `v_monthly_compensation` |
 | AR | `cloud-run-images`（最新2イメージ保持） |
 
 ## BQスキーマ
 
-4テーブル構成。すべてSTRING型 + ingested_at (TIMESTAMP)。
+5テーブル構成。データテーブルはすべてSTRING型 + ingested_at (TIMESTAMP)。
 
 - `gyomu_reports`: source_url, year, date, day_of_week, activity_category, work_category, sponsor, description, unit_price, hours, amount
 - `hojo_reports`: source_url, year, month, hours, compensation, dx_subsidy, reimbursement, total_amount, monthly_complete, dx_receipt, expense_receipt
 - `members`: report_url, member_id, nickname, gws_account, full_name, qualification_allowance, position_rate, corporate_sheet, donation_sheet, qualification_sheet, sheet_number
 - `withholding_targets`: work_category, licensed_member_id（源泉対象リスト: 15業務分類 + 2士業メンバー）
+- `dashboard_users`: email, role, display_name, added_by, created_at, updated_at（ホワイトリスト + ロール管理）
 
 `source_url`（gyomu/hojo）= `report_url`（members）で結合してメンバー名を取得。
 
@@ -83,14 +95,27 @@ GASバインドSSのスプレッドシート関数パイプラインをSQLで再
 
 ## ダッシュボード
 
-`dashboard/` - Streamlitアプリ（別Cloud Runサービス `pay-dashboard`）
+`dashboard/` - Streamlitアプリ（別Cloud Runサービス `pay-dashboard`）、マルチページ構成。
 
 - アクセスURL: `https://34.107.163.68.sslip.io/`（Cloud IAP経由、tadakayo.jpドメインのみ）
 - Cloud Run直接URL: `https://pay-dashboard-209715990891.asia-northeast1.run.app`（ingress制限で直接アクセス不可）
 - 512MiBメモリ、SA: `pay-collector@...`（BQ読み取り用）
-- 3タブ構成: 月別報酬サマリー（v_monthly_compensation） / スポンサー別業務委託費 / 業務報告一覧
-- Tab1: KPI cards(5項目) + メンバー×月ピボット + メンバー別報酬明細 + 月次推移チャート
-- BQ VIEWs経由でメンバー結合・データ加工済みのデータを取得
+
+### ページ構成（st.navigation）
+
+| ページ | ファイル | アクセス権 |
+|--------|---------|-----------|
+| ダッシュボード（3タブ） | `pages/dashboard.py` | viewer/admin |
+| アーキテクチャ | `pages/architecture.py` | viewer/admin |
+| ヘルプ | `pages/help.py` | viewer/admin |
+| ユーザー管理 | `pages/user_management.py` | adminのみ |
+| 管理設定 | `pages/admin_settings.py` | adminのみ |
+
+### 認証フロー
+
+Cloud IAP → `X-Goog-Authenticated-User-Email` → BQ `dashboard_users` テーブル照合。
+未登録ユーザーはアクセス拒否。BQ障害時は初期管理者のみadminとしてフォールバック。
+`st.session_state`にロールをキャッシュ。
 
 ## 環境分離
 
