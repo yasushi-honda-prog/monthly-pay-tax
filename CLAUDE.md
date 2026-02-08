@@ -56,17 +56,18 @@ gcloud run deploy pay-collector \
 | SA | `pay-collector@monthly-pay-tax.iam.gserviceaccount.com` |
 | Cloud Run URL | `https://pay-collector-209715990891.asia-northeast1.run.app` |
 | BQデータセット | `pay_reports` |
-| BQテーブル | `gyomu_reports`, `hojo_reports`, `members` |
-| BQ VIEWs | `v_gyomu_enriched`, `v_hojo_enriched` |
+| BQテーブル | `gyomu_reports`, `hojo_reports`, `members`, `withholding_targets` |
+| BQ VIEWs | `v_gyomu_enriched`, `v_hojo_enriched`, `v_monthly_compensation` |
 | AR | `cloud-run-images`（最新2イメージ保持） |
 
 ## BQスキーマ
 
-3テーブル構成。すべてSTRING型 + ingested_at (TIMESTAMP)。
+4テーブル構成。すべてSTRING型 + ingested_at (TIMESTAMP)。
 
 - `gyomu_reports`: source_url, year, date, day_of_week, activity_category, work_category, sponsor, description, unit_price, hours, amount
 - `hojo_reports`: source_url, year, month, hours, compensation, dx_subsidy, reimbursement, total_amount, monthly_complete, dx_receipt, expense_receipt
-- `members`: report_url, member_id, nickname, gws_account, full_name
+- `members`: report_url, member_id, nickname, gws_account, full_name, qualification_allowance, position_rate, corporate_sheet, donation_sheet, qualification_sheet, sheet_number
+- `withholding_targets`: work_category, licensed_member_id（源泉対象リスト: 15業務分類 + 2士業メンバー）
 
 `source_url`（gyomu/hojo）= `report_url`（members）で結合してメンバー名を取得。
 
@@ -76,6 +77,7 @@ GASバインドSSのスプレッドシート関数パイプラインをSQLで再
 
 - `v_gyomu_enriched`: メンバーJOIN + 月抽出 + 距離分離（自家用車使用→travel_distance_km） + 1立てフラグ（日給制） + 総稼働時間（全日/半日稼働加算）
 - `v_hojo_enriched`: メンバーJOIN + 年月正規化（数値年/日付文字列/Excelシリアル値の3形式対応）
+- `v_monthly_compensation`: 月別報酬＆源泉徴収（6 CTE構成: gyomu_agg → hojo_agg → member_attrs → all_keys → base_calc → with_tax）
 
 定義: `infra/bigquery/views.sql`
 
@@ -86,7 +88,8 @@ GASバインドSSのスプレッドシート関数パイプラインをSQLで再
 - アクセスURL: `https://34.107.163.68.sslip.io/`（Cloud IAP経由、tadakayo.jpドメインのみ）
 - Cloud Run直接URL: `https://pay-dashboard-209715990891.asia-northeast1.run.app`（ingress制限で直接アクセス不可）
 - 512MiBメモリ、SA: `pay-collector@...`（BQ読み取り用）
-- 3タブ構成: 月別報酬サマリー / スポンサー別業務委託費 / 業務報告一覧
+- 3タブ構成: 月別報酬サマリー（v_monthly_compensation） / スポンサー別業務委託費 / 業務報告一覧
+- Tab1: KPI cards(5項目) + メンバー×月ピボット + メンバー別報酬明細 + 月次推移チャート
 - BQ VIEWs経由でメンバー結合・データ加工済みのデータを取得
 
 ## 環境分離
