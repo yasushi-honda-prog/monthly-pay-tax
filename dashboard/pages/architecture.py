@@ -11,7 +11,7 @@ st.caption("システム構成・データフロー・スキーマの全体像")
 st.subheader("1. 全体構成")
 st.markdown("""
 毎朝6時にCloud Schedulerがバッチを起動し、約190件のスプレッドシートからデータを収集してBigQueryに書き込みます。
-ダッシュボードはBQ VIEWs経由でデータを取得し、Cloud IAP経由でアクセス制御されています。
+ダッシュボードはBQ VIEWs経由でデータを取得し、Streamlit OIDC（Google OAuth）でアクセス制御されています。
 """)
 
 st_mermaid("""
@@ -20,8 +20,8 @@ graph LR
     CR -->|Sheets API v4<br/>キーレスDWD| SS[(190個の<br/>スプレッドシート)]
     CR -->|WRITE_TRUNCATE| BQ[(BigQuery<br/>pay_reports)]
     BQ -->|VIEWs| DB[Cloud Run<br/>pay-dashboard]
-    IAP[Cloud IAP<br/>tadakayo.jp] -->|認証| DB
-    DB -->|Streamlit| BR[ブラウザ]
+    BR[ブラウザ] -->|HTTPS *.run.app| DB
+    DB -->|Streamlit OIDC<br/>Google OAuth| GOOG[Google IdP<br/>tadakayo.jp]
 """)
 
 st.markdown("""
@@ -29,7 +29,8 @@ st.markdown("""
 |:---|:---|
 | Collector | Python 3.12 / Flask / gunicorn / 2GiB |
 | Dashboard | Python 3.12 / Streamlit / 512MiB |
-| 認証 | Workload Identity + IAM signBlob (キーレスDWD) |
+| Collector認証 | Workload Identity + IAM signBlob (キーレスDWD) |
+| Dashboard認証 | Streamlit OIDC (Google OAuth, tadakayo.jpドメイン) |
 | BQ取り込み | WRITE_TRUNCATE（毎回全データ置換） |
 """)
 
@@ -140,8 +141,10 @@ st.subheader("5. 認証フロー")
 
 st_mermaid("""
 graph TD
-    USER[ユーザー] -->|HTTPS| IAP[Cloud IAP<br/>tadakayo.jpドメイン認証]
-    IAP -->|X-Goog-Authenticated-User-Email| APP[Dashboard App]
+    USER[ユーザー] -->|HTTPS *.run.app| APP[Dashboard App]
+    APP -->|未ログイン| LOGIN[Googleでログイン<br/>st.login]
+    LOGIN -->|Google OIDC| GOOG[Google IdP<br/>tadakayo.jpドメイン限定]
+    GOOG -->|st.user.email| APP
     APP -->|email照合| BQ[(BQ dashboard_users)]
     BQ -->|未登録| DENY[アクセス拒否]
     BQ -->|viewer| VIEW[ダッシュボード<br/>+ ドキュメント<br/>+ ヘルプ]

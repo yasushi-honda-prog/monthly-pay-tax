@@ -1,14 +1,24 @@
 # ハンドオフメモ - monthly-pay-tax
 
-**更新日**: 2026-02-08
-**フェーズ**: 5 - ダッシュボードマルチページ化 + 認可 + ドキュメント
+**更新日**: 2026-02-09
+**フェーズ**: 6 - 認証方式移行（IAP → Streamlit OIDC）
 
 ## 現在の状態
 
 Cloud Run + BigQuery + Streamlitダッシュボード本番稼働中。
 ダッシュボードをマルチページ化し、BQベースのユーザー認可、アーキテクチャドキュメント、管理設定を追加。
 
-### 今回の変更（Phase 5: Dashboard Multipage）
+### 今回の変更（Phase 6: IAP → Streamlit OIDC移行）
+
+1. **認証方式変更**: Cloud IAP → Streamlit OIDC（Google OAuth, `st.login`/`st.user`）
+2. **アクセスURL変更**: `sslip.io`（自己署名証明書） → `*.run.app`（Google管理SSL証明書）
+3. **lib/auth.py**: `get_iap_user_email()` → `get_user_email()`（`st.user.email`ベース）
+4. **app.py**: `st.login`/`st.logout`フロー + サイドバーにログアウトボタン
+5. **architecture.py**: 認証フロー図をOIDCに更新
+6. **Secret Manager**: `dashboard-auth-config` → `/app/.streamlit/secrets.toml`にマウント
+7. **Cloud Run設定**: `ingress=all` + `allUsers:run.invoker`（アプリ層で認証）
+
+### 前回までの変更（Phase 5: Dashboard Multipage）
 
 1. **マルチページ化**: app.py（649行） → app.py（ルーター ~50行） + pages/ + lib/
 2. **BQユーザー認可**: `dashboard_users` テーブル + IAP email照合 + admin/viewer ロール
@@ -32,50 +42,31 @@ dashboard/
     help.py                 # ヘルプ/マニュアル
   lib/
     __init__.py
-    auth.py                 # IAP認証 + BQホワイトリスト照合
+    auth.py                 # Streamlit OIDC認証 + BQホワイトリスト照合
     bq_client.py            # 共有BQクライアント + load_data()
     styles.py               # 共有CSS
     constants.py            # 定数
 ```
 
-### デプロイ前の手順
-
-1. **BQテーブル作成**: `dashboard_users` テーブルを作成
-2. **シードデータ投入**: 初期管理者をINSERT
-3. **Cloud Runデプロイ**: `dashboard/` ディレクトリからビルド + デプロイ
-4. **IAP経由で動作確認**
+### デプロイ手順
 
 ```bash
-# 1. BQテーブル作成
-bq query --use_legacy_sql=false "$(cat <<'EOF'
-CREATE TABLE IF NOT EXISTS `monthly-pay-tax.pay_reports.dashboard_users` (
-  email STRING NOT NULL,
-  role STRING NOT NULL,
-  display_name STRING,
-  added_by STRING NOT NULL,
-  created_at TIMESTAMP NOT NULL,
-  updated_at TIMESTAMP NOT NULL
-)
-EOF
-)"
+# ビルド
+gcloud builds submit --tag asia-northeast1-docker.pkg.dev/monthly-pay-tax/cloud-run-images/pay-dashboard dashboard/
 
-# 2. シードデータ
-bq query --use_legacy_sql=false "$(cat <<'EOF'
-INSERT INTO `monthly-pay-tax.pay_reports.dashboard_users`
-  (email, role, display_name, added_by, created_at, updated_at)
-VALUES
-  ('yasushi-honda@tadakayo.jp', 'admin', 'Y.Honda', 'system', CURRENT_TIMESTAMP(), CURRENT_TIMESTAMP())
-EOF
-)"
-
-# 3. デプロイ
-cd dashboard
-gcloud builds submit --tag asia-northeast1-docker.pkg.dev/monthly-pay-tax/cloud-run-images/pay-dashboard
+# デプロイ（Secret Managerマウント付き）
 gcloud run deploy pay-dashboard \
   --image asia-northeast1-docker.pkg.dev/monthly-pay-tax/cloud-run-images/pay-dashboard \
   --platform managed --region asia-northeast1 --memory 512Mi \
-  --no-allow-unauthenticated
+  --update-secrets=/app/.streamlit/secrets.toml=dashboard-auth-config:latest
 ```
+
+### Secret Manager
+
+- シークレット名: `dashboard-auth-config`
+- マウント先: `/app/.streamlit/secrets.toml`
+- 内容: Streamlit OIDC設定（client_id, client_secret, redirect_uri, cookie_secret, server_metadata_url）
+- OAuthブランド: `orgInternalOnly=true`（tadakayo.jpドメイン限定）
 
 ### スプレッドシートの役割整理
 
@@ -88,16 +79,16 @@ gcloud run deploy pay-dashboard \
 
 ### 次のアクション
 
-1. **デプロイ**: BQテーブル作成 → シード投入 → Cloud Runデプロイ → IAP動作確認
+1. **旧LBインフラ削除**: 動作確認完了後に実施（forwarding-rules, target-https-proxies, url-maps, backend-services, ssl-certificates, IAP設定）
 2. **レート制限改善**: バッチの~380回のSheets API読み取りでレート制限に到達 → backoff/リトライ追加を検討
 3. **将来課題**: position_rate/qualification_allowanceの一部メンバーで0値 → データ投入確認
 
 ### デプロイ済み状態
 
 - **Collector**: rev 00013（members A:K対応 + 先行読み取り）
-- **Dashboard**: **未デプロイ**（マルチページ化の変更待ち）
+- **Dashboard**: rev 00029（Streamlit OIDC認証、Secret Managerマウント）
 - **BQ VIEWs**: v_gyomu_enriched, v_hojo_enriched, v_monthly_compensation デプロイ済み
-- **BQ Table**: withholding_targets シードデータ投入済み、**dashboard_users 未作成**
+- **BQ Table**: withholding_targets, dashboard_users シードデータ投入済み
 
 ## アーキテクチャ
 
@@ -126,8 +117,8 @@ Cloud Run "pay-collector" (Python 3.12 / Flask / gunicorn / 2GiB)
           │
           ▼
 Cloud Run "pay-dashboard" (Streamlit / 512MiB / マルチページ)
-    アクセス: https://34.107.163.68.sslip.io/ (Cloud IAP経由)
-    認証: IAP → BQ dashboard_users → admin/viewer ロール分岐
+    アクセス: https://pay-dashboard-209715990891.asia-northeast1.run.app
+    認証: Streamlit OIDC (Google OAuth) → BQ dashboard_users → admin/viewer ロール分岐
     ページ: ダッシュボード / アーキテクチャ / ヘルプ / ユーザー管理(admin) / 管理設定(admin)
 ```
 
@@ -139,7 +130,7 @@ Cloud Run "pay-dashboard" (Streamlit / 512MiB / マルチページ)
 | GCPアカウント | yasushi-honda@tadakayo.jp |
 | GitHub | yasushi-honda-prog/monthly-pay-tax |
 | Collector URL | `https://pay-collector-209715990891.asia-northeast1.run.app` |
-| Dashboard URL | `https://34.107.163.68.sslip.io/`（Cloud IAP経由） |
+| Dashboard URL | `https://pay-dashboard-209715990891.asia-northeast1.run.app`（Streamlit OIDC認証） |
 | SA Email | `pay-collector@monthly-pay-tax.iam.gserviceaccount.com` |
 
 ## BQスキーマ

@@ -34,7 +34,7 @@ SA鍵ファイルは使わない（ローカル開発時のみ `SA_KEY_PATH` 環
   - `pages/user_management.py` - ユーザー管理（admin専用、BQ DML）
   - `pages/admin_settings.py` - 管理設定（admin専用）
   - `pages/help.py` - ヘルプ/マニュアル
-  - `lib/auth.py` - IAP認証 + BQホワイトリスト照合
+  - `lib/auth.py` - Streamlit OIDC認証 + BQホワイトリスト照合
   - `lib/bq_client.py` - 共有BQクライアント
   - `lib/styles.py` - 共有CSS
   - `lib/constants.py` - 定数
@@ -97,9 +97,10 @@ GASバインドSSのスプレッドシート関数パイプラインをSQLで再
 
 `dashboard/` - Streamlitアプリ（別Cloud Runサービス `pay-dashboard`）、マルチページ構成。
 
-- アクセスURL: `https://34.107.163.68.sslip.io/`（Cloud IAP経由、tadakayo.jpドメインのみ）
-- Cloud Run直接URL: `https://pay-dashboard-209715990891.asia-northeast1.run.app`（ingress制限で直接アクセス不可）
+- アクセスURL: `https://pay-dashboard-209715990891.asia-northeast1.run.app`（Google管理SSL証明書）
+- 認証: Streamlit OIDC（Google OAuth、tadakayo.jpドメイン限定）
 - 512MiBメモリ、SA: `pay-collector@...`（BQ読み取り用）
+- Secret Manager: `dashboard-auth-config` → `/app/.streamlit/secrets.toml` にマウント
 
 ### ページ構成（st.navigation）
 
@@ -113,7 +114,8 @@ GASバインドSSのスプレッドシート関数パイプラインをSQLで再
 
 ### 認証フロー
 
-Cloud IAP → `X-Goog-Authenticated-User-Email` → BQ `dashboard_users` テーブル照合。
+Streamlit OIDC（`st.login`/`st.user`）→ Google OAuth → `st.user.email` → BQ `dashboard_users` テーブル照合。
+OAuthブランドが `orgInternalOnly` のため、tadakayo.jpドメインのみログイン可能。
 未登録ユーザーはアクセス拒否。BQ障害時は初期管理者のみadminとしてフォールバック。
 `st.session_state`にロールをキャッシュ。
 
