@@ -1,7 +1,47 @@
 """アーキテクチャドキュメント（Mermaid図 + 説明）"""
 
 import streamlit as st
-from streamlit_mermaid import st_mermaid
+
+
+def render_mermaid(code: str, height: int = 400):
+    """Mermaid図をダークモード対応でレンダリング"""
+    html = f"""
+    <div id="mermaid-container">
+        <pre class="mermaid">{code}</pre>
+    </div>
+    <script type="module">
+        import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';
+        const isDark = window.matchMedia('(prefers-color-scheme: dark)').matches
+            || document.body.classList.contains('stAppDark')
+            || document.documentElement.getAttribute('data-theme') === 'dark';
+        mermaid.initialize({{
+            startOnLoad: true,
+            theme: isDark ? 'dark' : 'default',
+            themeVariables: isDark ? {{
+                primaryColor: '#1e3a5f',
+                primaryTextColor: '#e0e0e0',
+                lineColor: '#4a9eff',
+                secondaryColor: '#2d2d2d',
+                tertiaryColor: '#1a1a2e',
+            }} : {{
+                primaryColor: '#e8f4fd',
+                primaryTextColor: '#1a1a1a',
+                lineColor: '#0EA5E9',
+            }},
+            flowchart: {{ curve: 'basis', padding: 20 }},
+            fontSize: 14,
+        }});
+    </script>
+    <style>
+        #mermaid-container {{
+            display: flex;
+            justify-content: center;
+            padding: 1rem 0;
+        }}
+    </style>
+    """
+    st.html(html)
+
 
 st.header("アーキテクチャ")
 st.caption("システム構成・データフロー・スキーマの全体像")
@@ -14,7 +54,7 @@ st.markdown("""
 ダッシュボードはBQ VIEWs経由でデータを取得し、Streamlit OIDC（Google OAuth）でアクセス制御されています。
 """)
 
-st_mermaid("""
+render_mermaid("""
 graph LR
     CS[Cloud Scheduler<br/>毎朝6時 JST] -->|OIDC認証| CR[Cloud Run<br/>pay-collector]
     CR -->|Sheets API v4<br/>キーレスDWD| SS[(190個の<br/>スプレッドシート)]
@@ -42,7 +82,7 @@ st.markdown("""
 メンバーマスタ(members)は管理表のA:K列から取得。
 """)
 
-st_mermaid("""
+render_mermaid("""
 graph TD
     MGR[管理表<br/>URLリスト + メンバーマスタ] -->|URL一覧| COL[Collector]
     COL -->|各SSを巡回| G[gyomu_reports<br/>~17,000行]
@@ -65,12 +105,12 @@ st.markdown("""
 4テーブル + 3 VIEW。`source_url = report_url` でメンバー結合。
 """)
 
-st_mermaid("""
+render_mermaid("""
 erDiagram
     gyomu_reports ||--o{ members : "source_url = report_url"
     hojo_reports ||--o{ members : "source_url = report_url"
     gyomu_reports {
-        STRING source_url PK
+        STRING source_url
         STRING year
         STRING date
         STRING activity_category
@@ -79,7 +119,7 @@ erDiagram
         STRING amount
     }
     hojo_reports {
-        STRING source_url PK
+        STRING source_url
         STRING year
         STRING month
         STRING dx_subsidy
@@ -87,7 +127,7 @@ erDiagram
         STRING total_amount
     }
     members {
-        STRING report_url PK
+        STRING report_url
         STRING member_id
         STRING nickname
         STRING full_name
@@ -95,15 +135,15 @@ erDiagram
         STRING qualification_allowance
     }
     withholding_targets {
-        STRING work_category PK
+        STRING work_category
         STRING licensed_member_id
     }
     dashboard_users {
-        STRING email PK
+        STRING email
         STRING role
         STRING display_name
     }
-""")
+""", height=500)
 
 
 # === 4. VIEW計算チェーン ===
@@ -113,7 +153,7 @@ st.markdown("""
 源泉徴収は `-FLOOR(対象額 * 0.1021)` で計算。法人・寄付シートは源泉免除、士業は全額対象。
 """)
 
-st_mermaid("""
+render_mermaid("""
 graph TD
     CTE1[gyomu_agg<br/>業務報告の月別集計<br/>時間/距離/金額/源泉対象額] --> CTE4
     CTE2[hojo_agg<br/>補助報告の月別集計<br/>DX補助/立替] --> CTE4
@@ -139,7 +179,7 @@ st.markdown("""
 # === 5. 認証フロー ===
 st.subheader("5. 認証フロー")
 
-st_mermaid("""
+render_mermaid("""
 graph TD
     USER[ユーザー] -->|HTTPS *.run.app| APP[Dashboard App]
     APP -->|未ログイン| LOGIN[Googleでログイン<br/>st.login]
