@@ -7,6 +7,8 @@ Domain-Wide Delegation認証でSheets API v4を使用。
 import logging
 import re
 
+import httplib2
+import google_auth_httplib2
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 
@@ -17,8 +19,8 @@ logger = logging.getLogger(__name__)
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets.readonly"]
 
 
-def _build_sheets_service():
-    """DWD認証でSheets APIサービスを構築
+def _get_dwd_credentials():
+    """DWD認証情報を取得
 
     ローカル: SA_KEY_PATHからキーファイル読み込み
     Cloud Run: IAM signBlob API経由でキーレスDWD（Workload Identity）
@@ -26,33 +28,38 @@ def _build_sheets_service():
     sa_email = config.SA_EMAIL
 
     if config.SA_KEY_PATH:
-        # ローカル開発: キーファイルから直接
-        credentials = service_account.Credentials.from_service_account_file(
+        return service_account.Credentials.from_service_account_file(
             config.SA_KEY_PATH, scopes=SCOPES, subject=config.DELEGATE_USER_EMAIL
         )
-    else:
-        # Cloud Run: IAM signBlob APIでキーレスDWD
-        import google.auth
-        from google.auth import iam
-        from google.auth.transport import requests as google_requests
 
-        base_credentials, _ = google.auth.default()
-        base_credentials.refresh(google_requests.Request())
+    # Cloud Run: IAM signBlob APIでキーレスDWD
+    import google.auth
+    from google.auth import iam
+    from google.auth.transport import requests as google_requests
 
-        signer = iam.Signer(
-            request=google_requests.Request(),
-            credentials=base_credentials,
-            service_account_email=sa_email,
-        )
-        credentials = service_account.Credentials(
-            signer=signer,
-            service_account_email=sa_email,
-            token_uri="https://oauth2.googleapis.com/token",
-            scopes=SCOPES,
-            subject=config.DELEGATE_USER_EMAIL,
-        )
+    base_credentials, _ = google.auth.default()
+    base_credentials.refresh(google_requests.Request())
 
-    return build("sheets", "v4", credentials=credentials, cache_discovery=False)
+    signer = iam.Signer(
+        request=google_requests.Request(),
+        credentials=base_credentials,
+        service_account_email=sa_email,
+    )
+    return service_account.Credentials(
+        signer=signer,
+        service_account_email=sa_email,
+        token_uri="https://oauth2.googleapis.com/token",
+        scopes=SCOPES,
+        subject=config.DELEGATE_USER_EMAIL,
+    )
+
+
+def _build_sheets_service(timeout=60):
+    """DWD認証でSheets APIサービスを構築"""
+    credentials = _get_dwd_credentials()
+    http = httplib2.Http(timeout=timeout)
+    authorized_http = google_auth_httplib2.AuthorizedHttp(credentials, http=http)
+    return build("sheets", "v4", http=authorized_http, cache_discovery=False)
 
 
 def _extract_spreadsheet_id(url: str) -> str:
@@ -162,7 +169,43 @@ def collect_all_data(service) -> dict[str, list[list]]:
     return all_data
 
 
+def collect_members(service) -> list[list]:
+    """タダメンMマスタを取得
+
+    GASバインドSSの「タダメンM」シートからメンバー情報を取得。
+    A~G列: 報告シートURL, タダメンID, ニックネーム, GWSアカウント, 本名, 資格手当, 役職手当率
+    """
+    sheet = service.spreadsheets()
+    range_notation = f"'{config.MEMBER_SHEET_NAME}'!A{config.MEMBER_START_ROW}:G"
+
+    try:
+        result = sheet.values().get(
+            spreadsheetId=config.GAS_SPREADSHEET_ID,
+            range=range_notation,
+        ).execute()
+    except Exception as e:
+        logger.error("タダメンMの読み取りエラー: %s", e)
+        return []
+
+    values = result.get("values", [])
+
+    # A列（報告シートURL）が空でない行のみ、スキップURL除外
+    filtered = []
+    for row in values:
+        if not row or not row[0]:
+            continue
+        url = row[0].strip()
+        should_skip = any(url.startswith(skip) for skip in config.SKIP_URLS)
+        if not should_skip and len(row) >= 2 and row[1]:  # IDがある行のみ
+            filtered.append(row)
+
+    logger.info("タダメンM: %d件のメンバーを取得しました", len(filtered))
+    return filtered
+
+
 def run_collection() -> dict[str, list[list]]:
     """データ収集のエントリポイント"""
     service = _build_sheets_service()
-    return collect_all_data(service)
+    all_data = collect_all_data(service)
+    all_data[config.BQ_TABLE_MEMBERS] = collect_members(service)
+    return all_data
