@@ -206,6 +206,8 @@ def collect_members(service) -> list[list]:
 def run_collection() -> dict[str, list[list]]:
     """データ収集のエントリポイント"""
     service = _build_sheets_service()
+    # membersを先に読む（1 APIコールのみ、レート制限回避）
+    members = collect_members(service)
     all_data = collect_all_data(service)
-    all_data[config.BQ_TABLE_MEMBERS] = collect_members(service)
+    all_data[config.BQ_TABLE_MEMBERS] = members
     return all_data
