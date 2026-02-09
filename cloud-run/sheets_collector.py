@@ -6,11 +6,13 @@ Domain-Wide Delegation認証でSheets API v4を使用。
 
 import logging
 import re
+import time
 
 import httplib2
 import google_auth_httplib2
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
+from googleapiclient.errors import HttpError
 
 import config
 
@@ -71,13 +73,33 @@ def _extract_spreadsheet_id(url: str) -> str:
 
 
 
+def _execute_with_throttle(request, context: str = ""):
+    """Sheets APIリクエストをスロットリング+リトライ付きで実行
+
+    - time.sleep でリクエスト間隔を空け、レート制限(60 reads/min)内に収める
+    - num_retries で429/5xx/ネットワークエラーをexponential backoffで自動リトライ
+    - HttpError はログ出力後に再raise（呼び出し元の既存except処理に委ねる）
+    """
+    time.sleep(config.SHEETS_API_SLEEP_BETWEEN_REQUESTS)
+    try:
+        return request.execute(num_retries=config.SHEETS_API_NUM_RETRIES)
+    except HttpError as e:
+        status_code = e.resp.status if e.resp else None
+        if status_code in (429, 500, 503):
+            logger.error("[transient %s] %s (HTTP %s)", context, e, status_code)
+        else:
+            logger.warning("[permanent %s] %s (HTTP %s)", context, e, status_code)
+        raise
+
+
 def get_url_list(service) -> list[str]:
     """管理表からURLリストを取得（GAS Step 1に対応）"""
     sheet = service.spreadsheets()
-    result = sheet.values().get(
+    request = sheet.values().get(
         spreadsheetId=config.MASTER_SPREADSHEET_ID,
         range=f"'{config.MASTER_SHEET_NAME}'!A{config.URL_START_ROW}:A",
-    ).execute()
+    )
+    result = _execute_with_throttle(request, context="get_url_list")
 
     values = result.get("values", [])
     urls = []
@@ -102,10 +124,11 @@ def get_sheet_data(
     range_notation = f"'{sheet_name}'!B{start_row}:{end_column}"
 
     try:
-        result = service.spreadsheets().values().get(
+        request = service.spreadsheets().values().get(
             spreadsheetId=spreadsheet_id,
             range=range_notation,
-        ).execute()
+        )
+        result = _execute_with_throttle(request, context=f"get_sheet_data({sheet_name})")
     except Exception:
         logger.warning("シート '%s' が見つからないか読み取れません", sheet_name)
         return []
@@ -161,6 +184,12 @@ def collect_all_data(service) -> dict[str, list[list]]:
                     )
                 else:
                     logger.info("  '%s': 0行", cfg["report_sheet_name"])
+            except HttpError as e:
+                status_code = e.resp.status if e.resp else "unknown"
+                logger.warning(
+                    "  [シートエラー] '%s': HTTP %s - %s",
+                    cfg["report_sheet_name"], status_code, e,
+                )
             except Exception as e:
                 logger.warning(
                     "  [シートエラー] '%s': %s", cfg["report_sheet_name"], e
@@ -180,10 +209,11 @@ def collect_members(service) -> list[list]:
     range_notation = f"'{config.MEMBER_SHEET_NAME}'!A{config.MEMBER_START_ROW}:K"
 
     try:
-        result = sheet.values().get(
+        request = sheet.values().get(
             spreadsheetId=config.MEMBER_SPREADSHEET_ID,
             range=range_notation,
-        ).execute()
+        )
+        result = _execute_with_throttle(request, context="collect_members")
     except Exception as e:
         logger.error("タダメンMの読み取りエラー: %s", e)
         return []
