@@ -165,12 +165,31 @@ if df_users.empty:
 else:
     for idx, row in df_users.iterrows():
         with st.container(border=True):
-            c1, c2, c3, c4 = st.columns([3, 1, 1, 1])
+            c1, c2, c3 = st.columns([4, 1, 1])
             with c1:
-                label = row["email"]
-                if row["display_name"]:
-                    label = f"{row['display_name']} ({row['email']})"
-                st.markdown(f"**{label}**")
+                name_col, edit_col = st.columns([6, 1])
+                with name_col:
+                    label = row["email"]
+                    if row["display_name"]:
+                        label = f"{row['display_name']} ({row['email']})"
+                    st.markdown(f"**{label}**")
+                with edit_col:
+                    with st.popover("✏️"):
+                        edited_name = st.text_input(
+                            "表示名",
+                            value=row["display_name"] or "",
+                            key=f"name_{row['email']}",
+                            placeholder="表示名を入力",
+                        )
+                        if st.button("保存", key=f"save_name_{row['email']}"):
+                            new_name = edited_name.strip()
+                            if new_name != (row["display_name"] or ""):
+                                success, msg = update_display_name(row["email"], new_name)
+                                if success:
+                                    st.success(msg)
+                                    st.rerun()
+                            else:
+                                st.info("変更がありません")
                 st.caption(f"追加者: {row['added_by']} | {row['created_at'].strftime('%Y-%m-%d')}")
             with c2:
                 is_initial = row["email"] == INITIAL_ADMIN_EMAIL
@@ -192,23 +211,6 @@ else:
                         else:
                             st.error(msg)
             with c3:
-                with st.popover("✏️", use_container_width=True):
-                    edited_name = st.text_input(
-                        "表示名",
-                        value=row["display_name"] or "",
-                        key=f"name_{row['email']}",
-                        placeholder="表示名を入力",
-                    )
-                    if st.button("保存", key=f"save_name_{row['email']}", use_container_width=True):
-                        new_name = edited_name.strip()
-                        if new_name != (row["display_name"] or ""):
-                            success, msg = update_display_name(row["email"], new_name)
-                            if success:
-                                st.success(msg)
-                                st.rerun()
-                        else:
-                            st.info("変更がありません")
-            with c4:
                 is_self = row["email"] == email
                 can_delete = not is_initial and not is_self
                 if can_delete:
