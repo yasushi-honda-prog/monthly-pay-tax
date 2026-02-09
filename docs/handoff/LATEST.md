@@ -1,12 +1,18 @@
 # ハンドオフメモ - monthly-pay-tax
 
 **更新日**: 2026-02-09
-**フェーズ**: 6完了 + Mermaid図修正 + レート制限改善
+**フェーズ**: 6完了 + Mermaid図修正 + レート制限改善 + ユーザー管理改善
 
 ## 現在の状態
 
 Cloud Run + BigQuery + Streamlitダッシュボード本番稼働中。
 ダッシュボードをマルチページ化し、BQベースのユーザー認可、アーキテクチャドキュメント、管理設定を追加。
+
+### PR #13-#14: ユーザー管理 表示名編集機能（デプロイ済み rev 00036）
+
+1. **`update_display_name()` 関数追加** (`user_management.py`): BQの`dashboard_users.display_name`をパラメータ化クエリで更新
+2. **インライン編集UI**: 各ユーザー行の名前横に✏️ポップオーバーを配置、表示名を即時編集・保存
+3. **レイアウト改善** (PR #14): 編集ボタンを専用列から名前横のインラインに移動、4列→3列レイアウトでスペース効率化
 
 ### PR #12: Sheets APIレート制限改善（デプロイ済み rev 00014）
 
@@ -57,7 +63,7 @@ dashboard/
   pages/
     dashboard.py            # 既存3タブ（app.pyから抽出）
     architecture.py         # Mermaidアーキテクチャ図
-    user_management.py      # 管理者: ホワイトリスト管理
+    user_management.py      # 管理者: ホワイトリスト管理 + 表示名編集
     admin_settings.py       # 管理者: 設定・システム情報
     help.py                 # ヘルプ/マニュアル
   lib/
@@ -106,7 +112,7 @@ gcloud run deploy pay-dashboard \
 ### デプロイ済み状態
 
 - **Collector**: rev 00014（レート制限改善: throttle 0.5s + num_retries=5）
-- **Dashboard**: rev 00034（Mermaid.js CDN + ダークモード + 図サイズ改善）
+- **Dashboard**: rev 00036（表示名インライン編集 + コンパクトレイアウト）
 - **BQ VIEWs**: v_gyomu_enriched, v_hojo_enriched, v_monthly_compensation デプロイ済み
 - **BQ Table**: withholding_targets, dashboard_users シードデータ投入済み
 
