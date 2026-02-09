@@ -86,6 +86,24 @@ def delete_user(target_email: str):
     return True, "ユーザーを削除しました"
 
 
+def update_display_name(target_email: str, new_name: str):
+    """表示名を変更"""
+    client = get_bq_client()
+    update_query = f"""
+    UPDATE `{USERS_TABLE}`
+    SET display_name = @display_name, updated_at = CURRENT_TIMESTAMP()
+    WHERE email = @email
+    """
+    job_config = bigquery.QueryJobConfig(
+        query_parameters=[
+            bigquery.ScalarQueryParameter("display_name", "STRING", new_name or None),
+            bigquery.ScalarQueryParameter("email", "STRING", target_email),
+        ]
+    )
+    client.query(update_query, job_config=job_config).result()
+    return True, "表示名を変更しました"
+
+
 def update_role(target_email: str, new_role: str):
     """ロールを変更"""
     if target_email == INITIAL_ADMIN_EMAIL and new_role != "admin":
@@ -174,7 +192,22 @@ else:
                         else:
                             st.error(msg)
             with c3:
-                st.empty()
+                with st.popover("✏️", use_container_width=True):
+                    edited_name = st.text_input(
+                        "表示名",
+                        value=row["display_name"] or "",
+                        key=f"name_{row['email']}",
+                        placeholder="表示名を入力",
+                    )
+                    if st.button("保存", key=f"save_name_{row['email']}", use_container_width=True):
+                        new_name = edited_name.strip()
+                        if new_name != (row["display_name"] or ""):
+                            success, msg = update_display_name(row["email"], new_name)
+                            if success:
+                                st.success(msg)
+                                st.rerun()
+                        else:
+                            st.info("変更がありません")
             with c4:
                 is_self = row["email"] == email
                 can_delete = not is_initial and not is_self
