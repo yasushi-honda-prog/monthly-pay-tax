@@ -30,6 +30,10 @@ SKIP_URLS = [
     "https://docs.google.com/spreadsheets/d/17PMx-smOoj2ZzsG7A6A4FGXEfxXiZGkukERXJc1Cbi0/edit",
 ]
 
+# Sheets API レート制限対策
+SHEETS_API_NUM_RETRIES = 5
+SHEETS_API_SLEEP_BETWEEN_REQUESTS = 0.5
+
 # サービスアカウント
 SA_EMAIL = os.environ.get("SA_EMAIL", "pay-collector@monthly-pay-tax.iam.gserviceaccount.com")
 SA_KEY_PATH = os.environ.get("SA_KEY_PATH", "")  # ローカル開発用のみ

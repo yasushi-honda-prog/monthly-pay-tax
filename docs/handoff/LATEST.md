@@ -1,14 +1,23 @@
 # ハンドオフメモ - monthly-pay-tax
 
 **更新日**: 2026-02-09
-**フェーズ**: 6完了 + Mermaid図修正
+**フェーズ**: 6完了 + Mermaid図修正 + レート制限改善
 
 ## 現在の状態
 
 Cloud Run + BigQuery + Streamlitダッシュボード本番稼働中。
 ダッシュボードをマルチページ化し、BQベースのユーザー認可、アーキテクチャドキュメント、管理設定を追加。
 
-### 今回の変更（PR #10: Mermaid図レンダリング修正）
+### 今回の変更: Sheets APIレート制限改善（未コミット）
+
+1. **`_execute_with_throttle` ヘルパー追加** (`sheets_collector.py`): 全Sheets APIリクエストにスロットリング（0.5秒間隔）+ 自動リトライ（`num_retries=5`, exponential backoff）を適用
+2. **設定定数追加** (`config.py`): `SHEETS_API_NUM_RETRIES=5`, `SHEETS_API_SLEEP_BETWEEN_REQUESTS=0.5`
+3. **3箇所の`.execute()`置換**: `get_url_list`, `get_sheet_data`, `collect_members` で `_execute_with_throttle()` を使用
+4. **ログ改善**: HttpError時にtransient(429/5xx)/permanentのログレベル分離 + ステータスコード記録
+5. **ユニットテスト5件追加** (`tests/test_sheets_collector.py`): 全PASS
+6. **処理時間**: ~217秒 → ~409秒（Cloud Run 1800秒に対し余裕あり）
+
+### PR #11: Mermaid図レンダリング修正
 
 1. **`streamlit-mermaid` → `components.html()` + Mermaid.js v11 CDN**: サードパーティライブラリを廃止し、CDN直接読み込みに変更
 2. **ダークモード対応**: `prefers-color-scheme` メディアクエリでライト/ダーク自動切替
@@ -18,7 +27,7 @@ Cloud Run + BigQuery + Streamlitダッシュボード本番稼働中。
 
 **技術的教訓**: `st.html()` はsandboxed iframeでESMモジュールインポートがブロックされる → `streamlit.components.v1.html()` + 通常の `<script>` タグで解決
 
-### 前回の変更（Phase 6: IAP → Streamlit OIDC移行）
+### PR #9: Phase 6 IAP → Streamlit OIDC移行
 
 1. **認証方式変更**: Cloud IAP → Streamlit OIDC（Google OAuth, `st.login`/`st.user`）
 2. **アクセスURL変更**: `sslip.io`（自己署名証明書） → `*.run.app`（Google管理SSL証明書）
@@ -89,8 +98,8 @@ gcloud run deploy pay-dashboard \
 
 ### 次のアクション
 
-1. **旧LBインフラ削除**: 動作確認完了後に実施（forwarding-rules, target-https-proxies, url-maps, backend-services, ssl-certificates, IAP設定）
-2. **レート制限改善**: バッチの~380回のSheets API読み取りでレート制限に到達 → backoff/リトライ追加を検討
+1. ~~**旧LBインフラ削除**~~: ✅ 確認済み（全リソース削除済み）
+2. ~~**レート制限改善**~~: ✅ 実装済み（未コミット、featureブランチでPR予定）
 3. **将来課題**: position_rate/qualification_allowanceの一部メンバーで0値 → データ投入確認
 
 ### デプロイ済み状態
