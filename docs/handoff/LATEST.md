@@ -8,14 +8,15 @@
 Cloud Run + BigQuery + Streamlitダッシュボード本番稼働中。
 ダッシュボードをマルチページ化し、BQベースのユーザー認可、アーキテクチャドキュメント、管理設定を追加。
 
-### 今回の変更: Sheets APIレート制限改善（未コミット）
+### PR #12: Sheets APIレート制限改善（デプロイ済み rev 00014）
 
 1. **`_execute_with_throttle` ヘルパー追加** (`sheets_collector.py`): 全Sheets APIリクエストにスロットリング（0.5秒間隔）+ 自動リトライ（`num_retries=5`, exponential backoff）を適用
 2. **設定定数追加** (`config.py`): `SHEETS_API_NUM_RETRIES=5`, `SHEETS_API_SLEEP_BETWEEN_REQUESTS=0.5`
 3. **3箇所の`.execute()`置換**: `get_url_list`, `get_sheet_data`, `collect_members` で `_execute_with_throttle()` を使用
 4. **ログ改善**: HttpError時にtransient(429/5xx)/permanentのログレベル分離 + ステータスコード記録
-5. **ユニットテスト5件追加** (`tests/test_sheets_collector.py`): 全PASS
-6. **処理時間**: ~217秒 → ~409秒（Cloud Run 1800秒に対し余裕あり）
+5. **エラーハンドリング**: `get_url_list`にtry-except追加（レビュー指摘対応）
+6. **ユニットテスト6件追加** (`tests/test_sheets_collector.py`): 全PASS
+7. **処理時間**: ~217秒 → ~409秒（Cloud Run 1800秒に対し余裕あり）
 
 ### PR #11: Mermaid図レンダリング修正
 
@@ -99,12 +100,12 @@ gcloud run deploy pay-dashboard \
 ### 次のアクション
 
 1. ~~**旧LBインフラ削除**~~: ✅ 確認済み（全リソース削除済み）
-2. ~~**レート制限改善**~~: ✅ 実装済み（未コミット、featureブランチでPR予定）
+2. ~~**レート制限改善**~~: ✅ PR #12 マージ済み、rev 00014 デプロイ済み
 3. **将来課題**: position_rate/qualification_allowanceの一部メンバーで0値 → データ投入確認
 
 ### デプロイ済み状態
 
-- **Collector**: rev 00013（members A:K対応 + 先行読み取り）
+- **Collector**: rev 00014（レート制限改善: throttle 0.5s + num_retries=5）
 - **Dashboard**: rev 00034（Mermaid.js CDN + ダークモード + 図サイズ改善）
 - **BQ VIEWs**: v_gyomu_enriched, v_hojo_enriched, v_monthly_compensation デプロイ済み
 - **BQ Table**: withholding_targets, dashboard_users シードデータ投入済み
