@@ -13,6 +13,7 @@ import config
 from sheets_collector import (
     _execute_with_throttle,
     get_sheet_data,
+    get_url_list,
 )
 
 
@@ -85,5 +86,21 @@ class TestGetSheetData:
 
         mock_service = MagicMock()
         result = get_sheet_data(mock_service, "id123", "Sheet1", 1, "K")
+
+        assert result == []
+
+
+class TestGetUrlList:
+    """get_url_list のエラーハンドリングテスト"""
+
+    @patch("sheets_collector._execute_with_throttle")
+    def test_returns_empty_list_on_error(self, mock_throttle):
+        """APIエラー時に空リスト返却（バッチ全体クラッシュ防止）"""
+        mock_throttle.side_effect = HttpError(
+            httplib2.Response({"status": 429}), b"Rate Limit Exceeded"
+        )
+
+        mock_service = MagicMock()
+        result = get_url_list(mock_service)
 
         assert result == []

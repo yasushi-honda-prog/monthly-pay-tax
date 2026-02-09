@@ -99,7 +99,11 @@ def get_url_list(service) -> list[str]:
         spreadsheetId=config.MASTER_SPREADSHEET_ID,
         range=f"'{config.MASTER_SHEET_NAME}'!A{config.URL_START_ROW}:A",
     )
-    result = _execute_with_throttle(request, context="get_url_list")
+    try:
+        result = _execute_with_throttle(request, context="get_url_list")
+    except Exception as e:
+        logger.error("管理表URLリストの読み取りエラー: %s", e)
+        return []
 
     values = result.get("values", [])
     urls = []
@@ -184,12 +188,6 @@ def collect_all_data(service) -> dict[str, list[list]]:
                     )
                 else:
                     logger.info("  '%s': 0行", cfg["report_sheet_name"])
-            except HttpError as e:
-                status_code = e.resp.status if e.resp else "unknown"
-                logger.warning(
-                    "  [シートエラー] '%s': HTTP %s - %s",
-                    cfg["report_sheet_name"], status_code, e,
-                )
             except Exception as e:
                 logger.warning(
                     "  [シートエラー] '%s': %s", cfg["report_sheet_name"], e
