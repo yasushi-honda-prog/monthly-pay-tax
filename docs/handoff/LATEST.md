@@ -9,7 +9,7 @@ Cloud Run + BigQuery + Streamlitダッシュボード本番稼働中。
 ダッシュボードをマルチページ化し、BQベースのユーザー認可、アーキテクチャドキュメント、管理設定を追加。
 業務チェック管理表を追加し、checkerロールによるhojoデータの確認・管理が可能に。
 
-### 業務チェック管理表（未デプロイ）
+### 業務チェック管理表（デプロイ済み rev 00037）
 
 1. **BQテーブル `check_logs` 追加**: ステータス・メモ・操作ログの永続化（`schema.sql`）
 2. **checkerロール追加**: `auth.py`に`require_checker()`、`user_management.py`でchecker選択肢追加
@@ -123,9 +123,9 @@ gcloud run deploy pay-dashboard \
 ### デプロイ済み状態
 
 - **Collector**: rev 00014（レート制限改善: throttle 0.5s + num_retries=5）
-- **Dashboard**: rev 00036（表示名インライン編集 + コンパクトレイアウト）
+- **Dashboard**: rev 00037（業務チェック管理表 + checkerロール追加）
 - **BQ VIEWs**: v_gyomu_enriched, v_hojo_enriched, v_monthly_compensation デプロイ済み
-- **BQ Table**: withholding_targets, dashboard_users シードデータ投入済み
+- **BQ Table**: withholding_targets, dashboard_users, check_logs デプロイ済み
 
 ## アーキテクチャ
 
