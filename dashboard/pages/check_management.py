@@ -27,6 +27,11 @@ st.header("業務チェック管理表")
 st.caption("メンバーの補助＆立替報告を確認・管理します")
 
 CHECK_STATUSES = ["未確認", "確認中", "確認完了", "差戻し"]
+STATUS_DISPLAY = {
+    "未確認": "⬜ 未確認", "確認中": "🔵 確認中",
+    "確認完了": "✅ 確認完了", "差戻し": "🔴 差戻し",
+}
+DISPLAY_TO_STATUS = {v: k for k, v in STATUS_DISPLAY.items()}
 
 
 def _is_complete(val) -> bool:
@@ -225,7 +230,7 @@ edit_df = pd.DataFrame({
     "立替": filtered["reimbursement_num"].values,
     "総額": filtered["total_amount_num"].values,
     "月締め": filtered["monthly_complete"].apply(lambda x: "○" if _is_complete(x) else "×").values,
-    "ステータス": filtered["check_status"].values,
+    "ステータス": filtered["check_status"].map(STATUS_DISPLAY).values,
     "メモ": filtered["memo"].fillna("").values,
 })
 
@@ -233,7 +238,7 @@ edited_df = st.data_editor(
     edit_df,
     column_config={
         "ステータス": st.column_config.SelectboxColumn(
-            options=CHECK_STATUSES, required=True,
+            options=list(STATUS_DISPLAY.values()), required=True,
         ),
         "メモ": st.column_config.TextColumn(max_chars=1000),
         "時間": st.column_config.NumberColumn(format="%.1f"),
@@ -252,10 +257,12 @@ edited_df = st.data_editor(
 indices = filtered.index.tolist()
 changes = []
 for i in range(len(edit_df)):
-    orig_status = edit_df.iloc[i]["ステータス"]
+    orig_display = edit_df.iloc[i]["ステータス"]
     orig_memo = edit_df.iloc[i]["メモ"]
-    new_status = edited_df.iloc[i]["ステータス"]
+    new_display = edited_df.iloc[i]["ステータス"]
     new_memo = edited_df.iloc[i]["メモ"]
+    orig_status = DISPLAY_TO_STATUS.get(orig_display, orig_display)
+    new_status = DISPLAY_TO_STATUS.get(new_display, new_display)
 
     if new_status != orig_status or new_memo != orig_memo:
         actions = []
