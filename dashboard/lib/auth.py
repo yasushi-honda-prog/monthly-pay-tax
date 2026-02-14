@@ -85,3 +85,10 @@ def require_admin(email: str, role: str):
     if role != "admin":
         st.error("このページは管理者のみアクセスできます。")
         st.stop()
+
+
+def require_checker(email: str, role: str):
+    """checker以上のロールを要求。viewerならst.stopで停止。"""
+    if role not in ("checker", "admin"):
+        st.error("このページはチェック担当者のみアクセスできます。")
+        st.stop()

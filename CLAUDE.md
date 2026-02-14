@@ -30,6 +30,7 @@ SA鍵ファイルは使わない（ローカル開発時のみ `SA_KEY_PATH` 環
 - `dashboard/` - Streamlitダッシュボード（マルチページ構成）
   - `app.py` - エントリポイント（認証 + st.navigation ルーター）
   - `pages/dashboard.py` - 既存3タブ（月別報酬/スポンサー別/業務報告一覧）
+  - `pages/check_management.py` - 業務チェック管理表（checker/admin専用、BQ DML）
   - `pages/architecture.py` - Mermaidアーキテクチャ図
   - `pages/user_management.py` - ユーザー管理（admin専用、BQ DML）
   - `pages/admin_settings.py` - 管理設定（admin専用）
@@ -39,7 +40,7 @@ SA鍵ファイルは使わない（ローカル開発時のみ `SA_KEY_PATH` 環
   - `lib/styles.py` - 共有CSS
   - `lib/constants.py` - 定数
 - `コード.js` - 旧GASコード（参照用、稼働していない）
-- `infra/bigquery/schema.sql` - BQテーブルスキーマ定義（dashboard_users含む）
+- `infra/bigquery/schema.sql` - BQテーブルスキーマ定義（dashboard_users, check_logs含む）
   - `infra/bigquery/views.sql` - BQ VIEW定義（v_gyomu_enriched, v_hojo_enriched, v_monthly_compensation）
 - `infra/ar-cleanup-policy.json` - Artifact Registryクリーンアップポリシー
 - `docs/adr/` - Architecture Decision Records
@@ -67,21 +68,22 @@ gcloud run deploy pay-collector \
 | SA | `pay-collector@monthly-pay-tax.iam.gserviceaccount.com` |
 | Cloud Run URL | `https://pay-collector-209715990891.asia-northeast1.run.app` |
 | BQデータセット | `pay_reports` |
-| BQテーブル | `gyomu_reports`, `hojo_reports`, `members`, `withholding_targets`, `dashboard_users` |
+| BQテーブル | `gyomu_reports`, `hojo_reports`, `members`, `withholding_targets`, `dashboard_users`, `check_logs` |
 | BQ VIEWs | `v_gyomu_enriched`, `v_hojo_enriched`, `v_monthly_compensation` |
 | AR | `cloud-run-images`（最新2イメージ保持） |
 
 ## BQスキーマ
 
-5テーブル構成。データテーブルはすべてSTRING型 + ingested_at (TIMESTAMP)。
+6テーブル構成。データテーブルはすべてSTRING型 + ingested_at (TIMESTAMP)。
 
 - `gyomu_reports`: source_url, year, date, day_of_week, activity_category, work_category, sponsor, description, unit_price, hours, amount
 - `hojo_reports`: source_url, year, month, hours, compensation, dx_subsidy, reimbursement, total_amount, monthly_complete, dx_receipt, expense_receipt
 - `members`: report_url, member_id, nickname, gws_account, full_name, qualification_allowance, position_rate, corporate_sheet, donation_sheet, qualification_sheet, sheet_number
 - `withholding_targets`: work_category, licensed_member_id（源泉対象リスト: 15業務分類 + 2士業メンバー）
 - `dashboard_users`: email, role, display_name, added_by, created_at, updated_at（ホワイトリスト + ロール管理）
+- `check_logs`: source_url, year, month, status, checker_email, memo, action_log, updated_at（業務チェック管理）
 
-`source_url`（gyomu/hojo）= `report_url`（members）で結合してメンバー名を取得。
+`source_url`（gyomu/hojo）= `report_url`（members）= `source_url`（check_logs）で結合。
 
 ### BQ VIEWs（データ加工レイヤー）
 
@@ -106,9 +108,10 @@ GASバインドSSのスプレッドシート関数パイプラインをSQLで再
 
 | ページ | ファイル | アクセス権 |
 |--------|---------|-----------|
-| ダッシュボード（3タブ） | `pages/dashboard.py` | viewer/admin |
-| アーキテクチャ | `pages/architecture.py` | viewer/admin |
-| ヘルプ | `pages/help.py` | viewer/admin |
+| ダッシュボード（3タブ） | `pages/dashboard.py` | viewer/checker/admin |
+| 業務チェック | `pages/check_management.py` | checker/admin |
+| アーキテクチャ | `pages/architecture.py` | viewer/checker/admin |
+| ヘルプ | `pages/help.py` | viewer/checker/admin |
 | ユーザー管理 | `pages/user_management.py` | adminのみ |
 | 管理設定 | `pages/admin_settings.py` | adminのみ |
 

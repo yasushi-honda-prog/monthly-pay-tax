@@ -133,7 +133,7 @@ with st.form("add_user_form"):
     with col1:
         new_email = st.text_input("メールアドレス", placeholder="user@tadakayo.jp")
     with col2:
-        new_role = st.selectbox("ロール", ["viewer", "admin"])
+        new_role = st.selectbox("ロール", ["viewer", "checker", "admin"])
     with col3:
         display_name = st.text_input("表示名（任意）", placeholder="ニックネーム")
 
@@ -197,10 +197,11 @@ else:
                     st.markdown(f"🔒 **{row['role']}**")
                 else:
                     current_role = row["role"]
+                    role_options = ["admin", "checker", "viewer"]
                     new_r = st.selectbox(
                         "ロール",
-                        ["admin", "viewer"],
-                        index=0 if current_role == "admin" else 1,
+                        role_options,
+                        index=role_options.index(current_role) if current_role in role_options else 2,
                         key=f"role_{row['email']}",
                         label_visibility="collapsed",
                     )

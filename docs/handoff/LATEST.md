@@ -1,12 +1,22 @@
 # ハンドオフメモ - monthly-pay-tax
 
-**更新日**: 2026-02-09
-**フェーズ**: 6完了 + Mermaid図修正 + レート制限改善 + ユーザー管理改善
+**更新日**: 2026-02-14
+**フェーズ**: 6完了 + 業務チェック管理表
 
 ## 現在の状態
 
 Cloud Run + BigQuery + Streamlitダッシュボード本番稼働中。
 ダッシュボードをマルチページ化し、BQベースのユーザー認可、アーキテクチャドキュメント、管理設定を追加。
+業務チェック管理表を追加し、checkerロールによるhojoデータの確認・管理が可能に。
+
+### 業務チェック管理表（未デプロイ）
+
+1. **BQテーブル `check_logs` 追加**: ステータス・メモ・操作ログの永続化（`schema.sql`）
+2. **checkerロール追加**: `auth.py`に`require_checker()`、`user_management.py`でchecker選択肢追加
+3. **新ページ `check_management.py`**: メンバーのhojo報告一覧 + チェックステータス管理 + メモ + 操作ログ
+4. **app.pyルーティング**: checker/admin向けに「業務チェック」ページを表示
+5. **状態遷移**: 未確認 → 確認中 → 確認完了 / 差戻し（MERGE文で原子的更新）
+6. **機能**: 年月セレクタ、KPIカード（完了/未確認/差戻し数）、フィルタ、スプレッドシートリンク、操作ログ自動記録
 
 ### PR #13-#14: ユーザー管理 表示名編集機能（デプロイ済み rev 00036）
 
@@ -62,6 +72,7 @@ dashboard/
   requirements.txt          # Mermaid.js CDN利用（streamlit-mermaid廃止）
   pages/
     dashboard.py            # 既存3タブ（app.pyから抽出）
+    check_management.py     # 業務チェック管理表（checker/admin）
     architecture.py         # Mermaidアーキテクチャ図
     user_management.py      # 管理者: ホワイトリスト管理 + 表示名編集
     admin_settings.py       # 管理者: 設定・システム情報
@@ -144,8 +155,8 @@ Cloud Run "pay-collector" (Python 3.12 / Flask / gunicorn / 2GiB)
           ▼
 Cloud Run "pay-dashboard" (Streamlit / 512MiB / マルチページ)
     アクセス: https://pay-dashboard-209715990891.asia-northeast1.run.app
-    認証: Streamlit OIDC (Google OAuth) → BQ dashboard_users → admin/viewer ロール分岐
-    ページ: ダッシュボード / アーキテクチャ / ヘルプ / ユーザー管理(admin) / 管理設定(admin)
+    認証: Streamlit OIDC (Google OAuth) → BQ dashboard_users → admin/checker/viewer ロール分岐
+    ページ: ダッシュボード / 業務チェック(checker/admin) / アーキテクチャ / ヘルプ / ユーザー管理(admin) / 管理設定(admin)
 ```
 
 ## 環境情報
@@ -171,7 +182,9 @@ Cloud Run "pay-dashboard" (Streamlit / 512MiB / マルチページ)
 
 **dashboard_users**: email, role, display_name, added_by, created_at, updated_at
 
-結合キー: `source_url` (gyomu/hojo) = `report_url` (members)
+**check_logs**: source_url, year, month, status, checker_email, memo, action_log, updated_at
+
+結合キー: `source_url` (gyomu/hojo) = `report_url` (members) = `source_url` (check_logs)
 
 ### BQ VIEWs
 
