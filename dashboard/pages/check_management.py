@@ -71,6 +71,8 @@ def load_check_data(year: int, month: int):
         h.reimbursement,
         h.total_amount,
         h.monthly_complete,
+        h.dx_receipt,
+        h.expense_receipt,
         cl.status AS check_status,
         cl.checker_email,
         cl.memo,
@@ -238,7 +240,7 @@ with k4:
     render_kpi("未確認", str(counts.get("未確認", 0)))
 with k5:
     mc_done = df["monthly_complete"].apply(_is_complete).sum()
-    render_kpi("月締め完了", f"{mc_done} / {total}")
+    render_kpi("当月入力完了", f"{mc_done} / {total}")
 
 # --- 進捗バー ---
 completed = counts.get("確認完了", 0)
@@ -261,12 +263,15 @@ if filtered.empty:
 
 edit_df = pd.DataFrame({
     "名前": filtered["nickname"].values,
+    "URL": filtered["report_url"].values,
     "時間": filtered["hours_num"].values,
     "報酬": filtered["compensation_num"].values,
     "DX補助": filtered["dx_subsidy_num"].values,
     "立替": filtered["reimbursement_num"].values,
     "総額": filtered["total_amount_num"].values,
-    "月締め": filtered["monthly_complete"].apply(lambda x: "○" if _is_complete(x) else "×").values,
+    "当月入力完了": filtered["monthly_complete"].apply(lambda x: "○" if _is_complete(x) else "").values,
+    "DX領収書": filtered["dx_receipt"].fillna("").values,
+    "立替領収書": filtered["expense_receipt"].fillna("").values,
     "ステータス": filtered["check_status"].map(STATUS_DISPLAY).values,
     "メモ": filtered["memo"].fillna("").values,
 })
@@ -274,6 +279,7 @@ edit_df = pd.DataFrame({
 edited_df = st.data_editor(
     edit_df,
     column_config={
+        "URL": st.column_config.LinkColumn(display_text="開く"),
         "ステータス": st.column_config.SelectboxColumn(
             options=list(STATUS_DISPLAY.values()), required=True,
         ),
@@ -284,7 +290,7 @@ edited_df = st.data_editor(
         "立替": st.column_config.NumberColumn(format="¥%d"),
         "総額": st.column_config.NumberColumn(format="¥%d"),
     },
-    disabled=["名前", "時間", "報酬", "DX補助", "立替", "総額", "月締め"],
+    disabled=["名前", "URL", "時間", "報酬", "DX補助", "立替", "総額", "当月入力完了", "DX領収書", "立替領収書"],
     use_container_width=True,
     hide_index=True,
     key="check_editor",
