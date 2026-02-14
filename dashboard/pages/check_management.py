@@ -199,6 +199,10 @@ with k5:
     mc_done = df["monthly_complete"].apply(_is_complete).sum()
     render_kpi("月締め完了", f"{mc_done} / {total}")
 
+# --- 進捗バー ---
+completed = counts.get("確認完了", 0)
+progress_val = completed / total if total > 0 else 0
+st.progress(progress_val, text=f"チェック進捗: {completed}/{total} 件完了")
 
 filtered = df.copy()
 if status_filter != "すべて":
@@ -237,23 +241,47 @@ st.dataframe(
 )
 
 
-# --- 詳細・編集パネル ---
+# --- メンバーチェック ---
 st.divider()
-st.subheader("メンバー詳細・編集")
 
 if filtered.empty:
     st.info("表示するメンバーがありません")
     st.stop()
 
-# メンバー選択
+st.markdown("""<div class="check-flow-hint">
+    <b>使い方:</b> 下のドロップダウンでメンバーを選択 → ステータスボタンをクリックして確認状態を更新
+</div>""", unsafe_allow_html=True)
+
+# メンバー選択 + 「次の未確認へ」ナビゲーション
+unchecked_indices = [i for i in filtered.index if filtered.loc[i, "check_status"] == "未確認"]
+sel_col, nav_col = st.columns([3, 1])
+
 indices = filtered.index.tolist()
-selected_idx = st.selectbox(
-    "メンバー選択", indices,
-    format_func=lambda i: f"{STATUS_ICONS.get(filtered.loc[i, 'check_status'], '')} {filtered.loc[i, 'nickname']}",
-    key="chk_member",
-)
+with sel_col:
+    selected_idx = st.selectbox(
+        "メンバーを選択", indices,
+        format_func=lambda i: f"{STATUS_ICONS.get(filtered.loc[i, 'check_status'], '')} {filtered.loc[i, 'nickname']}",
+        key="chk_member",
+    )
+
+with nav_col:
+    st.markdown("<div style='height: 1.6rem'></div>", unsafe_allow_html=True)
+    remaining = len(unchecked_indices)
+    if remaining > 0:
+        # 現在選択中の次の未確認を探す
+        next_candidates = [i for i in unchecked_indices if i != selected_idx]
+        if next_candidates and st.button(f"次の未確認へ ({remaining}件)", key="next_unchecked", use_container_width=True):
+            st.session_state["chk_member"] = next_candidates[0]
+            st.rerun()
+    else:
+        st.success("全件確認済み", icon="🎉")
+
 member = filtered.loc[selected_idx]
 src = member["report_url"]
+current_status = member["check_status"]
+current_memo = member["memo"] if pd.notna(member["memo"]) else ""
+widget_key = f"{src}_{selected_year}_{selected_month}"
+expected_ts = member["check_updated_at"] if pd.notna(member.get("check_updated_at")) else None
 
 with st.container(border=True):
     # ヘッダー（名前 + スプレッドシートリンク）
@@ -281,60 +309,57 @@ with st.container(border=True):
 
     st.divider()
 
-    # ステータス変更（自動保存） + メモ（ボタン保存）
-    current_status = member["check_status"]
-    current_memo = member["memo"] if pd.notna(member["memo"]) else ""
-    widget_key = f"{src}_{selected_year}_{selected_month}"
-
-    expected_ts = member["check_updated_at"] if pd.notna(member.get("check_updated_at")) else None
-
-    s1, s2 = st.columns([1, 2])
-    with s1:
-        status_idx = CHECK_STATUSES.index(current_status) if current_status in CHECK_STATUSES else 0
-        new_status = st.selectbox(
-            "チェックステータス", CHECK_STATUSES,
-            index=status_idx,
-            key=f"st_{widget_key}",
-        )
-        if new_status != current_status:
-            try:
-                save_check(
-                    src, selected_year, selected_month,
-                    new_status, current_memo, email,
-                    member["action_log"],
-                    f"ステータス: {current_status} → {new_status}",
-                    expected_updated_at=expected_ts,
-                )
-                st.toast(f"ステータスを「{new_status}」に更新しました")
-                st.rerun()
-            except ValueError as e:
-                st.warning(str(e))
-                load_check_data.clear()
-                st.rerun()
-            except Exception as e:
-                st.error(f"更新エラー: {e}")
-
-    with s2:
-        new_memo = st.text_area("メモ", value=current_memo, key=f"me_{widget_key}", height=80, max_chars=1000)
-        if st.button("メモを保存", key=f"sv_{widget_key}"):
-            if new_memo != current_memo:
+    # ステータス変更（ボタン式 — クリックで即座に保存）
+    st.markdown('<div class="status-section-label">チェックステータス</div>', unsafe_allow_html=True)
+    btn_cols = st.columns(len(CHECK_STATUSES))
+    for i, status in enumerate(CHECK_STATUSES):
+        with btn_cols[i]:
+            is_current = status == current_status
+            if st.button(
+                f"{STATUS_ICONS[status]} {status}",
+                key=f"btn_{status}_{widget_key}",
+                disabled=is_current,
+                type="primary" if is_current else "secondary",
+                use_container_width=True,
+            ):
                 try:
                     save_check(
                         src, selected_year, selected_month,
-                        current_status, new_memo, email,
-                        member["action_log"], "メモ更新",
+                        status, current_memo, email,
+                        member["action_log"],
+                        f"ステータス: {current_status} → {status}",
                         expected_updated_at=expected_ts,
                     )
-                    st.toast("メモを保存しました")
+                    st.toast(f"ステータスを「{status}」に更新しました")
                     st.rerun()
                 except ValueError as e:
                     st.warning(str(e))
                     load_check_data.clear()
                     st.rerun()
                 except Exception as e:
-                    st.error(f"保存エラー: {e}")
-            else:
-                st.info("変更がありません")
+                    st.error(f"更新エラー: {e}")
+
+    # メモ
+    new_memo = st.text_area("メモ", value=current_memo, key=f"me_{widget_key}", height=80, max_chars=1000)
+    if st.button("メモを保存", key=f"sv_{widget_key}", use_container_width=False):
+        if new_memo != current_memo:
+            try:
+                save_check(
+                    src, selected_year, selected_month,
+                    current_status, new_memo, email,
+                    member["action_log"], "メモ更新",
+                    expected_updated_at=expected_ts,
+                )
+                st.toast("メモを保存しました")
+                st.rerun()
+            except ValueError as e:
+                st.warning(str(e))
+                load_check_data.clear()
+                st.rerun()
+            except Exception as e:
+                st.error(f"保存エラー: {e}")
+        else:
+            st.info("変更がありません")
 
     # 操作ログ
     with st.expander("操作ログ"):

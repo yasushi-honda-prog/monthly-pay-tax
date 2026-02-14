@@ -100,6 +100,28 @@ CUSTOM_CSS = """
         opacity: 0.5;
         margin-top: 0.2rem;
     }
+
+    /* チェック管理: ワークフローヒント */
+    .check-flow-hint {
+        background: rgba(14, 165, 233, 0.06);
+        border-left: 3px solid #0EA5E9;
+        padding: 0.5rem 0.8rem;
+        border-radius: 0 6px 6px 0;
+        font-size: 0.82rem;
+        margin: 0.3rem 0 0.8rem 0;
+        opacity: 0.85;
+        line-height: 1.5;
+    }
+
+    /* チェック管理: メンバーカード内ステータスセクション */
+    .status-section-label {
+        font-size: 0.75rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        opacity: 0.5;
+        margin-bottom: 0.4rem;
+    }
 </style>
 """
 
