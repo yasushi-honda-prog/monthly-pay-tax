@@ -1,6 +1,6 @@
 # ハンドオフメモ - monthly-pay-tax
 
-**更新日**: 2026-02-14
+**更新日**: 2026-02-15
 **フェーズ**: 6完了 + 業務チェック管理表
 
 ## 現在の状態
@@ -9,7 +9,21 @@ Cloud Run + BigQuery + Streamlitダッシュボード本番稼働中。
 ダッシュボードをマルチページ化し、BQベースのユーザー認可、アーキテクチャドキュメント、管理設定を追加。
 業務チェック管理表を追加し、checkerロールによるhojoデータの確認・管理が可能に。
 
-### 業務チェック管理表（デプロイ済み rev 00037）
+### PR #17: 業務チェック管理表 UX改善（デプロイ済み rev 00039）
+
+1. **進捗バー追加**: KPIカード下にチェック完了率をプログレスバーで表示
+2. **ステータスボタン化**: selectboxからワンクリックボタン式に変更（未確認/確認中/確認完了/差戻し）
+3. **「次の未確認へ」ナビ**: 未確認メンバーへのジャンプボタン（残件数表示）
+4. **ワークフローヒント**: 操作方法の案内テキストを追加
+5. **メンバーセレクタ改善**: ドロップダウンにステータスアイコン表示
+
+### PR #16: DRYリファクタ + サイドバーUI統一（デプロイ済み rev 00038）
+
+1. **`lib/ui_helpers.py` 新規作成**: `render_kpi`, `clean_numeric_scalar/series`, `fill_empty_nickname`, `valid_years`, `render_sidebar_year_month` を集約
+2. **dashboard.py**: 重複関数をインポートに置換、サイドバー年月セレクタを共通化
+3. **check_management.py**: インラインフィルタをサイドバーに移動、重複関数をインポートに置換
+
+### PR #15: 業務チェック管理表（デプロイ済み rev 00037）
 
 1. **BQテーブル `check_logs` 追加**: ステータス・メモ・操作ログの永続化（`schema.sql`）
 2. **checkerロール追加**: `auth.py`に`require_checker()`、`user_management.py`でchecker選択肢追加
@@ -83,6 +97,7 @@ dashboard/
     bq_client.py            # 共有BQクライアント + load_data()
     styles.py               # 共有CSS
     constants.py            # 定数
+    ui_helpers.py           # 共通UIユーティリティ（KPI, 数値変換, 年月セレクタ）
 ```
 
 ### デプロイ手順
@@ -123,7 +138,7 @@ gcloud run deploy pay-dashboard \
 ### デプロイ済み状態
 
 - **Collector**: rev 00014（レート制限改善: throttle 0.5s + num_retries=5）
-- **Dashboard**: rev 00037（業務チェック管理表 + checkerロール追加）
+- **Dashboard**: rev 00039（業務チェックUX改善: ステータスボタン + 進捗バー + ナビ）
 - **BQ VIEWs**: v_gyomu_enriched, v_hojo_enriched, v_monthly_compensation デプロイ済み
 - **BQ Table**: withholding_targets, dashboard_users, check_logs デプロイ済み
 
