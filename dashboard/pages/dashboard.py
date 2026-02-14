@@ -10,57 +10,15 @@ import streamlit as st
 
 from lib.bq_client import load_data
 from lib.constants import PROJECT_ID, DATASET
+from lib.ui_helpers import (
+    clean_numeric_series,
+    fill_empty_nickname,
+    render_kpi,
+    render_sidebar_year_month,
+    valid_years,
+)
 
 logger = logging.getLogger(__name__)
-
-
-# --- ユーティリティ ---
-def valid_years(series):
-    """年カラムから有効な年（2020-2030の整数）のみ抽出"""
-    def to_year(v):
-        try:
-            y = int(float(v))
-            return y if 2020 <= y <= 2030 else None
-        except (ValueError, TypeError):
-            return None
-    return series.apply(to_year)
-
-
-def fill_empty_nickname(df):
-    """空のnicknameを「(未設定)」に置換"""
-    df["nickname"] = df["nickname"].fillna("").apply(lambda x: x.strip() if x else "")
-    df.loc[df["nickname"] == "", "nickname"] = "(未設定)"
-    return df
-
-
-def clean_numeric(series):
-    """文字列の数値カラムをfloatに変換（通貨記号, カンマ, スプレッドシートエラー対応）"""
-    cleaned = (
-        series.astype(str)
-        .str.replace("¥", "", regex=False)
-        .str.replace("＄", "", regex=False)
-        .str.replace("$", "", regex=False)
-        .str.replace(",", "", regex=False)
-        .str.strip()
-    )
-    def safe_float(x):
-        if not x or x in ("", "None", "nan") or x.startswith("#"):
-            return 0.0
-        try:
-            return float(x)
-        except (ValueError, TypeError):
-            return 0.0
-    return cleaned.apply(safe_float)
-
-
-def render_kpi(label: str, value: str):
-    """カスタムKPIカードを描画"""
-    st.markdown(f"""
-    <div class="kpi-card">
-        <div class="kpi-label">{label}</div>
-        <div class="kpi-value">{value}</div>
-    </div>
-    """, unsafe_allow_html=True)
 
 
 # --- データ読み込み ---
@@ -149,12 +107,9 @@ with st.sidebar:
                     unsafe_allow_html=True)
     st.divider()
 
-    # 年選択
-    st.markdown('<div class="sidebar-section-title">期間</div>', unsafe_allow_html=True)
-    all_years = list(range(2024, 2027))
-    selected_year = st.selectbox("年度", all_years, index=len(all_years) - 1, key="global_year")
-    month_options = ["全月"] + [f"{m}月" for m in range(1, 13)]
-    selected_month = st.selectbox("月", month_options, key="global_month")
+    selected_year, selected_month = render_sidebar_year_month(
+        year_key="global_year", month_key="global_month", include_all_month=True,
+    )
 
     # メンバー選択
     st.markdown('<div class="sidebar-section-title">メンバー</div>', unsafe_allow_html=True)
@@ -349,7 +304,7 @@ with tab2:
         st.info("データがありません")
     else:
         df_gyomu = fill_empty_nickname(df_gyomu)
-        df_gyomu["amount_num"] = clean_numeric(df_gyomu["amount"])
+        df_gyomu["amount_num"] = clean_numeric_series(df_gyomu["amount"])
         df_gyomu["month_num"] = df_gyomu["month"].astype("Int64").astype(str).replace("<NA>", "")
         df_gyomu["year"] = valid_years(df_gyomu["year"])
         df_gyomu = df_gyomu[df_gyomu["year"].notna()]

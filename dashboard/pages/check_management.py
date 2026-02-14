@@ -5,7 +5,7 @@
 
 import json
 import logging
-from datetime import date, datetime, timezone
+from datetime import datetime, timezone
 
 import pandas as pd
 import streamlit as st
@@ -14,6 +14,7 @@ from google.cloud import bigquery
 from lib.auth import require_checker
 from lib.bq_client import get_bq_client
 from lib.constants import PROJECT_ID, DATASET, CHECK_LOGS_TABLE
+from lib.ui_helpers import clean_numeric_scalar, fill_empty_nickname, render_kpi, render_sidebar_year_month
 
 logger = logging.getLogger(__name__)
 
@@ -29,43 +30,28 @@ CHECK_STATUSES = ["未確認", "確認中", "確認完了", "差戻し"]
 STATUS_ICONS = {"未確認": "⬜", "確認中": "🔵", "確認完了": "✅", "差戻し": "🔴"}
 
 
-def _clean_num(val) -> float:
-    """文字列の数値をfloatに変換"""
-    if pd.isna(val) or val is None:
-        return 0.0
-    s = str(val).replace("¥", "").replace(",", "").replace("＄", "").replace("$", "").strip()
-    if not s or s in ("None", "nan") or s.startswith("#"):
-        return 0.0
-    try:
-        return float(s)
-    except (ValueError, TypeError):
-        return 0.0
-
-
 def _is_complete(val) -> bool:
     """月締め完了判定"""
     return str(val).strip().lower() in ("true", "1", "○", "済")
 
 
-def _render_kpi(label: str, value: str):
-    """KPIカード描画"""
-    st.markdown(f"""
-    <div class="kpi-card">
-        <div class="kpi-label">{label}</div>
-        <div class="kpi-value">{value}</div>
-    </div>
-    """, unsafe_allow_html=True)
+# --- サイドバー ---
+with st.sidebar:
+    st.markdown("### ✅ 業務チェック")
+    st.divider()
 
+    selected_year, selected_month = render_sidebar_year_month(
+        year_key="check_year", month_key="check_month",
+    )
 
-# --- 年月セレクタ ---
-col_y, col_m, col_spacer = st.columns([1, 1, 4])
-with col_y:
-    selected_year = st.selectbox("年", list(range(2024, 2027)), index=2, key="check_year")
-with col_m:
-    selected_month = st.selectbox(
-        "月", list(range(1, 13)),
-        index=date.today().month - 1,
-        key="check_month",
+    st.markdown('<div class="sidebar-section-title">フィルタ</div>', unsafe_allow_html=True)
+    status_filter = st.selectbox(
+        "ステータス", ["すべて"] + CHECK_STATUSES, key="chk_filter",
+    )
+    name_search = st.text_input(
+        "名前検索", key="chk_search",
+        placeholder="ニックネームで絞り込み...",
+        label_visibility="collapsed",
     )
 
 
@@ -191,10 +177,9 @@ if df.empty:
 
 # データ加工
 for col in ["hours", "compensation", "dx_subsidy", "reimbursement", "total_amount"]:
-    df[f"{col}_num"] = df[col].apply(_clean_num)
+    df[f"{col}_num"] = df[col].apply(clean_numeric_scalar)
 df["check_status"] = df["check_status"].fillna("未確認")
-df["nickname"] = df["nickname"].fillna("").apply(lambda x: x.strip() if x else "")
-df.loc[df["nickname"] == "", "nickname"] = "(未設定)"
+df = fill_empty_nickname(df)
 
 
 # --- KPIカード ---
@@ -203,29 +188,17 @@ counts = df["check_status"].value_counts()
 
 k1, k2, k3, k4, k5 = st.columns(5)
 with k1:
-    _render_kpi("確認完了", f"{counts.get('確認完了', 0)} / {total}")
+    render_kpi("確認完了", f"{counts.get('確認完了', 0)} / {total}")
 with k2:
-    _render_kpi("確認中", str(counts.get("確認中", 0)))
+    render_kpi("確認中", str(counts.get("確認中", 0)))
 with k3:
-    _render_kpi("差戻し", str(counts.get("差戻し", 0)))
+    render_kpi("差戻し", str(counts.get("差戻し", 0)))
 with k4:
-    _render_kpi("未確認", str(counts.get("未確認", 0)))
+    render_kpi("未確認", str(counts.get("未確認", 0)))
 with k5:
     mc_done = df["monthly_complete"].apply(_is_complete).sum()
-    _render_kpi("月締め完了", f"{mc_done} / {total}")
+    render_kpi("月締め完了", f"{mc_done} / {total}")
 
-
-# --- フィルタ ---
-st.divider()
-f1, f2 = st.columns([1, 2])
-with f1:
-    status_filter = st.selectbox("ステータス", ["すべて"] + CHECK_STATUSES, key="chk_filter")
-with f2:
-    name_search = st.text_input(
-        "名前検索", key="chk_search",
-        placeholder="ニックネームで絞り込み...",
-        label_visibility="collapsed",
-    )
 
 filtered = df.copy()
 if status_filter != "すべて":
@@ -294,15 +267,15 @@ with st.container(border=True):
     # hojoデータ表示
     d1, d2, d3, d4, d5, d6 = st.columns(6)
     with d1:
-        st.metric("時間", f"{_clean_num(member['hours']):.1f}")
+        st.metric("時間", f"{clean_numeric_scalar(member['hours']):.1f}")
     with d2:
-        st.metric("報酬", f"¥{_clean_num(member['compensation']):,.0f}")
+        st.metric("報酬", f"¥{clean_numeric_scalar(member['compensation']):,.0f}")
     with d3:
-        st.metric("DX補助", f"¥{_clean_num(member['dx_subsidy']):,.0f}")
+        st.metric("DX補助", f"¥{clean_numeric_scalar(member['dx_subsidy']):,.0f}")
     with d4:
-        st.metric("立替", f"¥{_clean_num(member['reimbursement']):,.0f}")
+        st.metric("立替", f"¥{clean_numeric_scalar(member['reimbursement']):,.0f}")
     with d5:
-        st.metric("総額", f"¥{_clean_num(member['total_amount']):,.0f}")
+        st.metric("総額", f"¥{clean_numeric_scalar(member['total_amount']):,.0f}")
     with d6:
         st.metric("月締め", "○" if _is_complete(member["monthly_complete"]) else "×")
 
