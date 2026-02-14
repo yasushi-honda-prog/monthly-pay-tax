@@ -248,9 +248,9 @@ edited_df = st.data_editor(
     key="check_editor",
 )
 
-# 変更検出 & 即時保存
+# 変更検出 & 一括保存
 indices = filtered.index.tolist()
-changes_saved = False
+changes = []
 for i in range(len(edit_df)):
     orig_status = edit_df.iloc[i]["ステータス"]
     orig_memo = edit_df.iloc[i]["メモ"]
@@ -258,13 +258,17 @@ for i in range(len(edit_df)):
     new_memo = edited_df.iloc[i]["メモ"]
 
     if new_status != orig_status or new_memo != orig_memo:
-        member = filtered.loc[indices[i]]
         actions = []
         if new_status != orig_status:
             actions.append(f"ステータス: {orig_status} → {new_status}")
         if new_memo != orig_memo:
             actions.append("メモ更新")
+        changes.append((indices[i], new_status, new_memo, actions))
 
+if changes:
+    saved = 0
+    for idx, new_status, new_memo, actions in changes:
+        member = filtered.loc[idx]
         try:
             save_check(
                 member["report_url"], selected_year, selected_month,
@@ -272,14 +276,17 @@ for i in range(len(edit_df)):
                 member["action_log"], " / ".join(actions),
                 expected_updated_at=member["check_updated_at"] if pd.notna(member.get("check_updated_at")) else None,
             )
-            st.toast(f"{member['nickname']}: {' / '.join(actions)}")
-            changes_saved = True
+            saved += 1
         except ValueError as e:
-            st.warning(str(e))
+            st.error(f"競合エラー ({member['nickname']}): {e}")
+            load_check_data.clear()
+            st.rerun()
         except Exception as e:
             st.error(f"保存エラー ({member['nickname']}): {e}")
+            load_check_data.clear()
+            st.rerun()
 
-if changes_saved:
+    st.toast(f"{saved}件の変更を保存しました")
     load_check_data.clear()
     st.rerun()
 
