@@ -1,0 +1,383 @@
+"""業務チェック管理表（checker/admin専用）
+
+メンバーの補助＆立替報告を確認し、チェックステータス・メモを管理する。
+"""
+
+import json
+import logging
+from datetime import date, datetime, timezone
+
+import pandas as pd
+import streamlit as st
+from google.cloud import bigquery
+
+from lib.auth import require_checker
+from lib.bq_client import get_bq_client
+from lib.constants import PROJECT_ID, DATASET, CHECK_LOGS_TABLE
+
+logger = logging.getLogger(__name__)
+
+# --- 認証チェック ---
+email = st.session_state.get("user_email", "")
+role = st.session_state.get("user_role", "")
+require_checker(email, role)
+
+st.header("業務チェック管理表")
+st.caption("メンバーの補助＆立替報告を確認・管理します")
+
+CHECK_STATUSES = ["未確認", "確認中", "確認完了", "差戻し"]
+STATUS_ICONS = {"未確認": "⬜", "確認中": "🔵", "確認完了": "✅", "差戻し": "🔴"}
+
+
+def _clean_num(val) -> float:
+    """文字列の数値をfloatに変換"""
+    if pd.isna(val) or val is None:
+        return 0.0
+    s = str(val).replace("¥", "").replace(",", "").replace("＄", "").replace("$", "").strip()
+    if not s or s in ("None", "nan") or s.startswith("#"):
+        return 0.0
+    try:
+        return float(s)
+    except (ValueError, TypeError):
+        return 0.0
+
+
+def _is_complete(val) -> bool:
+    """月締め完了判定"""
+    return str(val).strip().lower() in ("true", "1", "○", "済")
+
+
+def _render_kpi(label: str, value: str):
+    """KPIカード描画"""
+    st.markdown(f"""
+    <div class="kpi-card">
+        <div class="kpi-label">{label}</div>
+        <div class="kpi-value">{value}</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+
+# --- 年月セレクタ ---
+col_y, col_m, col_spacer = st.columns([1, 1, 4])
+with col_y:
+    selected_year = st.selectbox("年", list(range(2024, 2027)), index=2, key="check_year")
+with col_m:
+    selected_month = st.selectbox(
+        "月", list(range(1, 13)),
+        index=date.today().month - 1,
+        key="check_month",
+    )
+
+
+# --- データ読み込み ---
+@st.cache_data(ttl=300)
+def load_check_data(year: int, month: int):
+    """メンバー + hojo + check_logs を結合して取得"""
+    client = get_bq_client()
+    query = f"""
+    SELECT
+        m.report_url,
+        m.nickname,
+        m.member_id,
+        h.hours,
+        h.compensation,
+        h.dx_subsidy,
+        h.reimbursement,
+        h.total_amount,
+        h.monthly_complete,
+        cl.status AS check_status,
+        cl.checker_email,
+        cl.memo,
+        cl.action_log,
+        cl.updated_at AS check_updated_at
+    FROM `{PROJECT_ID}.{DATASET}.members` m
+    LEFT JOIN `{PROJECT_ID}.{DATASET}.v_hojo_enriched` h
+        ON m.report_url = h.source_url
+        AND h.year = @year AND h.month = @month
+    LEFT JOIN `{CHECK_LOGS_TABLE}` cl
+        ON m.report_url = cl.source_url
+        AND cl.year = @year AND cl.month = @month
+    WHERE m.report_url IS NOT NULL
+    ORDER BY m.nickname
+    """
+    job_config = bigquery.QueryJobConfig(
+        query_parameters=[
+            bigquery.ScalarQueryParameter("year", "INT64", year),
+            bigquery.ScalarQueryParameter("month", "INT64", month),
+        ]
+    )
+    return client.query(query, job_config=job_config).to_dataframe()
+
+
+def save_check(source_url, year, month, status, memo, checker_email, existing_log, action_desc, expected_updated_at=None):
+    """チェックログを保存（MERGE + 楽観的ロック）"""
+    client = get_bq_client()
+
+    # 操作ログ追記（型安全）
+    try:
+        logs = json.loads(existing_log) if existing_log and pd.notna(existing_log) else []
+        if not isinstance(logs, list):
+            logs = []
+    except (json.JSONDecodeError, TypeError):
+        logs = []
+    logs = [e for e in logs if isinstance(e, dict)]
+    logs.append({
+        "ts": datetime.now(timezone.utc).isoformat(),
+        "user": checker_email,
+        "action": action_desc,
+    })
+    new_log = json.dumps(logs, ensure_ascii=False)
+
+    params = [
+        bigquery.ScalarQueryParameter("source_url", "STRING", source_url),
+        bigquery.ScalarQueryParameter("year", "INT64", year),
+        bigquery.ScalarQueryParameter("month", "INT64", month),
+        bigquery.ScalarQueryParameter("status", "STRING", status),
+        bigquery.ScalarQueryParameter("checker_email", "STRING", checker_email),
+        bigquery.ScalarQueryParameter("memo", "STRING", memo or None),
+        bigquery.ScalarQueryParameter("action_log", "STRING", new_log),
+    ]
+
+    # 楽観的ロック: 既存レコードがある場合はupdated_atを検証
+    if expected_updated_at is not None and pd.notna(expected_updated_at):
+        params.append(bigquery.ScalarQueryParameter("expected_updated_at", "TIMESTAMP", expected_updated_at))
+        query = f"""
+        MERGE `{CHECK_LOGS_TABLE}` T
+        USING (SELECT @source_url AS source_url, @year AS year, @month AS month) S
+        ON T.source_url = S.source_url AND T.year = S.year AND T.month = S.month
+        WHEN MATCHED AND T.updated_at = @expected_updated_at THEN
+          UPDATE SET
+            status = @status, checker_email = @checker_email, memo = @memo,
+            action_log = @action_log, updated_at = CURRENT_TIMESTAMP()
+        WHEN NOT MATCHED THEN
+          INSERT (source_url, year, month, status, checker_email, memo, action_log, updated_at)
+          VALUES (@source_url, @year, @month, @status, @checker_email, @memo, @action_log, CURRENT_TIMESTAMP())
+        """
+    else:
+        query = f"""
+        MERGE `{CHECK_LOGS_TABLE}` T
+        USING (SELECT @source_url AS source_url, @year AS year, @month AS month) S
+        ON T.source_url = S.source_url AND T.year = S.year AND T.month = S.month
+        WHEN MATCHED THEN
+          UPDATE SET
+            status = @status, checker_email = @checker_email, memo = @memo,
+            action_log = @action_log, updated_at = CURRENT_TIMESTAMP()
+        WHEN NOT MATCHED THEN
+          INSERT (source_url, year, month, status, checker_email, memo, action_log, updated_at)
+          VALUES (@source_url, @year, @month, @status, @checker_email, @memo, @action_log, CURRENT_TIMESTAMP())
+        """
+
+    job_config = bigquery.QueryJobConfig(query_parameters=params)
+    result = client.query(query, job_config=job_config).result()
+
+    # 楽観的ロック競合検出
+    if expected_updated_at is not None and pd.notna(expected_updated_at) and result.num_dml_affected_rows == 0:
+        raise ValueError("別のチェック者が先に更新しました。ページを再読み込みしてください。")
+
+    load_check_data.clear()
+
+
+# --- データロード ---
+try:
+    df = load_check_data(selected_year, selected_month)
+except Exception as e:
+    logger.error("チェックデータ取得失敗: %s", e, exc_info=True)
+    st.error(f"データ取得エラー: {e}")
+    st.stop()
+
+if df.empty:
+    st.info("メンバーデータがありません")
+    st.stop()
+
+# データ加工
+for col in ["hours", "compensation", "dx_subsidy", "reimbursement", "total_amount"]:
+    df[f"{col}_num"] = df[col].apply(_clean_num)
+df["check_status"] = df["check_status"].fillna("未確認")
+df["nickname"] = df["nickname"].fillna("").apply(lambda x: x.strip() if x else "")
+df.loc[df["nickname"] == "", "nickname"] = "(未設定)"
+
+
+# --- KPIカード ---
+total = len(df)
+counts = df["check_status"].value_counts()
+
+k1, k2, k3, k4, k5 = st.columns(5)
+with k1:
+    _render_kpi("確認完了", f"{counts.get('確認完了', 0)} / {total}")
+with k2:
+    _render_kpi("確認中", str(counts.get("確認中", 0)))
+with k3:
+    _render_kpi("差戻し", str(counts.get("差戻し", 0)))
+with k4:
+    _render_kpi("未確認", str(counts.get("未確認", 0)))
+with k5:
+    mc_done = df["monthly_complete"].apply(_is_complete).sum()
+    _render_kpi("月締め完了", f"{mc_done} / {total}")
+
+
+# --- フィルタ ---
+st.divider()
+f1, f2 = st.columns([1, 2])
+with f1:
+    status_filter = st.selectbox("ステータス", ["すべて"] + CHECK_STATUSES, key="chk_filter")
+with f2:
+    name_search = st.text_input(
+        "名前検索", key="chk_search",
+        placeholder="ニックネームで絞り込み...",
+        label_visibility="collapsed",
+    )
+
+filtered = df.copy()
+if status_filter != "すべて":
+    filtered = filtered[filtered["check_status"] == status_filter]
+if name_search:
+    filtered = filtered[filtered["nickname"].str.contains(name_search, case=False, na=False)]
+
+st.markdown(f'<div class="count-badge">{len(filtered)} 件</div>', unsafe_allow_html=True)
+
+
+# --- 一覧テーブル ---
+display_df = pd.DataFrame({
+    "名前": filtered["nickname"],
+    "時間": filtered["hours_num"],
+    "報酬": filtered["compensation_num"],
+    "DX補助": filtered["dx_subsidy_num"],
+    "立替": filtered["reimbursement_num"],
+    "総額": filtered["total_amount_num"],
+    "月締め": filtered["monthly_complete"].apply(lambda x: "○" if _is_complete(x) else "×"),
+    "ステータス": filtered["check_status"].apply(lambda x: f"{STATUS_ICONS.get(x, '')} {x}"),
+    "担当": filtered["checker_email"].fillna(""),
+    "メモ": filtered["memo"].fillna(""),
+})
+
+st.dataframe(
+    display_df,
+    use_container_width=True,
+    hide_index=True,
+    column_config={
+        "時間": st.column_config.NumberColumn(format="%.1f"),
+        "報酬": st.column_config.NumberColumn(format="¥%d"),
+        "DX補助": st.column_config.NumberColumn(format="¥%d"),
+        "立替": st.column_config.NumberColumn(format="¥%d"),
+        "総額": st.column_config.NumberColumn(format="¥%d"),
+    },
+)
+
+
+# --- 詳細・編集パネル ---
+st.divider()
+st.subheader("メンバー詳細・編集")
+
+if filtered.empty:
+    st.info("表示するメンバーがありません")
+    st.stop()
+
+# メンバー選択
+indices = filtered.index.tolist()
+selected_idx = st.selectbox(
+    "メンバー選択", indices,
+    format_func=lambda i: f"{STATUS_ICONS.get(filtered.loc[i, 'check_status'], '')} {filtered.loc[i, 'nickname']}",
+    key="chk_member",
+)
+member = filtered.loc[selected_idx]
+src = member["report_url"]
+
+with st.container(border=True):
+    # ヘッダー（名前 + スプレッドシートリンク）
+    h1, h2 = st.columns([3, 1])
+    with h1:
+        st.markdown(f"### {member['nickname']}")
+    with h2:
+        if pd.notna(src) and src:
+            st.link_button("📄 スプレッドシート", src, use_container_width=True)
+
+    # hojoデータ表示
+    d1, d2, d3, d4, d5, d6 = st.columns(6)
+    with d1:
+        st.metric("時間", f"{_clean_num(member['hours']):.1f}")
+    with d2:
+        st.metric("報酬", f"¥{_clean_num(member['compensation']):,.0f}")
+    with d3:
+        st.metric("DX補助", f"¥{_clean_num(member['dx_subsidy']):,.0f}")
+    with d4:
+        st.metric("立替", f"¥{_clean_num(member['reimbursement']):,.0f}")
+    with d5:
+        st.metric("総額", f"¥{_clean_num(member['total_amount']):,.0f}")
+    with d6:
+        st.metric("月締め", "○" if _is_complete(member["monthly_complete"]) else "×")
+
+    st.divider()
+
+    # ステータス変更（自動保存） + メモ（ボタン保存）
+    current_status = member["check_status"]
+    current_memo = member["memo"] if pd.notna(member["memo"]) else ""
+    widget_key = f"{src}_{selected_year}_{selected_month}"
+
+    expected_ts = member["check_updated_at"] if pd.notna(member.get("check_updated_at")) else None
+
+    s1, s2 = st.columns([1, 2])
+    with s1:
+        status_idx = CHECK_STATUSES.index(current_status) if current_status in CHECK_STATUSES else 0
+        new_status = st.selectbox(
+            "チェックステータス", CHECK_STATUSES,
+            index=status_idx,
+            key=f"st_{widget_key}",
+        )
+        if new_status != current_status:
+            try:
+                save_check(
+                    src, selected_year, selected_month,
+                    new_status, current_memo, email,
+                    member["action_log"],
+                    f"ステータス: {current_status} → {new_status}",
+                    expected_updated_at=expected_ts,
+                )
+                st.toast(f"ステータスを「{new_status}」に更新しました")
+                st.rerun()
+            except ValueError as e:
+                st.warning(str(e))
+                load_check_data.clear()
+                st.rerun()
+            except Exception as e:
+                st.error(f"更新エラー: {e}")
+
+    with s2:
+        new_memo = st.text_area("メモ", value=current_memo, key=f"me_{widget_key}", height=80, max_chars=1000)
+        if st.button("メモを保存", key=f"sv_{widget_key}"):
+            if new_memo != current_memo:
+                try:
+                    save_check(
+                        src, selected_year, selected_month,
+                        current_status, new_memo, email,
+                        member["action_log"], "メモ更新",
+                        expected_updated_at=expected_ts,
+                    )
+                    st.toast("メモを保存しました")
+                    st.rerun()
+                except ValueError as e:
+                    st.warning(str(e))
+                    load_check_data.clear()
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"保存エラー: {e}")
+            else:
+                st.info("変更がありません")
+
+    # 操作ログ
+    with st.expander("操作ログ"):
+        log_str = member["action_log"]
+        if pd.notna(log_str) and log_str:
+            try:
+                logs = json.loads(log_str)
+                if logs:
+                    for entry in reversed(logs):
+                        ts = entry.get("ts", "")[:19].replace("T", " ")
+                        user = entry.get("user", "")
+                        action = entry.get("action", "")
+                        st.markdown(f"**{ts}** {user} - {action}")
+                else:
+                    st.caption("操作ログはありません")
+            except (json.JSONDecodeError, TypeError):
+                st.caption("操作ログはありません")
+        else:
+            st.caption("操作ログはありません")

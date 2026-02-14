@@ -61,11 +61,23 @@ CREATE TABLE IF NOT EXISTS `monthly-pay-tax.pay_reports.withholding_targets` (
 -- ダッシュボードユーザー（ホワイトリスト + ロール管理）
 CREATE TABLE IF NOT EXISTS `monthly-pay-tax.pay_reports.dashboard_users` (
   email STRING NOT NULL,                 -- GWSメールアドレス
-  role STRING NOT NULL,                  -- "admin" | "viewer"
+  role STRING NOT NULL,                  -- "admin" | "checker" | "viewer"
   display_name STRING,                   -- 表示名
   added_by STRING NOT NULL,              -- 追加者メールアドレス
   created_at TIMESTAMP NOT NULL,         -- 作成日時
   updated_at TIMESTAMP NOT NULL          -- 更新日時
+);
+
+-- 業務チェック管理表（チェックステータス・メモ・操作ログ）
+CREATE TABLE IF NOT EXISTS `monthly-pay-tax.pay_reports.check_logs` (
+  source_url STRING NOT NULL,      -- メンバーの報告シートURL（members.report_url と結合）
+  year INT64 NOT NULL,             -- 年
+  month INT64 NOT NULL,            -- 月
+  status STRING NOT NULL,          -- 未確認 | 確認中 | 確認完了 | 差戻し
+  checker_email STRING NOT NULL,   -- チェック者メール
+  memo STRING,                     -- メモ（自由記述）
+  action_log STRING,               -- 操作ログ（JSON配列: [{"ts":"...","user":"...","action":"...","note":"..."}]）
+  updated_at TIMESTAMP NOT NULL    -- 最終更新日時（楽観的ロック用）
 );
 
 -- シード: 初期管理者

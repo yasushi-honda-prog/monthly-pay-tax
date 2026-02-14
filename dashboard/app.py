@@ -39,13 +39,19 @@ common_pages = [
     st.Page("pages/help.py", title="ヘルプ", icon="❓"),
 ]
 
+checker_pages = [
+    st.Page("pages/check_management.py", title="業務チェック", icon="✅"),
+]
+
 admin_pages = [
     st.Page("pages/user_management.py", title="ユーザー管理", icon="👥"),
     st.Page("pages/admin_settings.py", title="管理設定", icon="⚙️"),
 ]
 
 if role == "admin":
-    nav = st.navigation(common_pages + admin_pages)
+    nav = st.navigation(common_pages + checker_pages + admin_pages)
+elif role == "checker":
+    nav = st.navigation(common_pages + checker_pages)
 else:
     nav = st.navigation(common_pages)
 
