@@ -14,7 +14,7 @@ from google.cloud import bigquery
 from lib.auth import require_checker
 from lib.bq_client import get_bq_client
 from lib.constants import PROJECT_ID, DATASET, CHECK_LOGS_TABLE
-from lib.ui_helpers import clean_numeric_scalar, fill_empty_nickname, render_kpi, render_sidebar_year_month
+from lib.ui_helpers import clean_numeric_scalar, render_kpi, render_sidebar_year_month
 
 logger = logging.getLogger(__name__)
 
@@ -63,6 +63,7 @@ def load_check_data(year: int, month: int):
     SELECT
         m.report_url,
         m.nickname,
+        m.full_name,
         m.member_id,
         h.hours,
         h.compensation,
@@ -178,7 +179,11 @@ if df.empty:
 for col in ["hours", "compensation", "dx_subsidy", "reimbursement", "total_amount"]:
     df[f"{col}_num"] = df[col].apply(clean_numeric_scalar)
 df["check_status"] = df["check_status"].fillna("未確認")
-df = fill_empty_nickname(df)
+# nicknameが空の場合はfull_nameをフォールバックに使用
+df["nickname"] = df["nickname"].fillna("").apply(lambda x: x.strip() if x else "")
+df["full_name"] = df["full_name"].fillna("").apply(lambda x: x.strip() if x else "")
+df.loc[df["nickname"] == "", "nickname"] = df.loc[df["nickname"] == "", "full_name"]
+df.loc[df["nickname"] == "", "nickname"] = "(未設定)"
 
 # --- サイドバー（後半: メンバー選択）---
 with st.sidebar:
