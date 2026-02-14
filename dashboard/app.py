@@ -16,20 +16,34 @@ st.set_page_config(
 
 apply_custom_css()
 
-# --- 認証 ---
-if not st.user.is_logged_in:
+
+# --- 未認証/未登録ユーザー用ページ ---
+def _login_page():
     st.markdown("### タダカヨ 月次報酬ダッシュボード")
     st.button("Googleでログイン", on_click=st.login)
+
+
+def _no_access_page():
+    st.error("アクセス権限がありません。管理者にお問い合わせください。")
+    email = get_user_email()
+    if email:
+        st.caption(f"ログイン中: {email}")
+    st.button("ログアウト", on_click=st.logout)
+
+
+# --- 認証 & ページルーティング ---
+# st.navigationを常に呼び出し、レガシーモードへのフォールバックを防止する
+if not st.user.is_logged_in:
+    nav = st.navigation([st.Page(_login_page, title="ログイン", icon="🔑", default=True)])
+    nav.run()
     st.stop()
 
 email = get_user_email()
 role = get_user_role(email)
 
 if role is None:
-    st.error("アクセス権限がありません。管理者にお問い合わせください。")
-    if email:
-        st.caption(f"ログイン中: {email}")
-    st.button("ログアウト", on_click=st.logout)
+    nav = st.navigation([st.Page(_no_access_page, title="アクセス拒否", icon="🚫", default=True)])
+    nav.run()
     st.stop()
 
 # --- ページ定義 ---
