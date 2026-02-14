@@ -47,14 +47,17 @@ if role is None:
     st.stop()
 
 # --- ページ定義 ---
-common_pages = [
+base_pages = [
     st.Page("pages/dashboard.py", title="ダッシュボード", icon="📊", default=True),
-    st.Page("pages/architecture.py", title="アーキテクチャ", icon="🏗️"),
-    st.Page("pages/help.py", title="ヘルプ", icon="❓"),
 ]
 
 checker_pages = [
     st.Page("pages/check_management.py", title="業務チェック", icon="✅"),
+]
+
+utility_pages = [
+    st.Page("pages/architecture.py", title="アーキテクチャ", icon="🏗️"),
+    st.Page("pages/help.py", title="ヘルプ", icon="❓"),
 ]
 
 admin_pages = [
@@ -63,11 +66,11 @@ admin_pages = [
 ]
 
 if role == "admin":
-    nav = st.navigation(common_pages + checker_pages + admin_pages)
+    nav = st.navigation(base_pages + checker_pages + utility_pages + admin_pages)
 elif role == "checker":
-    nav = st.navigation(common_pages + checker_pages)
+    nav = st.navigation(base_pages + checker_pages + utility_pages)
 else:
-    nav = st.navigation(common_pages)
+    nav = st.navigation(base_pages + utility_pages)
 
 # ユーザー情報をsession_stateに保存（各ページで参照）
 st.session_state["user_email"] = email

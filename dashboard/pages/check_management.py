@@ -39,7 +39,7 @@ def _is_complete(val) -> bool:
     return str(val).strip().lower() in ("true", "1", "○", "済")
 
 
-# --- サイドバー ---
+# --- サイドバー（前半: 期間・ステータス）---
 with st.sidebar:
     st.markdown("### ✅ 業務チェック")
     st.divider()
@@ -51,11 +51,6 @@ with st.sidebar:
     st.markdown('<div class="sidebar-section-title">フィルタ</div>', unsafe_allow_html=True)
     status_filter = st.selectbox(
         "ステータス", ["すべて"] + CHECK_STATUSES, key="chk_filter",
-    )
-    name_search = st.text_input(
-        "名前検索", key="chk_search",
-        placeholder="ニックネームで絞り込み...",
-        label_visibility="collapsed",
     )
 
 
@@ -185,6 +180,43 @@ for col in ["hours", "compensation", "dx_subsidy", "reimbursement", "total_amoun
 df["check_status"] = df["check_status"].fillna("未確認")
 df = fill_empty_nickname(df)
 
+# --- サイドバー（後半: メンバー選択）---
+with st.sidebar:
+    st.markdown('<div class="sidebar-section-title">メンバー</div>', unsafe_allow_html=True)
+    member_search = st.text_input(
+        "検索", key="chk_search", placeholder="名前で絞り込み...",
+        label_visibility="collapsed",
+    )
+
+    all_members = sorted(df["nickname"].unique().tolist())
+    if member_search:
+        display_members = [m for m in all_members if member_search.lower() in m.lower()]
+    else:
+        display_members = all_members
+
+    col_a, col_b = st.columns(2)
+    with col_a:
+        if st.button("全選択", key="chk_all", use_container_width=True):
+            for m in display_members:
+                st.session_state[f"chk_{m}"] = True
+    with col_b:
+        if st.button("全解除", key="chk_clear", use_container_width=True):
+            for m in display_members:
+                st.session_state[f"chk_{m}"] = False
+
+    selected_members = []
+    with st.container(height=250):
+        for m in display_members:
+            if st.checkbox(m, key=f"chk_{m}"):
+                selected_members.append(m)
+
+    count = len(selected_members)
+    total_members = len(all_members)
+    if count == 0:
+        st.caption(f"全 {total_members} 名表示中")
+    else:
+        st.caption(f"{count} / {total_members} 名を選択中")
+
 
 # --- KPIカード ---
 total = len(df)
@@ -211,8 +243,8 @@ st.progress(progress_val, text=f"チェック進捗: {completed}/{total} 件完�
 filtered = df.copy()
 if status_filter != "すべて":
     filtered = filtered[filtered["check_status"] == status_filter]
-if name_search:
-    filtered = filtered[filtered["nickname"].str.contains(name_search, case=False, na=False)]
+if selected_members:
+    filtered = filtered[filtered["nickname"].isin(selected_members)]
 
 st.markdown(f'<div class="count-badge">{len(filtered)} 件</div>', unsafe_allow_html=True)
 
