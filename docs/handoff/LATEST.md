@@ -1,14 +1,31 @@
 # ハンドオフメモ - monthly-pay-tax
 
-**更新日**: 2026-02-15
-**フェーズ**: 6完了 + 業務チェック管理表・ヘルプページ全面リデザイン完了
+**更新日**: 2026-02-16
+**フェーズ**: 6完了 + 業務チェック管理表・ヘルプページ全面リデザイン完了 + **Dashboard テストスイート追加完了**
 **最新デプロイ**: rev 00047（業務チェック欠落カラム追加 + ヘルプページリデザイン）
+**テストスイート**: 189テスト（全PASS、2.6秒）
 
 ## 現在の状態
 
 Cloud Run + BigQuery + Streamlitダッシュボード本番稼働中。
 業務チェック管理表は`st.data_editor`を使用したテーブル直接編集方式に統一。
 ヘルプページはカード型レイアウト・CSSアニメーション付きで全面リデザイン。
+**Dashboard テストスイート完成**（189テスト、全PASS）
+
+### 直近の変更（今セッション）
+
+**PR #21: Dashboard テストスイート追加（189テスト）**
+- `tests/conftest.py`: Streamlit モック基盤（全Streamlit関数をモック化、キャッシュデコレータ対応）
+- `test_lib_ui_helpers.py`: 数値変換・ニックネーム・年度フィルタ (69テスト)
+- `test_lib_auth.py`: ロール取得・キャッシュ・BQ障害フォールバック (24テスト)
+- `test_pages_check_management.py`: ステータス判定・楽観的ロック・JSONログ (48テスト)
+- `test_pages_user_management.py`: メール検証・削除/ロール変更ガード (48テスト)
+- Python 3.9互換: `auth.py`, `user_management.py` の型ヒント修正
+
+**PR #20: ハンドオフメモ更新（0値データ調査完了）**
+- position_rate空文字139名 → 役職なしで正常
+- qualification_allowance混在 → VIEWのSAFE_CASTで計算影響なし
+- member_id重複16組 → 正常構造（1メンバー=複数シート）
 
 ### 直近の変更（rev 00045-00047）
 
