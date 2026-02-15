@@ -183,7 +183,10 @@ gcloud run deploy pay-dashboard \
 3. ~~**業務チェック管理表 テーブル直接編集化**~~: ✅ 完了（rev 00044）
 4. ~~**業務チェック欠落カラム補完**~~: ✅ 完了（rev 00047）
 5. ~~**ヘルプページリデザイン**~~: ✅ 完了（rev 00047）
-6. **将来課題**: position_rate/qualification_allowanceの一部メンバーで0値 → データ投入確認
+6. ~~**0値データ調査**~~: ✅ 対処不要（2026-02-15調査完了）
+   - position_rate空文字139名 → 役職なしで正常（値は5/10/12の3段階）
+   - qualification_allowance "0" vs 空文字混在 → VIEWのSAFE_CASTで両方0になり計算影響なし
+   - member_id重複16組 → 1メンバー=複数シート（sheet_number 1/2）の正常構造。JOINキーがreport_url(=source_url)のため二重計上なし
 
 ### デプロイ済み状態
 
