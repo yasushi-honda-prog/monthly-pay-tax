@@ -76,9 +76,12 @@ else:
 st.session_state["user_email"] = email
 st.session_state["user_role"] = role
 
-# サイドバーにユーザー情報 + ログアウトボタン
+nav.run()
+
+# サイドバー下部: ブランディング + アカウント情報
 with st.sidebar:
+    st.divider()
+    st.markdown("### 📊 タダカヨ")
+    st.caption("月次報酬ダッシュボード")
     st.caption(f"{email}")
     st.button("ログアウト", on_click=st.logout)
-
-nav.run()

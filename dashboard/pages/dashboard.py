@@ -99,14 +99,6 @@ def load_all_members():
 
 # --- サイドバー ---
 with st.sidebar:
-    st.markdown("### 📊 タダカヨ")
-    st.caption("月次報酬ダッシュボード")
-    user_email = st.session_state.get("user_email", "")
-    if user_email:
-        st.markdown(f"<div style='font-size:0.8rem; opacity:0.6; margin-bottom:1rem;'>{user_email}</div>",
-                    unsafe_allow_html=True)
-    st.divider()
-
     selected_year, selected_month = render_sidebar_year_month(
         year_key="global_year", month_key="global_month", include_all_month=True,
     )
