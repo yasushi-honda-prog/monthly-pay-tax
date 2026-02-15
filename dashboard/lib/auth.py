@@ -1,5 +1,7 @@
 """Streamlit OIDC認証 + BQホワイトリスト照合"""
 
+from __future__ import annotations
+
 import logging
 
 import streamlit as st

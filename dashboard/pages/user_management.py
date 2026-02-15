@@ -1,6 +1,7 @@
 """ユーザー管理ページ（管理者のみ）"""
 
 import re
+from typing import Optional
 
 import streamlit as st
 from google.cloud import bigquery
@@ -33,7 +34,7 @@ EMAIL_PATTERN = re.compile(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$')
 ALLOWED_DOMAIN = "tadakayo.jp"
 
 
-def validate_email(addr: str) -> str | None:
+def validate_email(addr: str) -> Optional[str]:
     """メールアドレスを検証。エラーメッセージを返す（Noneなら有効）。"""
     if not addr or not EMAIL_PATTERN.match(addr):
         return "有効なメールアドレスを入力してください"
