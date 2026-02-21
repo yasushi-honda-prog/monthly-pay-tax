@@ -2,7 +2,7 @@
 
 **更新日**: 2026-02-21
 **フェーズ**: 6完了 + グループ機能追加 + UX改善
-**最新デプロイ**: Collector rev 00018-pbj（グループ機能 + /update-groups）+ Dashboard rev 00051-l7v（本名併記）
+**最新デプロイ**: Collector rev 00019-hlp（グループ更新を毎朝バッチに統合）+ Dashboard rev 00051-l7v（本名併記）
 **テストスイート**: 189テスト（全PASS、8.5秒）
 
 ## 現在の状態
@@ -27,6 +27,7 @@ groups_master テーブル: 69グループ登録済み。members テーブル: 1
 
 8. **`dashboard/pages/dashboard.py`** (fix, rev 00050-qbh): `_render_group_tab()` を `@st.fragment` でラップし、グループ選択時のタブリセットを防止。内側サブタブ「月別報酬サマリー」→「月別報酬」にリネーム（外側Tab1との名前衝突解消）。
 9. **`dashboard/pages/dashboard.py`** (feat, rev 00051-l7v): `load_member_name_map()` 追加。サイドバーのチェックボックス・Tab1〜4の全ピボット・詳細テーブル・業務報告一覧でメンバー名を「ニックネーム（本名）」形式で統一表示。`load_gyomu_with_members()` と `load_members_with_groups()` に `full_name` を追加。
+10. **`cloud-run/main.py`** (feat, rev 00019-hlp): `POST /` のバッチ処理にグループ更新（Step 4）を統合。シート収集・BQ投入完了後、Admin SDK でグループ情報を自動更新。Admin SDK エラー時は本体処理を成功扱いにして warning ログ。`/update-groups` エンドポイントは手動再実行用として維持。
 
 ### 直近の変更（rev 00048: 2026-02-16）
 
@@ -217,13 +218,14 @@ gcloud run deploy pay-dashboard \
 7. ~~**Googleグループ収集機能**~~: ✅ 実装・デプロイ完了（PR #22/#23、2026-02-21）
 8. ~~**グループ機能デプロイ**~~: ✅ 完了（Collector rev 00018-pbj + Dashboard rev 00049-gm2）
    - `/update-groups` 初回実行済み: 192メンバー更新、69グループ登録
-9. **(検討) `/update-groups` のスケジュール化**: Cloud Scheduler で定期実行（例: 週次）を検討
+9. ~~**(検討) `/update-groups` のスケジュール化**~~: ✅ 完了（rev 00019-hlp: POST / に統合、毎朝6時に自動実行）
 10. ~~**グループ選択時タブリセット修正**~~: ✅ 完了（rev 00050-qbh、@st.fragment）
 11. ~~**メンバー名に本名を全箇所で併記**~~: ✅ 完了（rev 00051-l7v）
 
 ### デプロイ済み状態
 
-- **Collector**: rev 00018-pbj（2026-02-21: グループ機能 + /update-groups エンドポイント）
+- **Collector**: rev 00019-hlp（2026-02-21: グループ更新を POST / に統合）
+  - rev 00018-pbj: グループ機能 + /update-groups エンドポイント
   - rev 00017: db-dtypes 追加（BQ to_dataframe 依存）
   - rev 00014: レート制限改善（throttle 0.5s + num_retries=5）
 - **Dashboard**: rev 00051-l7v（2026-02-21: メンバー名に本名を全箇所で併記）
