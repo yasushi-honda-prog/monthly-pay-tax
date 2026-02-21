@@ -171,6 +171,186 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 
+# --- Tab 4 フラグメント定義（グループ選択時にスクリプト全体を再実行させない） ---
+@st.fragment
+def _render_group_tab(selected_year: int, selected_month: str) -> None:
+    """グループ別タブ本体。@st.fragment により外側タブのリセットを防ぐ。"""
+    try:
+        df_gm = load_groups_master()
+        df_mwg = load_members_with_groups()
+    except Exception as e:
+        logger.error("グループデータ取得失敗: %s", e, exc_info=True)
+        st.error(f"データ取得エラー: {e}")
+        return
+
+    if df_gm.empty:
+        st.info("グループマスターデータがありません。管理者に /update-groups の実行を依頼してください。")
+        return
+
+    email_to_name: dict[str, str] = dict(zip(df_gm["group_email"], df_gm["group_name"]))
+
+    group_to_members: dict[str, list[str]] = {}
+    for _, mrow in df_mwg.iterrows():
+        if not mrow["groups"]:
+            continue
+        for email in str(mrow["groups"]).split(","):
+            email = email.strip()
+            if not email or email not in email_to_name:
+                continue
+            gname = email_to_name[email]
+            if gname not in group_to_members:
+                group_to_members[gname] = []
+            if mrow["nickname"] not in group_to_members[gname]:
+                group_to_members[gname].append(mrow["nickname"])
+
+    all_group_names = sorted(group_to_members.keys())
+    if not all_group_names:
+        st.info("グループに所属するメンバーが見つかりません。")
+        return
+
+    col_grp, col_spacer = st.columns([1, 3])
+    with col_grp:
+        selected_group = st.selectbox(
+            "グループ選択",
+            all_group_names,
+            key="group_selector",
+            label_visibility="collapsed",
+        )
+
+    group_members = group_to_members.get(selected_group, [])
+    st.markdown(
+        f'<div class="count-badge">{selected_group} &nbsp;|&nbsp; {len(group_members)} 名</div>',
+        unsafe_allow_html=True,
+    )
+
+    # サブタブ（外側の「月別報酬サマリー」「業務報告一覧」と区別できる名称）
+    gtab1, gtab2, gtab3 = st.tabs(["メンバー一覧", "月別報酬", "業務報告"])
+
+    with gtab1:
+        member_df = (
+            df_mwg[df_mwg["nickname"].isin(group_members)][["nickname"]]
+            .copy()
+            .rename(columns={"nickname": "ニックネーム"})
+            .sort_values("ニックネーム")
+            .reset_index(drop=True)
+        )
+        st.dataframe(member_df, hide_index=True, use_container_width=True)
+
+    with gtab2:
+        try:
+            df_comp_g = load_monthly_compensation()
+        except Exception as e:
+            st.error(f"データ取得エラー: {e}")
+            return
+
+        df_comp_g = fill_empty_nickname(df_comp_g)
+        df_comp_g = df_comp_g[df_comp_g["year"].notna()]
+        df_comp_g["year"] = df_comp_g["year"].astype(int)
+        df_comp_g["month"] = df_comp_g["month"].astype("Int64")
+        for col in [
+            "work_hours", "hour_compensation", "travel_distance_km",
+            "distance_compensation", "subtotal_compensation",
+            "position_rate", "position_adjusted_compensation",
+            "qualification_allowance", "qualification_adjusted_compensation",
+            "withholding_target_amount", "withholding_tax",
+            "dx_subsidy", "reimbursement", "payment",
+            "donation_payment", "daily_wage_count", "full_day_compensation",
+            "total_work_hours",
+        ]:
+            df_comp_g[col] = df_comp_g[col].fillna(0).astype(float)
+
+        filtered_gc = df_comp_g[
+            (df_comp_g["year"] == selected_year)
+            & (df_comp_g["nickname"].isin(group_members))
+        ]
+        if selected_month != "全月":
+            filtered_gc = filtered_gc[
+                filtered_gc["month"] == int(selected_month.replace("月", ""))
+            ]
+
+        k1, k2, k3 = st.columns(3)
+        with k1:
+            render_kpi("総支払額", f"¥{filtered_gc['payment'].sum():,.0f}")
+        with k2:
+            render_kpi("業務報酬", f"¥{filtered_gc['qualification_adjusted_compensation'].sum():,.0f}")
+        with k3:
+            render_kpi("源泉徴収", f"¥{filtered_gc['withholding_tax'].sum():,.0f}")
+
+        if not filtered_gc.empty:
+            st.subheader("メンバー別 月次支払額")
+            pivot_gc = filtered_gc.pivot_table(
+                values="payment",
+                index="nickname",
+                columns="month",
+                aggfunc="sum",
+                fill_value=0,
+            )
+            pivot_gc.columns = pivot_gc.columns.astype(str)
+            month_order_gc = sorted(
+                pivot_gc.columns,
+                key=lambda x: int(float(x)) if x.replace(".", "").isdigit() else 99,
+            )
+            pivot_gc = pivot_gc[month_order_gc]
+            pivot_gc["合計"] = pivot_gc.sum(axis=1)
+            pivot_gc = pivot_gc.sort_values("合計", ascending=False)
+            st.dataframe(pivot_gc.style.format("¥{:,.0f}"), use_container_width=True)
+        else:
+            st.info("対象期間のデータがありません")
+
+    with gtab3:
+        try:
+            df_gyomu_g = load_gyomu_with_members()
+        except Exception as e:
+            st.error(f"データ取得エラー: {e}")
+            return
+
+        df_gyomu_g = fill_empty_nickname(df_gyomu_g)
+        df_gyomu_g["year"] = valid_years(df_gyomu_g["year"])
+        df_gyomu_g = df_gyomu_g[df_gyomu_g["year"].notna()]
+        df_gyomu_g["year"] = df_gyomu_g["year"].astype(int)
+        df_gyomu_g["amount_num"] = clean_numeric_series(df_gyomu_g["amount"])
+
+        result_g = df_gyomu_g[
+            (df_gyomu_g["year"] == selected_year)
+            & (df_gyomu_g["nickname"].isin(group_members))
+        ]
+        if selected_month != "全月":
+            result_g = result_g[
+                result_g["month"] == int(selected_month.replace("月", ""))
+            ]
+
+        k1, k2 = st.columns(2)
+        with k1:
+            render_kpi("総額", f"¥{result_g['amount_num'].sum():,.0f}")
+        with k2:
+            render_kpi("件数", f"{len(result_g):,}")
+
+        if not result_g.empty:
+            st.dataframe(
+                result_g[[
+                    "nickname", "date", "day_of_week",
+                    "activity_category", "work_category",
+                    "sponsor", "description",
+                    "unit_price", "work_hours", "amount",
+                ]].rename(columns={
+                    "nickname": "メンバー",
+                    "date": "日付",
+                    "day_of_week": "曜日",
+                    "activity_category": "活動分類",
+                    "work_category": "業務分類",
+                    "sponsor": "スポンサー",
+                    "description": "内容",
+                    "unit_price": "単価",
+                    "work_hours": "時間",
+                    "amount": "金額",
+                }),
+                use_container_width=True,
+                hide_index=True,
+            )
+        else:
+            st.info("対象期間のデータがありません")
+
+
 # --- タブ ---
 tab1, tab2, tab3, tab4 = st.tabs([
     "月別報酬サマリー",
@@ -446,182 +626,4 @@ with tab3:
 
 # ===== Tab 4: グループ別 =====
 with tab4:
-    try:
-        df_gm = load_groups_master()
-        df_mwg = load_members_with_groups()
-    except Exception as e:
-        logger.error("グループデータ取得失敗: %s", e, exc_info=True)
-        st.error(f"データ取得エラー: {e}")
-        st.stop()
-
-    if df_gm.empty:
-        st.info("グループマスターデータがありません。管理者に /update-groups の実行を依頼してください。")
-    else:
-        # group_email → group_name マッピング
-        email_to_name: dict[str, str] = dict(zip(df_gm["group_email"], df_gm["group_name"]))
-
-        # group_name → [nickname] マッピング（メンバーのグループ展開）
-        group_to_members: dict[str, list[str]] = {}
-        for _, mrow in df_mwg.iterrows():
-            if not mrow["groups"]:
-                continue
-            for email in str(mrow["groups"]).split(","):
-                email = email.strip()
-                if not email or email not in email_to_name:
-                    continue
-                gname = email_to_name[email]
-                if gname not in group_to_members:
-                    group_to_members[gname] = []
-                if mrow["nickname"] not in group_to_members[gname]:
-                    group_to_members[gname].append(mrow["nickname"])
-
-        all_group_names = sorted(group_to_members.keys())
-        if not all_group_names:
-            st.info("グループに所属するメンバーが見つかりません。")
-        else:
-            col_grp, col_spacer = st.columns([1, 3])
-            with col_grp:
-                selected_group = st.selectbox(
-                    "グループ選択",
-                    all_group_names,
-                    key="group_selector",
-                    label_visibility="collapsed",
-                )
-
-            group_members = group_to_members.get(selected_group, [])
-            st.markdown(
-                f'<div class="count-badge">{selected_group} &nbsp;|&nbsp; {len(group_members)} 名</div>',
-                unsafe_allow_html=True,
-            )
-
-            gtab1, gtab2, gtab3 = st.tabs(["メンバー一覧", "月別報酬サマリー", "業務報告"])
-
-            # ----- グループ内 Tab 1: メンバー一覧 -----
-            with gtab1:
-                member_df = (
-                    df_mwg[df_mwg["nickname"].isin(group_members)][["nickname"]]
-                    .copy()
-                    .rename(columns={"nickname": "ニックネーム"})
-                    .sort_values("ニックネーム")
-                    .reset_index(drop=True)
-                )
-                st.dataframe(member_df, hide_index=True, use_container_width=True)
-
-            # ----- グループ内 Tab 2: 月別報酬サマリー -----
-            with gtab2:
-                try:
-                    df_comp_g = load_monthly_compensation()
-                except Exception as e:
-                    st.error(f"データ取得エラー: {e}")
-                    st.stop()
-
-                df_comp_g = fill_empty_nickname(df_comp_g)
-                df_comp_g = df_comp_g[df_comp_g["year"].notna()]
-                df_comp_g["year"] = df_comp_g["year"].astype(int)
-                df_comp_g["month"] = df_comp_g["month"].astype("Int64")
-                for col in [
-                    "work_hours", "hour_compensation", "travel_distance_km",
-                    "distance_compensation", "subtotal_compensation",
-                    "position_rate", "position_adjusted_compensation",
-                    "qualification_allowance", "qualification_adjusted_compensation",
-                    "withholding_target_amount", "withholding_tax",
-                    "dx_subsidy", "reimbursement", "payment",
-                    "donation_payment", "daily_wage_count", "full_day_compensation",
-                    "total_work_hours",
-                ]:
-                    df_comp_g[col] = df_comp_g[col].fillna(0).astype(float)
-
-                filtered_gc = df_comp_g[
-                    (df_comp_g["year"] == selected_year)
-                    & (df_comp_g["nickname"].isin(group_members))
-                ]
-                if selected_month != "全月":
-                    filtered_gc = filtered_gc[
-                        filtered_gc["month"] == int(selected_month.replace("月", ""))
-                    ]
-
-                k1, k2, k3 = st.columns(3)
-                with k1:
-                    render_kpi("総支払額", f"¥{filtered_gc['payment'].sum():,.0f}")
-                with k2:
-                    render_kpi("業務報酬", f"¥{filtered_gc['qualification_adjusted_compensation'].sum():,.0f}")
-                with k3:
-                    render_kpi("源泉徴収", f"¥{filtered_gc['withholding_tax'].sum():,.0f}")
-
-                if not filtered_gc.empty:
-                    st.subheader("メンバー別 月次支払額")
-                    pivot_gc = filtered_gc.pivot_table(
-                        values="payment",
-                        index="nickname",
-                        columns="month",
-                        aggfunc="sum",
-                        fill_value=0,
-                    )
-                    pivot_gc.columns = pivot_gc.columns.astype(str)
-                    month_order_gc = sorted(
-                        pivot_gc.columns,
-                        key=lambda x: int(float(x)) if x.replace(".", "").isdigit() else 99,
-                    )
-                    pivot_gc = pivot_gc[month_order_gc]
-                    pivot_gc["合計"] = pivot_gc.sum(axis=1)
-                    pivot_gc = pivot_gc.sort_values("合計", ascending=False)
-                    st.dataframe(
-                        pivot_gc.style.format("¥{:,.0f}"),
-                        use_container_width=True,
-                    )
-                else:
-                    st.info("対象期間のデータがありません")
-
-            # ----- グループ内 Tab 3: 業務報告 -----
-            with gtab3:
-                try:
-                    df_gyomu_g = load_gyomu_with_members()
-                except Exception as e:
-                    st.error(f"データ取得エラー: {e}")
-                    st.stop()
-
-                df_gyomu_g = fill_empty_nickname(df_gyomu_g)
-                df_gyomu_g["year"] = valid_years(df_gyomu_g["year"])
-                df_gyomu_g = df_gyomu_g[df_gyomu_g["year"].notna()]
-                df_gyomu_g["year"] = df_gyomu_g["year"].astype(int)
-                df_gyomu_g["amount_num"] = clean_numeric_series(df_gyomu_g["amount"])
-
-                result_g = df_gyomu_g[
-                    (df_gyomu_g["year"] == selected_year)
-                    & (df_gyomu_g["nickname"].isin(group_members))
-                ]
-                if selected_month != "全月":
-                    result_g = result_g[
-                        result_g["month"] == int(selected_month.replace("月", ""))
-                    ]
-
-                k1, k2 = st.columns(2)
-                with k1:
-                    render_kpi("総額", f"¥{result_g['amount_num'].sum():,.0f}")
-                with k2:
-                    render_kpi("件数", f"{len(result_g):,}")
-
-                if not result_g.empty:
-                    st.dataframe(
-                        result_g[[
-                            "nickname", "date", "day_of_week",
-                            "activity_category", "work_category",
-                            "sponsor", "description",
-                            "unit_price", "work_hours", "amount",
-                        ]].rename(columns={
-                            "nickname": "メンバー",
-                            "date": "日付",
-                            "day_of_week": "曜日",
-                            "activity_category": "活動分類",
-                            "work_category": "業務分類",
-                            "sponsor": "スポンサー",
-                            "description": "内容",
-                            "unit_price": "単価",
-                            "work_hours": "時間",
-                            "amount": "金額",
-                        }),
-                        use_container_width=True,
-                        hide_index=True,
-                    )
-                else:
-                    st.info("対象期間のデータがありません")
+    _render_group_tab(selected_year, selected_month)
