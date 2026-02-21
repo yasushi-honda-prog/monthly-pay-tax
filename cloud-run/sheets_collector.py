@@ -19,6 +19,7 @@ import config
 logger = logging.getLogger(__name__)
 
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets.readonly"]
+ADMIN_SCOPES = ["https://www.googleapis.com/auth/admin.directory.group.readonly"]
 
 
 def _get_dwd_credentials():
@@ -62,6 +63,79 @@ def _build_sheets_service(timeout=60):
     http = httplib2.Http(timeout=timeout)
     authorized_http = google_auth_httplib2.AuthorizedHttp(credentials, http=http)
     return build("sheets", "v4", http=authorized_http, cache_discovery=False)
+
+
+def _get_admin_credentials():
+    """Admin Directory API用DWD認証情報を取得
+
+    DWD スコープに admin.directory.group.readonly が必要。
+    Google管理コンソール → セキュリティ → APIコントロール → ドメイン全体の委任で設定。
+    """
+    sa_email = config.SA_EMAIL
+
+    if config.SA_KEY_PATH:
+        return service_account.Credentials.from_service_account_file(
+            config.SA_KEY_PATH, scopes=ADMIN_SCOPES, subject=config.DELEGATE_USER_EMAIL
+        )
+
+    import google.auth
+    from google.auth import iam
+    from google.auth.transport import requests as google_requests
+
+    base_credentials, _ = google.auth.default()
+    base_credentials.refresh(google_requests.Request())
+
+    signer = iam.Signer(
+        request=google_requests.Request(),
+        credentials=base_credentials,
+        service_account_email=sa_email,
+    )
+    return service_account.Credentials(
+        signer=signer,
+        service_account_email=sa_email,
+        token_uri="https://oauth2.googleapis.com/token",
+        scopes=ADMIN_SCOPES,
+        subject=config.DELEGATE_USER_EMAIL,
+    )
+
+
+def _build_admin_service(timeout=60):
+    """DWD認証でAdmin Directory APIサービスを構築"""
+    credentials = _get_admin_credentials()
+    http = httplib2.Http(timeout=timeout)
+    authorized_http = google_auth_httplib2.AuthorizedHttp(credentials, http=http)
+    return build("admin", "directory_v1", http=authorized_http, cache_discovery=False)
+
+
+def collect_member_groups(admin_service, gws_account: str) -> str:
+    """Directory APIでメンバーのグループ一覧を取得（カンマ区切り）
+
+    ページネーションを考慮して全グループを取得する。
+    エラー時は空文字列を返してバッチ全体を止めない。
+    """
+    if not gws_account:
+        return ""
+    try:
+        group_emails = []
+        page_token = None
+        while True:
+            result = (
+                admin_service.groups()
+                .list(userKey=gws_account, pageToken=page_token, maxResults=200)
+                .execute()
+            )
+            group_emails.extend(g["email"] for g in result.get("groups", []))
+            page_token = result.get("nextPageToken")
+            if not page_token:
+                break
+        time.sleep(config.SHEETS_API_SLEEP_BETWEEN_REQUESTS)
+        return ",".join(group_emails)
+    except HttpError as e:
+        logger.warning("グループ取得エラー (%s): %s", gws_account, e)
+        return ""
+    except Exception as e:
+        logger.warning("グループ取得エラー (%s): %s", gws_account, e)
+        return ""
 
 
 def _extract_spreadsheet_id(url: str) -> str:
@@ -235,8 +309,19 @@ def collect_members(service) -> list[list]:
 def run_collection() -> dict[str, list[list]]:
     """データ収集のエントリポイント"""
     service = _build_sheets_service()
+    admin_service = _build_admin_service()
+
     # membersを先に読む（1 APIコールのみ、レート制限回避）
     members = collect_members(service)
+
+    # 各メンバーの gws_account（D列 = インデックス3）でグループ情報を取得して付加
+    members_with_groups = []
+    for row in members:
+        gws_account = row[3] if len(row) > 3 else ""
+        groups_str = collect_member_groups(admin_service, gws_account)
+        members_with_groups.append(row + [groups_str])
+    logger.info("グループ情報を %d 件取得しました", len(members_with_groups))
+
     all_data = collect_all_data(service)
-    all_data[config.BQ_TABLE_MEMBERS] = members
+    all_data[config.BQ_TABLE_MEMBERS] = members_with_groups
     return all_data

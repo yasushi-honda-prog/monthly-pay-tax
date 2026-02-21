@@ -41,9 +41,6 @@ def _is_complete(val) -> bool:
 
 # --- サイドバー（前半: 期間・ステータス）---
 with st.sidebar:
-    st.markdown("### ✅ 業務チェック")
-    st.divider()
-
     selected_year, selected_month = render_sidebar_year_month(
         year_key="check_year", month_key="check_month",
     )

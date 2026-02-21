@@ -49,6 +49,7 @@ CREATE TABLE IF NOT EXISTS `monthly-pay-tax.pay_reports.members` (
   donation_sheet STRING,                 -- 寄付先シート（シート番号）
   qualification_sheet STRING,            -- 資格手当加算先シート（シート番号）
   sheet_number STRING,                   -- シート番号（法人/寄付判定に使用）
+  groups STRING,                         -- 所属Googleグループ（カンマ区切り, Admin Directory APIから取得）
   ingested_at TIMESTAMP NOT NULL         -- データ取得日時
 );
 
