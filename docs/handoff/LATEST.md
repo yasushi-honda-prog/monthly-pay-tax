@@ -1,16 +1,31 @@
 # ハンドオフメモ - monthly-pay-tax
 
-**更新日**: 2026-02-16
-**フェーズ**: 6完了 + UX改善進行中
-**最新デプロイ**: rev 00048（サイドバーレイアウト変更）
+**更新日**: 2026-02-21
+**フェーズ**: 6完了 + グループ機能追加
+**最新デプロイ**: Collector rev 00018-pbj（グループ機能 + /update-groups）+ Dashboard rev 00049-gm2（Tab 4「グループ別」）
 **テストスイート**: 189テスト（全PASS、8.5秒）
 
 ## 現在の状態
 
 Cloud Run + BigQuery + Streamlitダッシュボード本番稼働中。
-**サイドバーUX改善完了** - 頻繁に操作する「期間/メンバー選択」を上に、アカウント情報を下に配置。
+**Googleグループ機能デプロイ済み** - Admin SDK経由でメンバーのグループ所属を収集し、グループ別ダッシュボードタブを追加（PR #22/#23、2026-02-21デプロイ済み）。
+groups_master テーブル: 69グループ登録済み。members テーブル: 192件にgroups列付与済み。
 
-### 直近の変更（今セッション）
+### 直近の変更（今セッション: 2026-02-21）
+
+**PR #23: メンバーのGoogleグループ所属収集 + PR #22: groups_masterテーブル + グループ別Tab**
+
+1. **`cloud-run/sheets_collector.py`**: `collect_member_groups()` で Admin Directory API からグループ一覧を取得。`update_member_groups_from_bq()` で BQ の gws_account リストを使い members テーブルを groups フィールド付きで更新。`(updated_members, groups_master)` のタプルを返す。
+2. **`cloud-run/main.py`**: `/update-groups` エンドポイント追加。シート再収集なしで約2分で完了。members + groups_master を同時更新。
+3. **`cloud-run/config.py`**: `BQ_TABLE_GROUPS_MASTER = "groups_master"` 追加。スキーマ定義に `group_email`, `group_name` カラム追加。
+4. **`infra/bigquery/schema.sql`**: `groups_master` テーブル定義追加。`members` テーブルに `groups STRING` カラム追加。
+5. **`dashboard/pages/dashboard.py`**: Tab 4「グループ別」追加（3サブタブ: メンバー一覧 / 月別報酬サマリー / 業務報告）。`load_groups_master()`, `load_members_with_groups()` 関数追加。
+6. **fix**: `db-dtypes` パッケージ追加（BQ `to_dataframe` に必要）。
+7. **refactor**: グループ取得を `/update-groups` エンドポイントに分離（メインバッチから独立）。
+
+**注意**: `/update-groups` は手動呼び出し（Cloud Run に POST）。Cloud Scheduler への追加は検討中。
+
+### 直近の変更（rev 00048: 2026-02-16）
 
 **Sidebar UX Reorganization (rev 00048)**
 - サイドバー構造の最適化: 期間・メンバー選択を上部に、ユーザー情報・ログアウトを下部に移動
@@ -196,17 +211,26 @@ gcloud run deploy pay-dashboard \
    - position_rate空文字139名 → 役職なしで正常（値は5/10/12の3段階）
    - qualification_allowance "0" vs 空文字混在 → VIEWのSAFE_CASTで両方0になり計算影響なし
    - member_id重複16組 → 1メンバー=複数シート（sheet_number 1/2）の正常構造。JOINキーがreport_url(=source_url)のため二重計上なし
+7. ~~**Googleグループ収集機能**~~: ✅ 実装・デプロイ完了（PR #22/#23、2026-02-21）
+8. ~~**グループ機能デプロイ**~~: ✅ 完了（Collector rev 00018-pbj + Dashboard rev 00049-gm2）
+   - `/update-groups` 初回実行済み: 192メンバー更新、69グループ登録
+9. **(検討) `/update-groups` のスケジュール化**: Cloud Scheduler で定期実行（例: 週次）を検討
 
 ### デプロイ済み状態
 
-- **Collector**: rev 00014（レート制限改善: throttle 0.5s + num_retries=5）
-- **Dashboard**: rev 00047（業務チェック欠落カラム補完 + ヘルプページリデザイン）
+- **Collector**: rev 00018-pbj（2026-02-21: グループ機能 + /update-groups エンドポイント）
+  - rev 00017: db-dtypes 追加（BQ to_dataframe 依存）
+  - rev 00014: レート制限改善（throttle 0.5s + num_retries=5）
+- **Dashboard**: rev 00049-gm2（2026-02-21: Tab 4「グループ別」追加）
+  - rev 00048: サイドバーUX改善
+  - rev 00047: 業務チェック欠落カラム補完 + ヘルプページリデザイン
   - rev 00046: ヘルプページのカード型レイアウト・アニメーション実装
   - rev 00045: 業務チェック カラム追加（URL、当月入力完了、DX領収書、立替領収書）
   - rev 00044: テーブル直接編集化 + full_name フォールバック
   - rev 00043: ナビ順序変更、メンバー選択チェックボックス化
 - **BQ VIEWs**: v_gyomu_enriched, v_hojo_enriched, v_monthly_compensation デプロイ済み
-- **BQ Table**: withholding_targets, dashboard_users, check_logs デプロイ済み
+- **BQ Table**: withholding_targets, dashboard_users, check_logs, groups_master デプロイ済み
+- **BQ Table members**: groups カラム追加済み（192件・69グループ登録済み）
 
 ## アーキテクチャ
 
@@ -257,7 +281,9 @@ Cloud Run "pay-dashboard" (Streamlit / 512MiB / マルチページ)
 
 **hojo_reports**: source_url, year, month, hours, compensation, dx_subsidy, reimbursement, total_amount, monthly_complete, dx_receipt, expense_receipt, ingested_at
 
-**members**: report_url, member_id, nickname, gws_account, full_name, qualification_allowance, position_rate, corporate_sheet, donation_sheet, qualification_sheet, sheet_number, ingested_at
+**members**: report_url, member_id, nickname, gws_account, full_name, qualification_allowance, position_rate, corporate_sheet, donation_sheet, qualification_sheet, sheet_number, groups, ingested_at
+
+**groups_master**: group_email, group_name, ingested_at（69グループ登録済み）
 
 **withholding_targets**: work_category, licensed_member_id
 
