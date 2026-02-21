@@ -17,7 +17,7 @@ Accepted
 
 ### 認可方式
 - BQ `dashboard_users` テーブルによるホワイトリスト方式
-- admin/viewer の2ロール構成
+- admin/checker/viewer の3ロール構成（checker: 業務チェック管理表へのアクセス権、PR #15で追加）
 - BQ障害時は初期管理者のみadminとしてフォールバック
 - `st.session_state` にロールをキャッシュ
 
@@ -31,4 +31,4 @@ Accepted
 - BQにUNIQUE制約がないため、アプリ層でemail重複チェックが必要
 - ユーザー管理操作後はロールキャッシュのクリアが必要
 - `st.set_page_config` はapp.pyでのみ1回呼び出し
-- `streamlit-mermaid` パッケージの追加依存
+- ~~`streamlit-mermaid` パッケージの追加依存~~ → PR #11 で廃止。Mermaid.js v11 CDN直接読込（`streamlit.components.v1.html()`）に移行済み。`st.html()` はsandboxed iframeでESMインポートがブロックされるため。

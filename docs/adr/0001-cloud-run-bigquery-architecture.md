@@ -40,5 +40,6 @@ GAS（Google Apps Script）で運用していた月次給与データ集約ス�
 
 ## 影響
 - 既存GASスクリプトは移行完了後に停止（即削除はしない）
-- 集約先スプレッドシートはBigQuery + Looker Studioに置換
+- 集約先スプレッドシートはBigQuery + Looker Studio（当初計画）に置換
+  - **注記**: 可視化レイヤーは後に Looker Studio から Streamlit Dashboard（Cloud Run `pay-dashboard`）に変更。ADR-0002 参照。
 - 管理表スプレッドシート（URLリスト）は引き続き使用

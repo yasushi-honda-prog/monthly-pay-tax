@@ -12,8 +12,11 @@ GASベースの給与スプレッドシートデータ集約を、Cloud Run + Bi
 ```
 Cloud Scheduler (0 6 * * * JST, OIDC認証)
   → Cloud Run "pay-collector" (Python 3.12 / Flask / gunicorn)
-    → Sheets API v4 (IAM signBlobによるキーレスDWD認証)
-    → BigQuery pay_reports.{gyomu_reports, hojo_reports} (WRITE_TRUNCATE)
+    Step 1-3: Sheets API v4 (IAM signBlobによるキーレスDWD認証)
+      → BigQuery pay_reports.{gyomu_reports, hojo_reports, members} (WRITE_TRUNCATE)
+    Step 4: Admin Directory API
+      → BigQuery pay_reports.{groups_master} (WRITE_TRUNCATE)
+      → BigQuery pay_reports.members.groups (UPDATE)
 ```
 
 認証はWorkload Identity + IAM signBlob APIによるキーレスDomain-Wide Delegation。
@@ -26,7 +29,7 @@ SA鍵ファイルは使わない（ローカル開発時のみ `SA_KEY_PATH` 環
   - `sheets_collector.py` - Sheets API経由のデータ収集（DWD認証含む）
   - `bq_loader.py` - BigQueryへのデータロード（pandas DataFrame経由）
   - `config.py` - GCPプロジェクトID、BQテーブル名、マスタスプレッドシートID等の設定値
-  - `tests/` - テストディレクトリ（未実装）
+  - `tests/test_sheets_collector.py` - Sheets APIスロットリング・リトライのユニットテスト（6テスト）
 - `dashboard/` - Streamlitダッシュボード（マルチページ構成）
   - `app.py` - エントリポイント（認証 + st.navigation ルーター）
   - `pages/dashboard.py` - 既存3タブ（月別報酬/スポンサー別/業務報告一覧）
@@ -39,6 +42,7 @@ SA鍵ファイルは使わない（ローカル開発時のみ `SA_KEY_PATH` 環
   - `lib/bq_client.py` - 共有BQクライアント
   - `lib/styles.py` - 共有CSS
   - `lib/constants.py` - 定数
+  - `lib/ui_helpers.py` - 共通UIユーティリティ（KPI表示・数値変換・年月セレクタ）
 - `コード.js` - 旧GASコード（参照用、稼働していない）
 - `infra/bigquery/schema.sql` - BQテーブルスキーマ定義（dashboard_users, check_logs含む）
   - `infra/bigquery/views.sql` - BQ VIEW定義（v_gyomu_enriched, v_hojo_enriched, v_monthly_compensation）
@@ -68,20 +72,21 @@ gcloud run deploy pay-collector \
 | SA | `pay-collector@monthly-pay-tax.iam.gserviceaccount.com` |
 | Cloud Run URL | `https://pay-collector-209715990891.asia-northeast1.run.app` |
 | BQデータセット | `pay_reports` |
-| BQテーブル | `gyomu_reports`, `hojo_reports`, `members`, `withholding_targets`, `dashboard_users`, `check_logs` |
+| BQテーブル | `gyomu_reports`, `hojo_reports`, `members`, `withholding_targets`, `dashboard_users`, `check_logs`, `groups_master` |
 | BQ VIEWs | `v_gyomu_enriched`, `v_hojo_enriched`, `v_monthly_compensation` |
 | AR | `cloud-run-images`（最新2イメージ保持） |
 
 ## BQスキーマ
 
-6テーブル構成。データテーブルはすべてSTRING型 + ingested_at (TIMESTAMP)。
+7テーブル構成。データテーブルはすべてSTRING型 + ingested_at (TIMESTAMP)。
 
 - `gyomu_reports`: source_url, year, date, day_of_week, activity_category, work_category, sponsor, description, unit_price, hours, amount
 - `hojo_reports`: source_url, year, month, hours, compensation, dx_subsidy, reimbursement, total_amount, monthly_complete, dx_receipt, expense_receipt
-- `members`: report_url, member_id, nickname, gws_account, full_name, qualification_allowance, position_rate, corporate_sheet, donation_sheet, qualification_sheet, sheet_number
+- `members`: report_url, member_id, nickname, gws_account, full_name, qualification_allowance, position_rate, corporate_sheet, donation_sheet, qualification_sheet, sheet_number, groups
 - `withholding_targets`: work_category, licensed_member_id（源泉対象リスト: 15業務分類 + 2士業メンバー）
 - `dashboard_users`: email, role, display_name, added_by, created_at, updated_at（ホワイトリスト + ロール管理）
 - `check_logs`: source_url, year, month, status, checker_email, memo, action_log, updated_at（業務チェック管理）
+- `groups_master`: group_email, group_name, ingested_at（Googleグループマスタ: 69グループ）
 
 `source_url`（gyomu/hojo）= `report_url`（members）= `source_url`（check_logs）で結合。
 
