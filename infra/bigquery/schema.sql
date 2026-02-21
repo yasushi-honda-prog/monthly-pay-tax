@@ -81,6 +81,13 @@ CREATE TABLE IF NOT EXISTS `monthly-pay-tax.pay_reports.check_logs` (
   updated_at TIMESTAMP NOT NULL    -- 最終更新日時（楽観的ロック用）
 );
 
+-- グループマスター（Admin Directory APIから取得したGWSグループ一覧）
+CREATE TABLE IF NOT EXISTS `monthly-pay-tax.pay_reports.groups_master` (
+  group_email STRING NOT NULL,            -- グループメールアドレス
+  group_name STRING,                      -- グループ表示名
+  ingested_at TIMESTAMP NOT NULL          -- データ取得日時
+);
+
 -- シード: 初期管理者
 -- INSERT INTO `monthly-pay-tax.pay_reports.dashboard_users`
 --   (email, role, display_name, added_by, created_at, updated_at)

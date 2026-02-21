@@ -107,16 +107,21 @@ def _build_admin_service(timeout=60):
     return build("admin", "directory_v1", http=authorized_http, cache_discovery=False)
 
 
-def collect_member_groups(admin_service, gws_account: str) -> str:
-    """Directory APIでメンバーのグループ一覧を取得（カンマ区切り）
+def collect_member_groups(
+    admin_service, gws_account: str
+) -> tuple[str, list[tuple[str, str]]]:
+    """Directory APIでメンバーのグループ一覧を取得
 
     ページネーションを考慮して全グループを取得する。
-    エラー時は空文字列を返してバッチ全体を止めない。
+    エラー時は空文字列/空リストを返してバッチ全体を止めない。
+
+    Returns:
+        (カンマ区切りemailリスト, [(email, name), ...])
     """
     if not gws_account:
-        return ""
+        return "", []
     try:
-        group_emails = []
+        group_pairs: list[tuple[str, str]] = []
         page_token = None
         while True:
             result = (
@@ -124,18 +129,20 @@ def collect_member_groups(admin_service, gws_account: str) -> str:
                 .list(userKey=gws_account, pageToken=page_token, maxResults=200)
                 .execute()
             )
-            group_emails.extend(g["email"] for g in result.get("groups", []))
+            for g in result.get("groups", []):
+                group_pairs.append((g["email"], g.get("name", g["email"])))
             page_token = result.get("nextPageToken")
             if not page_token:
                 break
         time.sleep(config.SHEETS_API_SLEEP_BETWEEN_REQUESTS)
-        return ",".join(group_emails)
+        emails_csv = ",".join(email for email, _ in group_pairs)
+        return emails_csv, group_pairs
     except HttpError as e:
         logger.warning("グループ取得エラー (%s): %s", gws_account, e)
-        return ""
+        return "", []
     except Exception as e:
         logger.warning("グループ取得エラー (%s): %s", gws_account, e)
-        return ""
+        return "", []
 
 
 def _extract_spreadsheet_id(url: str) -> str:
@@ -318,11 +325,15 @@ def run_collection() -> dict[str, list[list]]:
     return all_data
 
 
-def update_member_groups_from_bq() -> list[list]:
+def update_member_groups_from_bq() -> tuple[list[list], list[list]]:
     """BQのmembersテーブルを読み込み、Admin SDKでグループ情報を付加して返す
 
     /update-groups エンドポイントから呼び出す。
     シート再収集なしで ~2分で完了する。
+
+    Returns:
+        (updated_members, groups_master_rows)
+        groups_master_rows: [[group_email, group_name], ...]（重複なし）
     """
     import bq_loader
 
@@ -334,11 +345,21 @@ def update_member_groups_from_bq() -> list[list]:
     groups_idx = columns.index("groups")
 
     updated = []
+    groups_dict: dict[str, str] = {}  # email → name（重複排除）
+
     for row in rows:
         row = list(row)
         gws_account = row[gws_idx] or ""
-        row[groups_idx] = collect_member_groups(admin_service, gws_account)
+        emails_csv, group_pairs = collect_member_groups(admin_service, gws_account)
+        row[groups_idx] = emails_csv
         updated.append(row)
+        for email, name in group_pairs:
+            groups_dict[email] = name
 
-    logger.info("グループ情報を %d 件更新しました", len(updated))
-    return updated
+    groups_master = [[email, name] for email, name in groups_dict.items()]
+    logger.info(
+        "グループ情報を %d 件更新しました（ユニークグループ: %d）",
+        len(updated),
+        len(groups_master),
+    )
+    return updated, groups_master

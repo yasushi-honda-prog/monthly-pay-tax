@@ -10,6 +10,7 @@ BQ_DATASET = os.environ.get("BQ_DATASET", "pay_reports")
 BQ_TABLE_GYOMU = "gyomu_reports"
 BQ_TABLE_HOJO = "hojo_reports"
 BQ_TABLE_MEMBERS = "members"
+BQ_TABLE_GROUPS_MASTER = "groups_master"
 
 # 管理表スプレッドシート
 MASTER_SPREADSHEET_ID = "1fBNfkFBARSpT-OpLOytbAfoa0Xo5LTWv7irimssxcUU"
@@ -80,5 +81,8 @@ TABLE_COLUMNS = {
         "corporate_sheet", "donation_sheet",
         "qualification_sheet", "sheet_number",
         "groups",
+    ],
+    BQ_TABLE_GROUPS_MASTER: [
+        "group_email", "group_name",
     ],
 }

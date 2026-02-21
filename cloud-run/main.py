@@ -59,10 +59,18 @@ def update_groups():
     start = time.time()
     logger.info("--- グループ情報更新開始 ---")
     try:
-        updated_members = sheets_collector.update_member_groups_from_bq()
+        updated_members, groups_master = sheets_collector.update_member_groups_from_bq()
         count = bq_loader.load_to_bigquery(bq_loader.config.BQ_TABLE_MEMBERS, updated_members)
+        groups_count = bq_loader.load_to_bigquery(
+            bq_loader.config.BQ_TABLE_GROUPS_MASTER, groups_master
+        )
         elapsed = round(time.time() - start, 1)
-        summary = {"status": "success", "elapsed_seconds": elapsed, "members_updated": count}
+        summary = {
+            "status": "success",
+            "elapsed_seconds": elapsed,
+            "members_updated": count,
+            "groups_master": groups_count,
+        }
         logger.info("--- グループ情報更新完了 (%s秒) ---", elapsed)
         return jsonify(summary), 200
     except Exception as e:
