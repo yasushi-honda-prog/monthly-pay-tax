@@ -79,5 +79,6 @@ TABLE_COLUMNS = {
         "qualification_allowance", "position_rate",
         "corporate_sheet", "donation_sheet",
         "qualification_sheet", "sheet_number",
+        "groups",
     ],
 }
