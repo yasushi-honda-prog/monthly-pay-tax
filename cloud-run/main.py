@@ -34,6 +34,24 @@ def run_consolidation():
         # Step 3: BigQueryに投入
         results = bq_loader.load_all(all_data)
 
+        # Step 4: グループ情報更新（Admin SDK、失敗しても本体は成功扱い）
+        try:
+            logger.info("--- グループ情報更新開始 ---")
+            updated_members, groups_master = sheets_collector.update_member_groups_from_bq()
+            results[bq_loader.config.BQ_TABLE_MEMBERS] = bq_loader.load_to_bigquery(
+                bq_loader.config.BQ_TABLE_MEMBERS, updated_members
+            )
+            results[bq_loader.config.BQ_TABLE_GROUPS_MASTER] = bq_loader.load_to_bigquery(
+                bq_loader.config.BQ_TABLE_GROUPS_MASTER, groups_master
+            )
+            logger.info(
+                "--- グループ情報更新完了 (members: %d, groups: %d) ---",
+                results[bq_loader.config.BQ_TABLE_MEMBERS],
+                results[bq_loader.config.BQ_TABLE_GROUPS_MASTER],
+            )
+        except Exception as grp_err:
+            logger.warning("グループ情報更新スキップ（本体処理は完了）: %s", grp_err, exc_info=True)
+
         elapsed = round(time.time() - start, 1)
         summary = {
             "status": "success",
