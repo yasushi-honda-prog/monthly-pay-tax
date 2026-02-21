@@ -1,8 +1,8 @@
 # ハンドオフメモ - monthly-pay-tax
 
 **更新日**: 2026-02-21
-**フェーズ**: 6完了 + グループ機能追加
-**最新デプロイ**: Collector rev 00018-pbj（グループ機能 + /update-groups）+ Dashboard rev 00049-gm2（Tab 4「グループ別」）
+**フェーズ**: 6完了 + グループ機能追加 + UX改善
+**最新デプロイ**: Collector rev 00018-pbj（グループ機能 + /update-groups）+ Dashboard rev 00051-l7v（本名併記）
 **テストスイート**: 189テスト（全PASS、8.5秒）
 
 ## 現在の状態
@@ -24,6 +24,9 @@ groups_master テーブル: 69グループ登録済み。members テーブル: 1
 7. **refactor**: グループ取得を `/update-groups` エンドポイントに分離（メインバッチから独立）。
 
 **注意**: `/update-groups` は手動呼び出し（Cloud Run に POST）。Cloud Scheduler への追加は検討中。
+
+8. **`dashboard/pages/dashboard.py`** (fix, rev 00050-qbh): `_render_group_tab()` を `@st.fragment` でラップし、グループ選択時のタブリセットを防止。内側サブタブ「月別報酬サマリー」→「月別報酬」にリネーム（外側Tab1との名前衝突解消）。
+9. **`dashboard/pages/dashboard.py`** (feat, rev 00051-l7v): `load_member_name_map()` 追加。サイドバーのチェックボックス・Tab1〜4の全ピボット・詳細テーブル・業務報告一覧でメンバー名を「ニックネーム（本名）」形式で統一表示。`load_gyomu_with_members()` と `load_members_with_groups()` に `full_name` を追加。
 
 ### 直近の変更（rev 00048: 2026-02-16）
 
@@ -215,13 +218,17 @@ gcloud run deploy pay-dashboard \
 8. ~~**グループ機能デプロイ**~~: ✅ 完了（Collector rev 00018-pbj + Dashboard rev 00049-gm2）
    - `/update-groups` 初回実行済み: 192メンバー更新、69グループ登録
 9. **(検討) `/update-groups` のスケジュール化**: Cloud Scheduler で定期実行（例: 週次）を検討
+10. ~~**グループ選択時タブリセット修正**~~: ✅ 完了（rev 00050-qbh、@st.fragment）
+11. ~~**メンバー名に本名を全箇所で併記**~~: ✅ 完了（rev 00051-l7v）
 
 ### デプロイ済み状態
 
 - **Collector**: rev 00018-pbj（2026-02-21: グループ機能 + /update-groups エンドポイント）
   - rev 00017: db-dtypes 追加（BQ to_dataframe 依存）
   - rev 00014: レート制限改善（throttle 0.5s + num_retries=5）
-- **Dashboard**: rev 00049-gm2（2026-02-21: Tab 4「グループ別」追加）
+- **Dashboard**: rev 00051-l7v（2026-02-21: メンバー名に本名を全箇所で併記）
+  - rev 00050-qbh: グループ選択時のタブリセット修正（@st.fragment）
+  - rev 00049-gm2: Tab 4「グループ別」追加
   - rev 00048: サイドバーUX改善
   - rev 00047: 業務チェック欠落カラム補完 + ヘルプページリデザイン
   - rev 00046: ヘルプページのカード型レイアウト・アニメーション実装
