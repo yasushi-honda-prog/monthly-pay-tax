@@ -1,8 +1,8 @@
 # ハンドオフメモ - monthly-pay-tax
 
-**更新日**: 2026-02-21
+**更新日**: 2026-02-22
 **フェーズ**: 6完了 + グループ機能追加 + UX改善
-**最新デプロイ**: Collector rev 00019-hlp（グループ更新を毎朝バッチに統合）+ Dashboard rev 00051-l7v（本名併記）
+**最新デプロイ**: Collector rev 00019-hlp（グループ更新を毎朝バッチに統合）+ Dashboard rev 00052（URLリンク追加）
 **テストスイート**: 189テスト（全PASS、8.5秒）
 
 ## 現在の状態
@@ -10,6 +10,17 @@
 Cloud Run + BigQuery + Streamlitダッシュボード本番稼働中。
 **Googleグループ機能デプロイ済み** - Admin SDK経由でメンバーのグループ所属を収集し、グループ別ダッシュボードタブを追加（PR #22/#23、2026-02-21デプロイ済み）。
 groups_master テーブル: 69グループ登録済み。members テーブル: 192件にgroups列付与済み。
+
+### 直近の変更（2026-02-22）
+
+**`dashboard/pages/dashboard.py`**: ダッシュボード各テーブルにスプレッドシートURLリンクを追加（業務チェック管理表と同じ「開く」LinkColumn）
+
+1. `load_monthly_compensation()`: `report_url` を SELECT に追加
+2. `load_gyomu_with_members()`: `source_url` を SELECT に追加
+3. `load_members_with_groups()`: `report_url` を SELECT に追加
+4. **Tab1「メンバー別報酬明細」**: `groupby` に `report_url` を追加 → `reset_index()` → `"メンバー"` 列の隣に `"URL"` LinkColumn を表示
+5. **Tab3「業務報告一覧」**: `source_url` → `"URL"` 列を `"メンバー"` 列の直後に追加
+6. **Tab4 グループ別「メンバー一覧」**: `report_url` → `"URL"` 列を「本名」の隣に追加
 
 ### 直近の変更（今セッション: 2026-02-21）
 
@@ -221,6 +232,7 @@ gcloud run deploy pay-dashboard \
 9. ~~**(検討) `/update-groups` のスケジュール化**~~: ✅ 完了（rev 00019-hlp: POST / に統合、毎朝6時に自動実行）
 10. ~~**グループ選択時タブリセット修正**~~: ✅ 完了（rev 00050-qbh、@st.fragment）
 11. ~~**メンバー名に本名を全箇所で併記**~~: ✅ 完了（rev 00051-l7v）
+12. ~~**ダッシュボード各テーブルにURLリンク追加**~~: ✅ 完了（2026-02-22、要デプロイ）
 
 ### デプロイ済み状態
 
@@ -228,7 +240,8 @@ gcloud run deploy pay-dashboard \
   - rev 00018-pbj: グループ機能 + /update-groups エンドポイント
   - rev 00017: db-dtypes 追加（BQ to_dataframe 依存）
   - rev 00014: レート制限改善（throttle 0.5s + num_retries=5）
-- **Dashboard**: rev 00051-l7v（2026-02-21: メンバー名に本名を全箇所で併記）
+- **Dashboard**: rev 00052（2026-02-22: ダッシュボード各テーブルにURLリンク追加、**未デプロイ**）
+  - rev 00051-l7v: メンバー名に本名を全箇所で併記
   - rev 00050-qbh: グループ選択時のタブリセット修正（@st.fragment）
   - rev 00049-gm2: Tab 4「グループ別」追加
   - rev 00048: サイドバーUX改善
