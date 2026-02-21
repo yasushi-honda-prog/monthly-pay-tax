@@ -60,7 +60,7 @@ def load_monthly_compensation():
 def load_gyomu_with_members():
     query = f"""
     SELECT
-        nickname, year, date, month, day_of_week,
+        nickname, full_name, year, date, month, day_of_week,
         activity_category, work_category, sponsor, description,
         unit_price, work_hours, travel_distance_km, amount
     FROM `{PROJECT_ID}.{DATASET}.v_gyomu_enriched`
@@ -84,7 +84,7 @@ def load_groups_master():
 @st.cache_data(ttl=3600)
 def load_members_with_groups():
     query = f"""
-    SELECT nickname, `groups`
+    SELECT nickname, full_name, `groups`
     FROM `{PROJECT_ID}.{DATASET}.members`
     WHERE nickname IS NOT NULL AND TRIM(nickname) != ''
         AND `groups` IS NOT NULL AND `groups` != ''
@@ -118,6 +118,24 @@ def load_all_members():
     return load_data(query)["nickname"].tolist()
 
 
+@st.cache_data(ttl=3600)
+def load_member_name_map() -> dict[str, str]:
+    """nickname → "ニックネーム（本名）" の辞書を返す"""
+    query = f"""
+    SELECT DISTINCT nickname, full_name
+    FROM `{PROJECT_ID}.{DATASET}.members`
+    WHERE nickname IS NOT NULL AND TRIM(nickname) != ''
+    """
+    df = load_data(query)
+    result: dict[str, str] = {}
+    for _, row in df.iterrows():
+        nick = str(row["nickname"])
+        full = str(row.get("full_name", "") or "").strip()
+        result[nick] = f"{nick}（{full}）" if full else nick
+    result["(未設定)"] = "(未設定)"
+    return result
+
+
 # --- サイドバー ---
 with st.sidebar:
     selected_year, selected_month = render_sidebar_year_month(
@@ -133,6 +151,11 @@ with st.sidebar:
         all_members = load_all_members()
     except Exception:
         all_members = []
+
+    try:
+        name_map = load_member_name_map()
+    except Exception:
+        name_map = {}
 
     if member_search:
         display_members = [m for m in all_members if member_search.lower() in m.lower()]
@@ -152,7 +175,8 @@ with st.sidebar:
     selected_members = []
     with st.container(height=250):
         for m in display_members:
-            if st.checkbox(m, key=f"sb_{m}"):
+            label = name_map.get(m, m)
+            if st.checkbox(label, key=f"sb_{m}"):
                 selected_members.append(m)
 
     count = len(selected_members)
@@ -178,6 +202,7 @@ def _render_group_tab(selected_year: int, selected_month: str) -> None:
     try:
         df_gm = load_groups_master()
         df_mwg = load_members_with_groups()
+        _name_map = load_member_name_map()
     except Exception as e:
         logger.error("グループデータ取得失敗: %s", e, exc_info=True)
         st.error(f"データ取得エラー: {e}")
@@ -228,9 +253,9 @@ def _render_group_tab(selected_year: int, selected_month: str) -> None:
 
     with gtab1:
         member_df = (
-            df_mwg[df_mwg["nickname"].isin(group_members)][["nickname"]]
+            df_mwg[df_mwg["nickname"].isin(group_members)][["nickname", "full_name"]]
             .copy()
-            .rename(columns={"nickname": "ニックネーム"})
+            .rename(columns={"nickname": "ニックネーム", "full_name": "本名"})
             .sort_values("ニックネーム")
             .reset_index(drop=True)
         )
@@ -259,6 +284,7 @@ def _render_group_tab(selected_year: int, selected_month: str) -> None:
         ]:
             df_comp_g[col] = df_comp_g[col].fillna(0).astype(float)
 
+        df_comp_g["display_name"] = df_comp_g["nickname"].map(lambda n: _name_map.get(n, n))
         filtered_gc = df_comp_g[
             (df_comp_g["year"] == selected_year)
             & (df_comp_g["nickname"].isin(group_members))
@@ -280,7 +306,7 @@ def _render_group_tab(selected_year: int, selected_month: str) -> None:
             st.subheader("メンバー別 月次支払額")
             pivot_gc = filtered_gc.pivot_table(
                 values="payment",
-                index="nickname",
+                index="display_name",
                 columns="month",
                 aggfunc="sum",
                 fill_value=0,
@@ -309,6 +335,7 @@ def _render_group_tab(selected_year: int, selected_month: str) -> None:
         df_gyomu_g = df_gyomu_g[df_gyomu_g["year"].notna()]
         df_gyomu_g["year"] = df_gyomu_g["year"].astype(int)
         df_gyomu_g["amount_num"] = clean_numeric_series(df_gyomu_g["amount"])
+        df_gyomu_g["display_name"] = df_gyomu_g["nickname"].map(lambda n: _name_map.get(n, n))
 
         result_g = df_gyomu_g[
             (df_gyomu_g["year"] == selected_year)
@@ -328,12 +355,12 @@ def _render_group_tab(selected_year: int, selected_month: str) -> None:
         if not result_g.empty:
             st.dataframe(
                 result_g[[
-                    "nickname", "date", "day_of_week",
+                    "display_name", "date", "day_of_week",
                     "activity_category", "work_category",
                     "sponsor", "description",
                     "unit_price", "work_hours", "amount",
                 ]].rename(columns={
-                    "nickname": "メンバー",
+                    "display_name": "メンバー",
                     "date": "日付",
                     "day_of_week": "曜日",
                     "activity_category": "活動分類",
@@ -390,6 +417,8 @@ with tab1:
         for col in num_cols:
             df_comp[col] = df_comp[col].fillna(0).astype(float)
 
+        df_comp["display_name"] = df_comp["nickname"].map(lambda n: name_map.get(n, n))
+
         filtered = df_comp[df_comp["year"] == selected_year]
         if selected_month != "全月":
             filtered = filtered[filtered["month"] == int(selected_month.replace("月", ""))]
@@ -413,7 +442,7 @@ with tab1:
         st.subheader("メンバー別 月次支払額")
         pivot = filtered.pivot_table(
             values="payment",
-            index="nickname",
+            index="display_name",
             columns="month",
             aggfunc="sum",
             fill_value=0,
@@ -430,7 +459,7 @@ with tab1:
 
         # メンバー別詳細テーブル
         st.subheader("メンバー別 報酬明細")
-        detail = filtered.groupby("nickname").agg(
+        detail = filtered.groupby("display_name").agg(
             時間=("work_hours", "sum"),
             時間報酬=("hour_compensation", "sum"),
             距離=("travel_distance_km", "sum"),
@@ -503,6 +532,7 @@ with tab2:
         df_gyomu["year"] = valid_years(df_gyomu["year"])
         df_gyomu = df_gyomu[df_gyomu["year"].notna()]
         df_gyomu["year"] = df_gyomu["year"].astype(int)
+        df_gyomu["display_name"] = df_gyomu["nickname"].map(lambda n: name_map.get(n, n))
 
         filtered_g = df_gyomu[df_gyomu["year"] == selected_year]
         if selected_month != "全月":
@@ -537,7 +567,7 @@ with tab2:
         if not filtered_g.empty:
             pivot_g = filtered_g.pivot_table(
                 values="amount_num",
-                index="nickname",
+                index="display_name",
                 columns="month_num",
                 aggfunc="sum",
                 fill_value=0,
@@ -579,6 +609,7 @@ with tab3:
         df_gyomu_all["year"] = valid_years(df_gyomu_all["year"])
         df_gyomu_all = df_gyomu_all[df_gyomu_all["year"].notna()]
         df_gyomu_all["year"] = df_gyomu_all["year"].astype(int)
+        df_gyomu_all["display_name"] = df_gyomu_all["nickname"].map(lambda n: name_map.get(n, n))
 
         result = df_gyomu_all[df_gyomu_all["year"] == selected_year]
         if selected_month != "全月":
@@ -601,13 +632,13 @@ with tab3:
         st.dataframe(
             result[
                 [
-                    "nickname", "date", "day_of_week",
+                    "display_name", "date", "day_of_week",
                     "activity_category", "work_category",
                     "sponsor", "description",
                     "unit_price", "work_hours", "travel_distance_km", "amount",
                 ]
             ].rename(columns={
-                "nickname": "メンバー",
+                "display_name": "メンバー",
                 "date": "日付",
                 "day_of_week": "曜日",
                 "activity_category": "活動分類",
