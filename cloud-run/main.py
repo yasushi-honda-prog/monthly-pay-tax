@@ -49,6 +49,28 @@ def run_consolidation():
         return jsonify({"status": "error", "message": str(e)}), 500
 
 
+@app.route("/update-groups", methods=["POST"])
+def update_groups():
+    """メンバーグループ情報更新エンドポイント
+
+    BQ の gws_account リストを使い Admin SDK でグループを取得して members テーブルを更新。
+    シート再収集なし・約2分で完了。
+    """
+    start = time.time()
+    logger.info("--- グループ情報更新開始 ---")
+    try:
+        updated_members = sheets_collector.update_member_groups_from_bq()
+        count = bq_loader.load_to_bigquery(bq_loader.config.BQ_TABLE_MEMBERS, updated_members)
+        elapsed = round(time.time() - start, 1)
+        summary = {"status": "success", "elapsed_seconds": elapsed, "members_updated": count}
+        logger.info("--- グループ情報更新完了 (%s秒) ---", elapsed)
+        return jsonify(summary), 200
+    except Exception as e:
+        elapsed = round(time.time() - start, 1)
+        logger.error("グループ情報更新エラー (%s秒): %s", elapsed, e, exc_info=True)
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
 @app.route("/health", methods=["GET"])
 def health():
     """ヘルスチェック"""

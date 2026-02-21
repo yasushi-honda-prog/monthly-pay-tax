@@ -79,6 +79,19 @@ def load_to_bigquery(table_name: str, rows: list[list]) -> int:
     return len(df)
 
 
+def read_members_from_bq() -> list[list]:
+    """BQ membersテーブルを list[list] 形式で読み取る（TABLE_COLUMNS順）
+
+    ingested_at は除外して返す（load_to_bigquery が再付与する）。
+    """
+    client = _build_bq_client()
+    columns = config.TABLE_COLUMNS[config.BQ_TABLE_MEMBERS]
+    col_list = ", ".join(f"`{c}`" for c in columns)
+    query = f"SELECT {col_list} FROM `{config.GCP_PROJECT_ID}.{config.BQ_DATASET}.{config.BQ_TABLE_MEMBERS}`"
+    df = client.query(query).to_dataframe()
+    return df.where(df.notna(), None).values.tolist()
+
+
 def load_all(all_data: dict[str, list[list]]) -> dict[str, int]:
     """全テーブルにデータをロード
 

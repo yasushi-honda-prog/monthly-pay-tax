@@ -307,21 +307,38 @@ def collect_members(service) -> list[list]:
 
 
 def run_collection() -> dict[str, list[list]]:
-    """データ収集のエントリポイント"""
+    """データ収集のエントリポイント（シート収集のみ、グループ更新は /update-groups で実行）"""
     service = _build_sheets_service()
-    admin_service = _build_admin_service()
-
     # membersを先に読む（1 APIコールのみ、レート制限回避）
     members = collect_members(service)
-
-    # 各メンバーの gws_account（D列 = インデックス3）でグループ情報を取得して付加
-    members_with_groups = []
-    for row in members:
-        gws_account = row[3] if len(row) > 3 else ""
-        groups_str = collect_member_groups(admin_service, gws_account)
-        members_with_groups.append(row + [groups_str])
-    logger.info("グループ情報を %d 件取得しました", len(members_with_groups))
-
+    # groups列を空文字で埋めてカラム数を合わせる
+    members_padded = [row + [""] for row in members]
     all_data = collect_all_data(service)
-    all_data[config.BQ_TABLE_MEMBERS] = members_with_groups
+    all_data[config.BQ_TABLE_MEMBERS] = members_padded
     return all_data
+
+
+def update_member_groups_from_bq() -> list[list]:
+    """BQのmembersテーブルを読み込み、Admin SDKでグループ情報を付加して返す
+
+    /update-groups エンドポイントから呼び出す。
+    シート再収集なしで ~2分で完了する。
+    """
+    import bq_loader
+
+    rows = bq_loader.read_members_from_bq()
+    admin_service = _build_admin_service()
+
+    columns = config.TABLE_COLUMNS[config.BQ_TABLE_MEMBERS]
+    gws_idx = columns.index("gws_account")
+    groups_idx = columns.index("groups")
+
+    updated = []
+    for row in rows:
+        row = list(row)
+        gws_account = row[gws_idx] or ""
+        row[groups_idx] = collect_member_groups(admin_service, gws_account)
+        updated.append(row)
+
+    logger.info("グループ情報を %d 件更新しました", len(updated))
+    return updated
