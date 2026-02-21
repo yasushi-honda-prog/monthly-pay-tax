@@ -75,10 +75,12 @@ graph LR
     CS[Cloud Scheduler<br/>毎朝6時 JST] -->|OIDC認証| CR[Cloud Run<br/>pay-collector]
     CR -->|Sheets API v4<br/>キーレスDWD| SS[(190個の<br/>スプレッドシート)]
     CR -->|WRITE_TRUNCATE| BQ[(BigQuery<br/>pay_reports)]
+    CR -->|Admin Directory API| ADK[Google Admin SDK<br/>グループ情報]
+    ADK -->|groups_master / members更新| BQ
     BQ -->|VIEWs| DB[Cloud Run<br/>pay-dashboard]
     BR[ブラウザ] -->|HTTPS *.run.app| DB
     DB -->|Streamlit OIDC<br/>Google OAuth| GOOG[Google IdP<br/>tadakayo.jp]
-""", height=350)
+""", height=380)
 
 st.markdown("""
 | コンポーネント | 仕様 |
@@ -87,7 +89,8 @@ st.markdown("""
 | Dashboard | Python 3.12 / Streamlit / 512MiB |
 | Collector認証 | Workload Identity + IAM signBlob (キーレスDWD) |
 | Dashboard認証 | Streamlit OIDC (Google OAuth, tadakayo.jpドメイン) |
-| BQ取り込み | WRITE_TRUNCATE（毎回全データ置換） |
+| BQ取り込み | WRITE_TRUNCATE（毎回全データ置換）|
+| グループ更新 | 毎朝バッチ末尾に Admin Directory API でグループ情報を自動更新 |
 """)
 
 
@@ -103,28 +106,34 @@ graph TD
     MGR[管理表<br/>URLリスト + メンバーマスタ] -->|URL一覧| COL[Collector]
     COL -->|各SSを巡回| G[gyomu_reports<br/>~17,000行]
     COL -->|各SSを巡回| H[hojo_reports<br/>~1,100行]
-    MGR -->|A:K列| M[members<br/>190行]
+    MGR -->|A:K列| M[members<br/>192行 + groups列]
+    ADK[Admin Directory API] -->|グループ所属| GM[groups_master<br/>69グループ]
+    ADK -->|groups列更新| M
     WT[withholding_targets<br/>源泉対象リスト] -.->|手動管理| BQ
     G --> BQ[(BigQuery)]
     H --> BQ
     M --> BQ
+    GM --> BQ
     BQ --> VG[v_gyomu_enriched]
     BQ --> VH[v_hojo_enriched]
     VG --> VMC[v_monthly_compensation]
     VH --> VMC
-""", height=600)
+    DB[Dashboard] -->|checker/admin操作| CL[check_logs]
+    CL --> BQ
+""", height=700)
 
 
 # === 3. BQスキーマ ER図 ===
 st.subheader("3. BQスキーマ")
 st.markdown("""
-4テーブル + 3 VIEW。`source_url = report_url` でメンバー結合。
+6テーブル + 3 VIEW。`source_url = report_url` でメンバー結合。
 """)
 
 render_mermaid("""
 erDiagram
     gyomu_reports ||--o{ members : "source_url = report_url"
     hojo_reports ||--o{ members : "source_url = report_url"
+    check_logs ||--o{ members : "source_url = report_url"
     gyomu_reports {
         STRING source_url
         STRING year
@@ -149,6 +158,7 @@ erDiagram
         STRING full_name
         STRING position_rate
         STRING qualification_allowance
+        STRING groups
     }
     withholding_targets {
         STRING work_category
@@ -159,7 +169,19 @@ erDiagram
         STRING role
         STRING display_name
     }
-""", height=650)
+    check_logs {
+        STRING source_url
+        STRING year
+        STRING month
+        STRING status
+        STRING checker_email
+        STRING memo
+    }
+    groups_master {
+        STRING group_email
+        STRING group_name
+    }
+""", height=750)
 
 
 # === 4. VIEW計算チェーン ===
@@ -203,9 +225,10 @@ graph TD
     GOOG -->|st.user.email| APP
     APP -->|email照合| BQ[(BQ dashboard_users)]
     BQ -->|未登録| DENY[アクセス拒否]
-    BQ -->|viewer| VIEW[ダッシュボード<br/>+ ドキュメント<br/>+ ヘルプ]
+    BQ -->|viewer| VIEW[ダッシュボード<br/>+ アーキテクチャ<br/>+ ヘルプ]
+    BQ -->|checker| CHECK[上記 +<br/>業務チェック管理表]
     BQ -->|admin| ADMIN[上記 +<br/>ユーザー管理<br/>+ 管理設定]
     BQ -->|BQ障害時| FB{フォールバック}
     FB -->|初期管理者| ADMIN
     FB -->|その他| DENY
-""", height=600)
+""", height=650)
