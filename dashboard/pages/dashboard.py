@@ -41,6 +41,7 @@ def load_monthly_compensation():
     query = f"""
     SELECT
         year, month, member_id, nickname, full_name,
+        report_url,
         is_corporate, is_donation, is_licensed,
         work_hours, hour_compensation, travel_distance_km,
         distance_compensation, subtotal_compensation,
@@ -60,6 +61,7 @@ def load_monthly_compensation():
 def load_gyomu_with_members():
     query = f"""
     SELECT
+        source_url,
         nickname, full_name, year, date, month, day_of_week,
         activity_category, work_category, sponsor, description,
         unit_price, work_hours, travel_distance_km, amount
@@ -84,7 +86,7 @@ def load_groups_master():
 @st.cache_data(ttl=3600)
 def load_members_with_groups():
     query = f"""
-    SELECT nickname, full_name, `groups`
+    SELECT nickname, full_name, report_url, `groups`
     FROM `{PROJECT_ID}.{DATASET}.members`
     WHERE nickname IS NOT NULL AND TRIM(nickname) != ''
         AND `groups` IS NOT NULL AND `groups` != ''
@@ -253,13 +255,20 @@ def _render_group_tab(selected_year: int, selected_month: str) -> None:
 
     with gtab1:
         member_df = (
-            df_mwg[df_mwg["nickname"].isin(group_members)][["nickname", "full_name"]]
+            df_mwg[df_mwg["nickname"].isin(group_members)][["nickname", "full_name", "report_url"]]
             .copy()
-            .rename(columns={"nickname": "ニックネーム", "full_name": "本名"})
+            .rename(columns={"nickname": "ニックネーム", "full_name": "本名", "report_url": "URL"})
             .sort_values("ニックネーム")
             .reset_index(drop=True)
         )
-        st.dataframe(member_df, hide_index=True, use_container_width=True)
+        st.dataframe(
+            member_df,
+            column_config={
+                "URL": st.column_config.LinkColumn(display_text="開く"),
+            },
+            hide_index=True,
+            use_container_width=True,
+        )
 
     with gtab2:
         try:
@@ -459,7 +468,7 @@ with tab1:
 
         # メンバー別詳細テーブル
         st.subheader("メンバー別 報酬明細")
-        detail = filtered.groupby("display_name").agg(
+        detail = filtered.groupby(["display_name", "report_url"]).agg(
             時間=("work_hours", "sum"),
             時間報酬=("hour_compensation", "sum"),
             距離=("travel_distance_km", "sum"),
@@ -476,7 +485,7 @@ with tab1:
             一立て件数=("daily_wage_count", "sum"),
             一立て報酬=("full_day_compensation", "sum"),
             総稼働時間=("total_work_hours", "sum"),
-        ).sort_values("支払い", ascending=False)
+        ).reset_index().rename(columns={"display_name": "メンバー", "report_url": "URL"}).sort_values("支払い", ascending=False)
         st.dataframe(
             detail.style.format({
                 "時間": "{:,.1f}",
@@ -496,6 +505,10 @@ with tab1:
                 "一立て報酬": "¥{:,.0f}",
                 "総稼働時間": "{:,.1f}",
             }),
+            column_config={
+                "URL": st.column_config.LinkColumn(display_text="開く"),
+            },
+            hide_index=True,
             use_container_width=True,
         )
 
@@ -632,13 +645,14 @@ with tab3:
         st.dataframe(
             result[
                 [
-                    "display_name", "date", "day_of_week",
+                    "display_name", "source_url", "date", "day_of_week",
                     "activity_category", "work_category",
                     "sponsor", "description",
                     "unit_price", "work_hours", "travel_distance_km", "amount",
                 ]
             ].rename(columns={
                 "display_name": "メンバー",
+                "source_url": "URL",
                 "date": "日付",
                 "day_of_week": "曜日",
                 "activity_category": "活動分類",
@@ -650,6 +664,9 @@ with tab3:
                 "travel_distance_km": "移動距離(km)",
                 "amount": "金額",
             }),
+            column_config={
+                "URL": st.column_config.LinkColumn(display_text="開く"),
+            },
             use_container_width=True,
             hide_index=True,
         )
