@@ -2,7 +2,7 @@
 
 **更新日**: 2026-02-22
 **フェーズ**: 6完了 + グループ機能追加 + UX改善
-**最新デプロイ**: Collector rev 00019-hlp（グループ更新を毎朝バッチに統合）+ Dashboard rev 00052-tcb（URLリンク追加）
+**最新デプロイ**: Collector rev 00019-hlp（グループ更新を毎朝バッチに統合）+ Dashboard rev 00053-4cx（アーキテクチャ図更新）
 **テストスイート**: 189テスト（全PASS、8.5秒）
 
 ## 現在の状態
@@ -240,7 +240,8 @@ gcloud run deploy pay-dashboard \
   - rev 00018-pbj: グループ機能 + /update-groups エンドポイント
   - rev 00017: db-dtypes 追加（BQ to_dataframe 依存）
   - rev 00014: レート制限改善（throttle 0.5s + num_retries=5）
-- **Dashboard**: rev 00052-tcb（2026-02-22: ダッシュボード各テーブルにURLリンク追加）
+- **Dashboard**: rev 00053-4cx（2026-02-22: アーキテクチャ図を最新状態に更新）
+  - rev 00052-tcb: ダッシュボード各テーブルにURLリンク追加
   - rev 00051-l7v: メンバー名に本名を全箇所で併記
   - rev 00050-qbh: グループ選択時のタブリセット修正（@st.fragment）
   - rev 00049-gm2: Tab 4「グループ別」追加
