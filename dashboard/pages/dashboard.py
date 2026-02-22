@@ -638,7 +638,7 @@ with tab3:
             month_val = int(selected_month.replace("月", ""))
             result = result[result["month"] == month_val]
 
-        categories = ["全活動分類"] + sorted(
+        categories = ["活動分類"] + sorted(
             result["activity_category"].dropna().unique().tolist()
         )
         work_categories = ["全業務分類"] + sorted(
@@ -652,7 +652,7 @@ with tab3:
 
         if selected_members:
             result = result[result["nickname"].isin(selected_members)]
-        if sel_cat != "全活動分類":
+        if sel_cat != "活動分類":
             result = result[result["activity_category"] == sel_cat]
         if sel_wcat != "全業務分類":
             result = result[result["work_category"] == sel_wcat]
