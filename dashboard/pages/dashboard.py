@@ -355,6 +355,15 @@ def _render_group_tab(selected_year: int, selected_month: str) -> None:
                 result_g["month"] == int(selected_month.replace("月", ""))
             ]
 
+        work_cats_g = ["全業務分類"] + sorted(
+            result_g["work_category"].dropna().unique().tolist()
+        )
+        col_wc, col_sp_wc = st.columns([1, 3])
+        with col_wc:
+            sel_wcat_g = st.selectbox("業務分類", work_cats_g, key="group_wcat", label_visibility="collapsed")
+        if sel_wcat_g != "全業務分類":
+            result_g = result_g[result_g["work_category"] == sel_wcat_g]
+
         k1, k2 = st.columns(2)
         with k1:
             render_kpi("総額", f"¥{result_g['amount_num'].sum():,.0f}")
@@ -632,14 +641,21 @@ with tab3:
         categories = ["全分類"] + sorted(
             result["activity_category"].dropna().unique().tolist()
         )
-        col_cat, col_spacer = st.columns([1, 3])
+        work_categories = ["全業務分類"] + sorted(
+            result["work_category"].dropna().unique().tolist()
+        )
+        col_cat, col_wcat, col_spacer = st.columns([1, 1, 2])
         with col_cat:
             sel_cat = st.selectbox("活動分類", categories, key="list_cat", label_visibility="collapsed")
+        with col_wcat:
+            sel_wcat = st.selectbox("業務分類", work_categories, key="list_wcat", label_visibility="collapsed")
 
         if selected_members:
             result = result[result["nickname"].isin(selected_members)]
         if sel_cat != "全分類":
             result = result[result["activity_category"] == sel_cat]
+        if sel_wcat != "全業務分類":
+            result = result[result["work_category"] == sel_wcat]
 
         st.markdown(f'<div class="count-badge">{len(result):,} 件</div>', unsafe_allow_html=True)
         st.dataframe(
