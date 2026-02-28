@@ -53,15 +53,24 @@ SA鍵ファイルは使わない（ローカル開発時のみ `SA_KEY_PATH` 環
 ## ビルド・デプロイ
 
 ```bash
-# Cloud Runへのデプロイ（cloud-run/ ディレクトリから）
+# Collector（cloud-run/ ディレクトリから）
 gcloud builds submit --tag asia-northeast1-docker.pkg.dev/monthly-pay-tax/cloud-run-images/pay-collector
 gcloud run deploy pay-collector \
   --image asia-northeast1-docker.pkg.dev/monthly-pay-tax/cloud-run-images/pay-collector \
   --platform managed --region asia-northeast1 --memory 2Gi --timeout 1800 \
   --no-allow-unauthenticated
+
+# Dashboard（dashboard/ ディレクトリから）
+# ⚠️ --allow-unauthenticated 必須（Streamlit OIDCが内部でOAuth認証を処理するため）
+gcloud builds submit --tag asia-northeast1-docker.pkg.dev/monthly-pay-tax/cloud-run-images/pay-dashboard
+gcloud run deploy pay-dashboard \
+  --image asia-northeast1-docker.pkg.dev/monthly-pay-tax/cloud-run-images/pay-dashboard \
+  --platform managed --region asia-northeast1 --memory 512Mi \
+  --allow-unauthenticated
 ```
 
-メモリは2GiB必須（190件巡回で512MBはOOM）。gunicornは1worker/1thread/1800sタイムアウト。
+- Collector: メモリ2GiB必須（190件巡回で512MBはOOM）。gunicornは1worker/1thread/1800sタイムアウト。
+- Dashboard: 512MiB。`--no-allow-unauthenticated` にするとブラウザから403になるので注意。
 
 ## GCP環境
 

@@ -50,7 +50,7 @@ try:
                 "テーブル": table_name,
                 "行数": f"{table.num_rows:,}",
                 "サイズ": f"{table.num_bytes / 1024 / 1024:.1f} MB" if table.num_bytes else "-",
-                "最終更新": table.modified.astimezone(JST).strftime("%Y-%m-%d %H:%M") if table.modified else "-",
+                "最終更新": table.modified.replace(tzinfo=timezone.utc).astimezone(JST).strftime("%Y-%m-%d %H:%M") if table.modified else "-",
             })
         except Exception:
             rows.append({
