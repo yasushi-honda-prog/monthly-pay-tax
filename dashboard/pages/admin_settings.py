@@ -37,7 +37,7 @@ with col2:
 # === BQテーブル情報 ===
 st.subheader("BigQuery テーブル情報")
 
-tables = ["gyomu_reports", "hojo_reports", "members", "withholding_targets", "dashboard_users"]
+tables = ["gyomu_reports", "hojo_reports", "members", "withholding_targets", "dashboard_users", "check_logs", "groups_master"]
 
 try:
     client = get_bq_client()
