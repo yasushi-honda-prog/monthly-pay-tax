@@ -126,7 +126,7 @@ graph TD
 # === 3. BQスキーマ ER図 ===
 st.subheader("3. BQスキーマ")
 st.markdown("""
-6テーブル + 3 VIEW。`source_url = report_url` でメンバー結合。
+7テーブル + 3 VIEW。`source_url = report_url` でメンバー結合。
 """)
 
 render_mermaid("""
@@ -232,3 +232,82 @@ graph TD
     FB -->|初期管理者| ADMIN
     FB -->|その他| DENY
 """, height=650)
+
+
+# === 6. セキュリティアーキテクチャ ===
+st.subheader("6. セキュリティアーキテクチャ")
+st.markdown("""
+本システムのセキュリティは4つのレイヤーで構成されています。
+""")
+
+render_mermaid("""
+graph TD
+    subgraph NW["ネットワーク層"]
+        HTTPS[HTTPS終端<br/>Cloud Run マネージド SSL]
+        IAM[Cloud Run IAM認証<br/>Collector: OIDC トークン検証]
+    end
+
+    subgraph AUTH["認証層"]
+        OIDC[Streamlit OIDC<br/>Google OAuth<br/>tadakayo.jpドメイン限定]
+        DWD[キーレスDWD<br/>IAM signBlob API<br/>SA鍵ファイル不要]
+    end
+
+    subgraph AUTHZ["認可層"]
+        RBAC[RBAC 3段階<br/>viewer / checker / admin]
+        WL[ホワイトリスト<br/>BQ dashboard_users<br/>登録メールのみ許可]
+    end
+
+    subgraph DATA["データ層"]
+        PQ[パラメータ化クエリ<br/>SQLインジェクション防止]
+        ENC[BQ暗号化<br/>Google管理キー<br/>保存時自動暗号化]
+    end
+
+    NW --> AUTH
+    AUTH --> AUTHZ
+    AUTHZ --> DATA
+""", height=650)
+
+st.markdown("""
+| カテゴリ | 制御 | 実装箇所 |
+|:---|:---|:---|
+| ネットワーク | HTTPS終端（マネージドSSL証明書） | Cloud Run |
+| ネットワーク | Collector呼び出しはOIDCトークン必須 | Cloud Scheduler → Cloud Run IAM |
+| 認証 | Googleドメイン制限（tadakayo.jpのみ） | Streamlit OIDC / OAuthブランド orgInternalOnly |
+| 認証 | キーレスDWD（SA鍵ファイル不使用） | IAM signBlob API |
+| 認可 | ロールベースアクセス制御（3段階） | `lib/auth.py` → BQ `dashboard_users` |
+| 認可 | 未登録ユーザーのアクセス拒否 | `lib/auth.py` ホワイトリスト照合 |
+| データ | パラメータ化クエリ（SQLインジェクション防止） | `lib/bq_client.py` / 各ページ |
+| データ | 楽観的ロック（check_logs同時編集制御） | `pages/check_management.py` |
+| データ | 操作ログ記録（action_log） | BQ `check_logs.action_log` |
+| データ | BQ保存時暗号化（Google管理キー） | BigQuery デフォルト |
+""")
+
+st.markdown("**データ保護フロー**")
+
+render_mermaid("""
+graph LR
+    INPUT[ユーザー入力<br/>ステータス・メモ] --> VALID[入力バリデーション<br/>Enum制約・文字数制限]
+    VALID --> PARAM[パラメータ化クエリ<br/>query_parameters]
+    PARAM --> BQ_ENC[BQ書き込み<br/>保存時自動暗号化]
+    PARAM --> LOCK[楽観的ロック<br/>updated_at照合]
+    LOCK -->|競合検出| ERR[競合エラー表示<br/>ページ再読込で解決]
+    LOCK -->|OK| LOG[操作ログ記録<br/>action_log に追記]
+    LOG --> BQ_ENC
+""", height=400)
+
+st.markdown("""
+| シークレット | 保管方法 |
+|:---|:---|
+| OAuth クライアントID / シークレット | Secret Manager → `dashboard-auth-config` |
+| Collector SA 認証情報 | Workload Identity（鍵ファイルなし） |
+| BQ アクセス | SA のIAMロール（BQ Data Editor） |
+| Dashboard SA 認証情報 | Cloud Run デフォルトSA + Workload Identity |
+""")
+
+st.markdown("**今後の改善候補**")
+st.markdown("""
+| 項目 | 現状 | 改善案 |
+|:---|:---|:---|
+| Collectorエンドポイント認証 | Cloud Run IAM（インフラ層）で保護 | アプリ層でもOIDCトークン検証を追加 |
+| ロール変更監査ログ | 未実装 | `user_role_audit_log` テーブルで変更履歴を記録 |
+""")
