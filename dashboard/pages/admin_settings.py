@@ -1,7 +1,11 @@
 """管理設定ページ（管理者のみ）"""
 
+from datetime import timezone, timedelta
+
 import streamlit as st
 from google.cloud import bigquery
+
+JST = timezone(timedelta(hours=9))
 
 from lib.auth import require_admin, clear_role_cache
 from lib.bq_client import get_bq_client, load_data
@@ -46,7 +50,7 @@ try:
                 "テーブル": table_name,
                 "行数": f"{table.num_rows:,}",
                 "サイズ": f"{table.num_bytes / 1024 / 1024:.1f} MB" if table.num_bytes else "-",
-                "最終更新": table.modified.strftime("%Y-%m-%d %H:%M") if table.modified else "-",
+                "最終更新": table.modified.astimezone(JST).strftime("%Y-%m-%d %H:%M") if table.modified else "-",
             })
         except Exception:
             rows.append({
