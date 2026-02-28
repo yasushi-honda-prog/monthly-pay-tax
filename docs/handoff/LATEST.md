@@ -1,8 +1,8 @@
 # ハンドオフメモ - monthly-pay-tax
 
-**更新日**: 2026-02-22
+**更新日**: 2026-02-28
 **フェーズ**: 6完了 + グループ機能追加 + UX改善
-**最新デプロイ**: Collector rev 00019-hlp（グループ更新を毎朝バッチに統合）+ Dashboard rev 00053-4cx（アーキテクチャ図更新）
+**最新デプロイ**: Collector rev 00019-hlp + Dashboard rev 00060-kb4（管理設定JST修正）
 **テストスイート**: 189テスト（全PASS、8.5秒）
 
 ## 現在の状態
@@ -10,6 +10,14 @@
 Cloud Run + BigQuery + Streamlitダッシュボード本番稼働中。
 **Googleグループ機能デプロイ済み** - Admin SDK経由でメンバーのグループ所属を収集し、グループ別ダッシュボードタブを追加（PR #22/#23、2026-02-21デプロイ済み）。
 groups_master テーブル: 69グループ登録済み。members テーブル: 192件にgroups列付与済み。
+
+### 直近の変更（2026-02-28）
+
+1. **dashboard_usersに30名追加**: 役職手当率が設定されているメンバー（トモゾウ除外）のうち未登録の30名をviewerロールで一括登録。合計44名（admin 8 / checker 3 / viewer 33）。
+2. **管理設定JST修正（Issue #24, PR #25）**: `admin_settings.py` の BQテーブル最終更新時間を UTC→JST 変換。`table.modified.replace(tzinfo=timezone.utc).astimezone(JST)` で変換。
+3. **CLAUDE.mdにダッシュボードデプロイ手順追記**: `--allow-unauthenticated` 必須の注意書き付き。
+
+**未解決**: 管理設定の最終更新時間がデプロイ後もJST変換されていない。`table.modified` が既にタイムゾーン付きで返される場合、`replace(tzinfo=...)` が無効になる可能性あり。次セッションで要調査・修正。
 
 ### 直近の変更（2026-02-22）
 
@@ -189,14 +197,16 @@ dashboard/
 ### デプロイ手順
 
 ```bash
-# ビルド
-gcloud builds submit --tag asia-northeast1-docker.pkg.dev/monthly-pay-tax/cloud-run-images/pay-dashboard dashboard/
+# ビルド（dashboard/ ディレクトリから実行）
+gcloud builds submit --tag asia-northeast1-docker.pkg.dev/monthly-pay-tax/cloud-run-images/pay-dashboard
 
-# デプロイ（Secret Managerマウント付き）
+# デプロイ
+# ⚠️ --allow-unauthenticated 必須（Streamlit OIDCが内部でOAuth認証を処理するため）
+# --no-allow-unauthenticated にすると403エラーでアクセス不可になる
 gcloud run deploy pay-dashboard \
   --image asia-northeast1-docker.pkg.dev/monthly-pay-tax/cloud-run-images/pay-dashboard \
   --platform managed --region asia-northeast1 --memory 512Mi \
-  --update-secrets=/app/.streamlit/secrets.toml=dashboard-auth-config:latest
+  --allow-unauthenticated
 ```
 
 ### Secret Manager
@@ -241,7 +251,8 @@ gcloud run deploy pay-dashboard \
   - rev 00018-pbj: グループ機能 + /update-groups エンドポイント
   - rev 00017: db-dtypes 追加（BQ to_dataframe 依存）
   - rev 00014: レート制限改善（throttle 0.5s + num_retries=5）
-- **Dashboard**: rev 00053-4cx（2026-02-22: アーキテクチャ図を最新状態に更新）
+- **Dashboard**: rev 00060-kb4（2026-02-28: 管理設定JST修正 + CLAUDE.mdデプロイ手順追記）
+  - rev 00053-4cx: アーキテクチャ図を最新状態に更新
   - rev 00052-tcb: ダッシュボード各テーブルにURLリンク追加
   - rev 00051-l7v: メンバー名に本名を全箇所で併記
   - rev 00050-qbh: グループ選択時のタブリセット修正（@st.fragment）
