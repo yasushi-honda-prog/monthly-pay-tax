@@ -523,18 +523,21 @@ with tab1:
 
         # 月次推移チャート
         st.subheader("月次推移")
-        monthly = filtered.groupby("month").agg(
-            業務報酬=("qualification_adjusted_compensation", "sum"),
-            源泉徴収=("withholding_tax", "sum"),
-            DX補助=("dx_subsidy", "sum"),
-            立替=("reimbursement", "sum"),
-        ).reset_index()
-        monthly["month"] = monthly["month"].apply(
-            lambda x: int(float(x)) if str(x).replace(".", "").isdigit() else 0
-        )
-        monthly = monthly.sort_values("month")
-        monthly = monthly.set_index("month")
-        st.bar_chart(monthly[["業務報酬", "源泉徴収", "DX補助", "立替"]])
+        if not filtered.empty:
+            monthly = filtered.groupby("month").agg(
+                業務報酬=("qualification_adjusted_compensation", "sum"),
+                源泉徴収=("withholding_tax", "sum"),
+                DX補助=("dx_subsidy", "sum"),
+                立替=("reimbursement", "sum"),
+            ).reset_index()
+            monthly["month"] = monthly["month"].apply(
+                lambda x: int(float(x)) if str(x).replace(".", "").isdigit() else 0
+            )
+            monthly = monthly.sort_values("month")
+            monthly = monthly.set_index("month")
+            st.bar_chart(monthly[["業務報酬", "源泉徴収", "DX補助", "立替"]])
+        else:
+            st.info("該当するデータがありません")
 
 
 # ===== Tab 2: スポンサー別業務委託費 =====
