@@ -7,6 +7,7 @@ BQ VIEWs (v_gyomu_enriched, v_hojo_enriched, v_monthly_compensation) 経由で�
 import logging
 
 import altair as alt
+import pandas as pd
 import streamlit as st
 
 from lib.bq_client import load_data
