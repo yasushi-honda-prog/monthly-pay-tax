@@ -6,6 +6,7 @@ BQ VIEWs (v_gyomu_enriched, v_hojo_enriched, v_monthly_compensation) 経由で�
 
 import logging
 
+import altair as alt
 import streamlit as st
 
 from lib.bq_client import load_data
@@ -534,8 +535,17 @@ with tab1:
                 lambda x: int(float(x)) if str(x).replace(".", "").isdigit() else 0
             )
             monthly = monthly.sort_values("month")
-            monthly = monthly.set_index("month")
-            st.bar_chart(monthly[["業務報酬", "源泉徴収", "DX補助", "立替"]])
+            chart_data = monthly.melt(
+                id_vars="month", value_vars=["業務報酬", "源泉徴収", "DX補助", "立替"],
+                var_name="項目", value_name="金額",
+            )
+            chart = alt.Chart(chart_data).mark_bar().encode(
+                x=alt.X("month:O", title="月"),
+                y=alt.Y("金額:Q", title="金額", axis=alt.Axis(format=",.0f")),
+                color=alt.Color("項目:N", title="項目"),
+                xOffset="項目:N",
+            )
+            st.altair_chart(chart, use_container_width=True)
         else:
             st.info("該当するデータがありません")
 
@@ -616,7 +626,13 @@ with tab2:
             .sort_values(ascending=False)
         )
         if not cat_summary.empty:
-            st.bar_chart(cat_summary)
+            cat_df = cat_summary.reset_index()
+            cat_df.columns = ["活動分類", "金額"]
+            chart = alt.Chart(cat_df).mark_bar().encode(
+                x=alt.X("活動分類:N", sort="-y"),
+                y=alt.Y("金額:Q", axis=alt.Axis(format=",.0f")),
+            )
+            st.altair_chart(chart, use_container_width=True)
 
 
 # ===== Tab 3: 業務報告一覧 =====
