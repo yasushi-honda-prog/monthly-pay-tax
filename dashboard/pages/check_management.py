@@ -194,7 +194,13 @@ with st.sidebar:
 
     all_members = sorted(df["nickname"].unique().tolist())
     if member_search:
-        display_members = [m for m in all_members if member_search.lower() in m.lower()]
+        _q = member_search.lower()
+        # nickname→full_nameの逆引き辞書を作成
+        _nick_to_full = dict(zip(df["nickname"], df["full_name"]))
+        display_members = [
+            m for m in all_members
+            if _q in m.lower() or _q in _nick_to_full.get(m, "").lower()
+        ]
     else:
         display_members = all_members
 
