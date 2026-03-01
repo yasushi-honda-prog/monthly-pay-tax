@@ -161,7 +161,11 @@ with st.sidebar:
         name_map = {}
 
     if member_search:
-        display_members = [m for m in all_members if member_search.lower() in m.lower()]
+        _q = member_search.lower()
+        display_members = [
+            m for m in all_members
+            if _q in m.lower() or _q in name_map.get(m, "").lower()
+        ]
     else:
         display_members = all_members
 
