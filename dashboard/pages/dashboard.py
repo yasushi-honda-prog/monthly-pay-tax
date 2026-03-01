@@ -103,6 +103,8 @@ def load_all_members():
             SELECT nickname FROM `{PROJECT_ID}.{DATASET}.v_hojo_enriched`
             UNION DISTINCT
             SELECT nickname FROM `{PROJECT_ID}.{DATASET}.v_gyomu_enriched`
+            UNION DISTINCT
+            SELECT nickname FROM `{PROJECT_ID}.{DATASET}.members`
         )
         WHERE nickname IS NOT NULL AND TRIM(nickname) != ''
         UNION ALL
@@ -448,6 +450,13 @@ with tab1:
         if selected_members:
             filtered = filtered[filtered["nickname"].isin(selected_members)]
 
+        # 選択されたメンバーのうちデータ未登録のものを検出
+        if selected_members:
+            existing_nicks = set(filtered["nickname"].unique())
+            missing_members = [m for m in selected_members if m not in existing_nicks]
+        else:
+            missing_members = []
+
         # KPIカード
         k1, k2, k3, k4, k5 = st.columns(5)
         with k1:
@@ -473,6 +482,11 @@ with tab1:
         pivot.columns = pivot.columns.astype(str)
         month_order = sorted(pivot.columns, key=lambda x: int(float(x)) if x.replace(".", "").isdigit() else 99)
         pivot = pivot[month_order]
+        # データ未登録メンバーを0行として追加
+        for m in missing_members:
+            disp = name_map.get(m, m)
+            if disp not in pivot.index:
+                pivot.loc[disp] = 0
         pivot["年間合計"] = pivot.sum(axis=1)
         pivot = pivot.sort_values("年間合計", ascending=False)
         st.dataframe(
@@ -500,6 +514,15 @@ with tab1:
             一立て報酬=("full_day_compensation", "sum"),
             総稼働時間=("total_work_hours", "sum"),
         ).reset_index().rename(columns={"display_name": "メンバー", "report_url": "URL"}).sort_values("支払い", ascending=False)
+        # データ未登録メンバーを0行として追加
+        for m in missing_members:
+            disp = name_map.get(m, m)
+            if disp not in detail["メンバー"].values:
+                zero_row = {"メンバー": disp, "URL": ""}
+                for c in detail.columns:
+                    if c not in zero_row:
+                        zero_row[c] = 0
+                detail = pd.concat([detail, pd.DataFrame([zero_row])], ignore_index=True)
         st.dataframe(
             detail.style.format({
                 "時間": "{:,.1f}",
