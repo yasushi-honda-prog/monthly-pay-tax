@@ -2,7 +2,7 @@
 
 **更新日**: 2026-03-01
 **フェーズ**: 6完了 + グループ機能追加 + UX改善 + ドキュメント整備
-**最新デプロイ**: Collector rev 00019-hlp + Dashboard rev 00060-kb4（管理設定JST修正）※PR #26はデプロイ待ち
+**最新デプロイ**: Collector rev 00019-hlp + Dashboard rev 00060-kb4（管理設定JST修正）※PR #26/#27/#28はデプロイ待ち
 **テストスイート**: 189テスト（全PASS、8.5秒）
 
 ## 現在の状態
@@ -12,6 +12,16 @@ Cloud Run + BigQuery + Streamlitダッシュボード本番稼働中。
 groups_master テーブル: 69グループ登録済み。members テーブル: 192件にgroups列付与済み。
 
 ### 直近の変更（2026-03-01: 今セッション）
+
+**PR #28: st.bar_chart() を altair に置換しVega-Lite警告を解消**（マージ済み、デプロイ待ち）
+
+- Tab1（月次推移）とTab2（活動分類別金額）の `st.bar_chart()` を `st.altair_chart()` に置換
+- `st.bar_chart()` の内部で追加されるVega-Liteのscale bindings（離散軸で "Infinite extent"/"Scale bindings unsupported" 警告）を除外
+
+**PR #27: 月次推移チャートの空データガードを追加**（マージ済み、デプロイ待ち）
+
+- Tab1月次推移チャートで `filtered` が空の場合に `st.bar_chart()` が空DataFrameで呼ばれる問題を修正
+- `if not filtered.empty:` ガードを追加し、データなし時は infoメッセージを表示
 
 **PR #26: ヘルプ・アーキテクチャページのドキュメント整合性修正**（マージ済み、デプロイ待ち）
 
@@ -24,7 +34,7 @@ groups_master テーブル: 69グループ登録済み。members テーブル: 1
    - BQテーブル数: 6 → 7（groups_master追加後の正しい数）
    - セキュリティアーキテクチャセクション追加（4層構成図・制御一覧・データ保護フロー・シークレット管理・今後の改善候補）
 
-**次セッション冒頭でDashboard再デプロイ推奨**（PR #26の変更をCloud Runに反映するため）。
+**次セッション冒頭でDashboard再デプロイ推奨**（PR #26/#27/#28の変更をCloud Runに反映するため）。
 
 ### 直近の変更（2026-02-28）
 
