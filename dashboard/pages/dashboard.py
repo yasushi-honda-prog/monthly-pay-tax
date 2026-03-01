@@ -125,21 +125,25 @@ def load_all_members():
 
 
 @st.cache_data(ttl=3600)
-def load_member_name_map() -> dict[str, str]:
-    """nickname → "ニックネーム（本名）" の辞書を返す"""
+def load_member_name_map() -> tuple[dict[str, str], dict[str, str]]:
+    """nickname → "ニックネーム（本名）" と nickname → report_url の辞書を返す"""
     query = f"""
-    SELECT DISTINCT nickname, full_name
+    SELECT DISTINCT nickname, full_name, report_url
     FROM `{PROJECT_ID}.{DATASET}.members`
     WHERE nickname IS NOT NULL AND TRIM(nickname) != ''
     """
     df = load_data(query)
-    result: dict[str, str] = {}
+    name_result: dict[str, str] = {}
+    url_result: dict[str, str] = {}
     for _, row in df.iterrows():
         nick = str(row["nickname"])
         full = str(row.get("full_name", "") or "").strip()
-        result[nick] = f"{nick}（{full}）" if full else nick
-    result["(未設定)"] = "(未設定)"
-    return result
+        name_result[nick] = f"{nick}（{full}）" if full else nick
+        url = str(row.get("report_url", "") or "").strip()
+        if url:
+            url_result[nick] = url
+    name_result["(未設定)"] = "(未設定)"
+    return name_result, url_result
 
 
 # --- サイドバー ---
@@ -159,9 +163,9 @@ with st.sidebar:
         all_members = []
 
     try:
-        name_map = load_member_name_map()
+        name_map, url_map = load_member_name_map()
     except Exception:
-        name_map = {}
+        name_map, url_map = {}, {}
 
     if member_search:
         _q = member_search.lower()
@@ -212,7 +216,7 @@ def _render_group_tab(selected_year: int, selected_month: str) -> None:
     try:
         df_gm = load_groups_master()
         df_mwg = load_members_with_groups()
-        _name_map = load_member_name_map()
+        _name_map, _ = load_member_name_map()
     except Exception as e:
         logger.error("グループデータ取得失敗: %s", e, exc_info=True)
         st.error(f"データ取得エラー: {e}")
@@ -525,7 +529,7 @@ with tab1:
         for m in missing_members:
             disp = name_map.get(m, m)
             if disp not in detail["メンバー"].values:
-                zero_row = {"メンバー": disp, "URL": ""}
+                zero_row = {"メンバー": disp, "URL": url_map.get(m, "")}
                 for c in detail.columns:
                     if c not in zero_row:
                         zero_row[c] = 0
