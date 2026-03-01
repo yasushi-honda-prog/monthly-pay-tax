@@ -483,11 +483,17 @@ with tab1:
         month_order = sorted(pivot.columns, key=lambda x: int(float(x)) if x.replace(".", "").isdigit() else 99)
         pivot = pivot[month_order]
         # データ未登録メンバーを0行として追加
-        for m in missing_members:
-            disp = name_map.get(m, m)
-            if disp not in pivot.index:
-                pivot.loc[disp] = 0
-        pivot["年間合計"] = pivot.sum(axis=1)
+        if missing_members and pivot.empty:
+            pivot = pd.DataFrame(
+                {"年間合計": 0},
+                index=[name_map.get(m, m) for m in missing_members],
+            )
+        else:
+            for m in missing_members:
+                disp = name_map.get(m, m)
+                if disp not in pivot.index:
+                    pivot.loc[disp] = 0
+            pivot["年間合計"] = pivot.sum(axis=1)
         pivot = pivot.sort_values("年間合計", ascending=False)
         st.dataframe(
             pivot.style.format("¥{:,.0f}"),
