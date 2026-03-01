@@ -1,8 +1,8 @@
 # ハンドオフメモ - monthly-pay-tax
 
-**更新日**: 2026-03-01
+**更新日**: 2026-03-01（今セッション末）
 **フェーズ**: 6完了 + グループ機能追加 + UX改善 + ドキュメント整備
-**最新デプロイ**: Collector rev 00019-hlp + Dashboard rev 00060-kb4（管理設定JST修正）※PR #26/#27/#28はデプロイ待ち
+**最新デプロイ**: Collector rev 00019-hlp + Dashboard rev 00060-kb4（管理設定JST修正）※PR #26〜#35はデプロイ待ち
 **テストスイート**: 189テスト（全PASS、8.5秒）
 
 ## 現在の状態
@@ -12,6 +12,34 @@ Cloud Run + BigQuery + Streamlitダッシュボード本番稼働中。
 groups_master テーブル: 69グループ登録済み。members テーブル: 192件にgroups列付与済み。
 
 ### 直近の変更（2026-03-01: 今セッション）
+
+**CLAUDE.md: ダッシュボードデプロイ前チェックリスト追加**（e0a8333）
+
+Issue #31対応で4PRを要した反省から、BQ接続必須環境でのデプロイ前検証手順を明文化。import整合性、戻り値の型変更時の呼び出し元確認、スタブ行の全カラム定義、空DataFrameパスの確認。
+
+**PR #35: データ未登録メンバーの報酬明細テーブルにreport_urlを表示**（マージ済み、デプロイ待ち）
+
+- `load_member_name_map` に `report_url` マッピングを追加
+- スタブ行（0値行）の URL 列にも `members` テーブルの `report_url` を設定
+
+**PR #34: dashboard.pyにpandas importを追加**（マージ済み、デプロイ待ち）
+
+- `pd.DataFrame` を使用しているが `import pandas` が欠落していたためインポートを追加
+
+**PR #33: pivot空時のValueError修正（データ未登録メンバー選択時）**（マージ済み、デプロイ待ち）
+
+- `filtered` が空の場合 `pivot_table` がカラムなし DataFrame を返し `pivot.loc[disp]=0` が ValueError になる問題を修正
+- 空 pivot の場合は年間合計=0 の DataFrame を直接作成するよう変更
+
+**PR #32: 月次報酬ダッシュボードでデータ未登録メンバーを0値で表示**（マージ済み、デプロイ待ち）
+
+- `load_all_members()` に `members` テーブルを追加し全登録メンバーをサイドバーに表示
+- Tab1の pivot テーブル・詳細テーブルにデータ未登録メンバーの0値行を追加
+- メンバー明示選択時のみ0値行を追加（未選択時の大量0行を防止）
+
+**PR #30: メンバー検索でニックネームに加え本名(full_name)でも絞り込み可能に**（マージ済み、デプロイ待ち）
+
+- `dashboard.py` / `check_management.py` でメンバーチェックボックスフィルターを `nickname` のみから `nickname OR full_name` に拡張
 
 **PR #28: st.bar_chart() を altair に置換しVega-Lite警告を解消**（マージ済み、デプロイ待ち）
 
@@ -269,6 +297,10 @@ gcloud run deploy pay-dashboard \
 11. ~~**メンバー名に本名を全箇所で併記**~~: ✅ 完了（rev 00051-l7v）
 12. ~~**ダッシュボード各テーブルにURLリンク追加**~~: ✅ 完了（rev 00052-tcb）
 13. ~~**アーキテクチャ図を最新状態に更新**~~: ✅ 完了（rev 00053-4cx）
+14. ~~**メンバー検索でニックネームに加え本名でも絞り込み可能に**~~: ✅ 完了（PR #30）
+15. ~~**データ未登録メンバーを0値で表示**~~: ✅ 完了（PR #32/#33/#34/#35: 4段階修正）
+16. **Dashboard再デプロイ**: PR #26〜#35の変更をCloud Runに反映する必要あり（最優先）
+17. **管理設定JST修正確認**: `table.modified` が既にタイムゾーン付きで返される場合の動作確認・修正（Issue #24の残課題）
 
 ### デプロイ済み状態
 
@@ -276,7 +308,8 @@ gcloud run deploy pay-dashboard \
   - rev 00018-pbj: グループ機能 + /update-groups エンドポイント
   - rev 00017: db-dtypes 追加（BQ to_dataframe 依存）
   - rev 00014: レート制限改善（throttle 0.5s + num_retries=5）
-- **Dashboard**: rev 00060-kb4（2026-02-28: 管理設定JST修正 + CLAUDE.mdデプロイ手順追記）
+- **Dashboard**: rev 00060-kb4（2026-02-28: 管理設定JST修正 + CLAUDE.mdデプロイ手順追記）**※次回デプロイ必須（PR #26〜#35未反映）**
+  - **マージ済み・未デプロイ**: PR #26(help/architecture修正) / #27(空データガード) / #28(altair置換) / #30(full_name検索) / #32〜#35(未登録メンバー0値表示)
   - rev 00053-4cx: アーキテクチャ図を最新状態に更新
   - rev 00052-tcb: ダッシュボード各テーブルにURLリンク追加
   - rev 00051-l7v: メンバー名に本名を全箇所で併記
