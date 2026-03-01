@@ -450,10 +450,12 @@ with tab1:
         if selected_members:
             filtered = filtered[filtered["nickname"].isin(selected_members)]
 
-        # データ未登録メンバーを検出して表示対象に含める
-        target_members = selected_members if selected_members else all_members
-        existing_nicks = set(filtered["nickname"].unique())
-        missing_members = [m for m in target_members if m not in existing_nicks]
+        # 選択されたメンバーのうちデータ未登録のものを検出
+        if selected_members:
+            existing_nicks = set(filtered["nickname"].unique())
+            missing_members = [m for m in selected_members if m not in existing_nicks]
+        else:
+            missing_members = []
 
         # KPIカード
         k1, k2, k3, k4, k5 = st.columns(5)
