@@ -50,7 +50,7 @@ def load_group_members(group_email: str):
     """指定グループに所属するメンバーのgws_accountを取得"""
     client = get_bq_client()
     query = f"""
-    SELECT gws_account, nickname, full_name
+    SELECT DISTINCT gws_account, nickname, full_name
     FROM `{MEMBERS_TABLE}`
     WHERE gws_account IS NOT NULL
       AND gws_account != ''
