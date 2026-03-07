@@ -77,6 +77,8 @@ graph LR
     CR -->|WRITE_TRUNCATE| BQ[(BigQuery<br/>pay_reports)]
     CR -->|Admin Directory API| ADK[Google Admin SDK<br/>グループ情報]
     ADK -->|groups_master / members更新| BQ
+    CR -->|Step5: グループ同期| DU[dashboard_users<br/>自動追加/削除]
+    DU --> BQ
     BQ -->|VIEWs| DB[Cloud Run<br/>pay-dashboard]
     BR[ブラウザ] -->|HTTPS *.run.app| DB
     DB -->|Streamlit OIDC<br/>Google OAuth| GOOG[Google IdP<br/>tadakayo.jp]
@@ -91,6 +93,7 @@ st.markdown("""
 | Dashboard認証 | Streamlit OIDC (Google OAuth, tadakayo.jpドメイン) |
 | BQ取り込み | WRITE_TRUNCATE（毎回全データ置換）|
 | グループ更新 | 毎朝バッチ末尾に Admin Directory API でグループ情報を自動更新 |
+| ユーザー同期 | グループ由来のdashboard_usersをグループメンバーと自動同期（追加/削除） |
 """)
 
 
@@ -109,16 +112,19 @@ graph TD
     MGR -->|A:K列| M[members<br/>192行 + groups列]
     ADK[Admin Directory API] -->|グループ所属| GM[groups_master<br/>69グループ]
     ADK -->|groups列更新| M
+    ADK -->|グループメンバー同期| DU[dashboard_users<br/>グループ由来ユーザー<br/>自動追加/削除]
     WT[withholding_targets<br/>源泉対象リスト] -.->|手動管理| BQ
     G --> BQ[(BigQuery)]
     H --> BQ
     M --> BQ
     GM --> BQ
+    DU --> BQ
     BQ --> VG[v_gyomu_enriched]
     BQ --> VH[v_hojo_enriched]
     VG --> VMC[v_monthly_compensation]
     VH --> VMC
     DB[Dashboard] -->|checker/admin操作| CL[check_logs]
+    DB -->|admin: グループ一括登録| DU
     CL --> BQ
 """, height=700)
 
@@ -164,10 +170,12 @@ erDiagram
         STRING work_category
         STRING licensed_member_id
     }
+    groups_master ||--o{ dashboard_users : "group_email = source_group"
     dashboard_users {
         STRING email
         STRING role
         STRING display_name
+        STRING source_group
     }
     check_logs {
         STRING source_url
@@ -228,6 +236,8 @@ graph TD
     BQ -->|viewer| VIEW[ダッシュボード<br/>+ アーキテクチャ<br/>+ ヘルプ]
     BQ -->|checker| CHECK[上記 +<br/>業務チェック管理表]
     BQ -->|admin| ADMIN[上記 +<br/>ユーザー管理<br/>+ 管理設定]
+    ADMIN -->|グループ一括登録| GRP[groups_master<br/>からメンバー取得]
+    GRP -->|MERGE INSERT| BQ
     BQ -->|BQ障害時| FB{フォールバック}
     FB -->|初期管理者| ADMIN
     FB -->|その他| DENY
