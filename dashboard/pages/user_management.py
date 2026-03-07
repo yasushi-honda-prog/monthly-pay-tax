@@ -65,11 +65,12 @@ def load_group_members(group_email: str):
     return client.query(query, job_config=job_config).to_dataframe()
 
 
-def add_users_by_group(members_df, role: str, group_email: str):
+def add_users_by_group(members_df, role: str, group_email: str, progress_callback=None):
     """グループメンバーを一括登録（既存ユーザーはスキップ）"""
     client = get_bq_client()
     added = 0
-    for _, row in members_df.iterrows():
+    total = len(members_df)
+    for i, (_, row) in enumerate(members_df.iterrows()):
         gws = row["gws_account"]
         display = row["nickname"] or row["full_name"] or ""
         merge_query = f"""
@@ -92,6 +93,8 @@ def add_users_by_group(members_df, role: str, group_email: str):
         result = client.query(merge_query, job_config=job_config).result()
         if result.num_dml_affected_rows > 0:
             added += 1
+        if progress_callback:
+            progress_callback((i + 1) / total, f"{i + 1}/{total} 処理中...")
     return added
 
 
@@ -238,7 +241,12 @@ if df_groups is not None and not df_groups.empty:
             col_exec, col_cancel = st.columns(2)
             with col_exec:
                 if st.button("一括登録を実行", type="primary", use_container_width=True):
-                    added = add_users_by_group(df_members, preview_role, preview_email)
+                    progress_bar = st.progress(0, text="登録処理を開始しています...")
+                    added = add_users_by_group(
+                        df_members, preview_role, preview_email,
+                        progress_callback=lambda pct, text: progress_bar.progress(pct, text=text),
+                    )
+                    progress_bar.progress(1.0, text="完了!")
                     del st.session_state["group_preview_email"]
                     del st.session_state["group_preview_role"]
                     st.success(f"{added}名を新規登録しました（既存ユーザーはスキップ）")
