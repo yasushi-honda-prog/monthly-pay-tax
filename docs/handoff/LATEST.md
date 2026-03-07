@@ -2,7 +2,7 @@
 
 **更新日**: 2026-03-07（今セッション末）
 **フェーズ**: 6完了 + グループ機能追加 + グループ一括登録・自動同期 + UX改善 + ドキュメント整備
-**最新デプロイ**: Collector rev 00020-g6b + Dashboard rev 00078-hm4（PR #26〜#45 全てデプロイ済み）
+**最新デプロイ**: Collector rev 00020-g6b + Dashboard rev 00079-tl7（PR #26〜#46 全てデプロイ済み）
 **テストスイート**: 203テスト（全PASS、PR #38で14テスト追加）
 
 ## 現在の状態
@@ -12,6 +12,14 @@ Cloud Run + BigQuery + Streamlitダッシュボード本番稼働中。
 groups_master テーブル: 69グループ登録済み。members テーブル: 192件にgroups列付与済み。
 
 ### 直近の変更（2026-03-07: 今セッション）
+
+**PR #46: ダッシュボード名を「活動時間・報酬マネジメントダッシュボード」に変更**（54ed9c5、デプロイ済み rev 00079-tl7）
+
+- `dashboard/app.py`: page_title、ログイン画面、サイドバーキャプション（4箇所）
+- `dashboard/pages/dashboard.py`: docstring、ページヘッダー（2箇所）
+- `dashboard/pages/help.py`: ヒーローセクション（1箇所）
+- `dashboard/lib/auth.py`: 未認証時の表示（1箇所）
+- `docs/handoff/LATEST.md`: デプロイ済み状態を反映
 
 **PR #38: グループ単位のユーザー一括登録 + 定時自動同期**（337bbd7、デプロイ済み）
 
@@ -92,7 +100,7 @@ Issue #31対応で4PRを要した反省から、BQ接続必須環境でのデプ
    - BQテーブル数: 6 → 7（groups_master追加後の正しい数）
    - セキュリティアーキテクチャセクション追加（4層構成図・制御一覧・データ保護フロー・シークレット管理・今後の改善候補）
 
-PR #26〜#45 全てデプロイ済み（Collector rev 00020-g6b / Dashboard rev 00078-hm4）。
+PR #26〜#46 全てデプロイ済み（Collector rev 00020-g6b / Dashboard rev 00079-tl7）。
 
 ### 直近の変更（2026-02-28）
 
@@ -339,7 +347,7 @@ gcloud run deploy pay-dashboard \
   - rev 00018-pbj: グループ機能 + /update-groups エンドポイント
   - rev 00017: db-dtypes 追加（BQ to_dataframe 依存）
   - rev 00014: レート制限改善（throttle 0.5s + num_retries=5）
-- **Dashboard**: rev 00078-hm4（PR #26〜#45 全てデプロイ済み）
+- **Dashboard**: rev 00079-tl7（PR #26〜#46 全てデプロイ済み、ダッシュボード名変更反映）
   - rev 00053-4cx: アーキテクチャ図を最新状態に更新
   - rev 00052-tcb: ダッシュボード各テーブルにURLリンク追加
   - rev 00051-l7v: メンバー名に本名を全箇所で併記
