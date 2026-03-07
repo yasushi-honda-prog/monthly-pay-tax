@@ -1,4 +1,4 @@
-"""月次報酬ダッシュボード（3タブ構成）
+"""活動時間・報酬マネジメントダッシュボード（3タブ構成）
 
 BigQueryのpay_reportsデータセットを可視化。
 BQ VIEWs (v_gyomu_enriched, v_hojo_enriched, v_monthly_compensation) 経由でデータを取得。
@@ -204,7 +204,7 @@ with st.sidebar:
 # --- ヘッダー ---
 st.markdown("""
 <div class="dashboard-header">
-    <h1>月次報酬ダッシュボード</h1>
+    <h1>活動時間・報酬マネジメントダッシュボード</h1>
 </div>
 """, unsafe_allow_html=True)
 

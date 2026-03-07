@@ -66,7 +66,7 @@ def clear_role_cache():
 def require_auth() -> tuple[str, str]:
     """認証を要求。(email, role)を返す。未認証ならst.stopで停止。"""
     if not st.user.is_logged_in:
-        st.markdown("### タダカヨ 月次報酬ダッシュボード")
+        st.markdown("### タダカヨ 活動時間・報酬マネジメントダッシュボード")
         st.button("Googleでログイン", on_click=st.login)
         st.stop()
 
