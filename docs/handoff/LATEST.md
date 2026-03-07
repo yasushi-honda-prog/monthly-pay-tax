@@ -1,9 +1,9 @@
 # ハンドオフメモ - monthly-pay-tax
 
-**更新日**: 2026-03-01（今セッション末）
-**フェーズ**: 6完了 + グループ機能追加 + UX改善 + ドキュメント整備
-**最新デプロイ**: Collector rev 00019-hlp + Dashboard rev 00060-kb4（管理設定JST修正）※PR #26〜#35はデプロイ待ち
-**テストスイート**: 189テスト（全PASS、8.5秒）
+**更新日**: 2026-03-07（今セッション末）
+**フェーズ**: 6完了 + グループ機能追加 + グループ一括登録・自動同期 + UX改善 + ドキュメント整備
+**最新デプロイ**: Collector rev 00019-hlp + Dashboard rev 00060-kb4（管理設定JST修正）※PR #26〜#45はデプロイ待ち
+**テストスイート**: 203テスト（全PASS、PR #38で14テスト追加）
 
 ## 現在の状態
 
@@ -11,7 +11,37 @@ Cloud Run + BigQuery + Streamlitダッシュボード本番稼働中。
 **Googleグループ機能デプロイ済み** - Admin SDK経由でメンバーのグループ所属を収集し、グループ別ダッシュボードタブを追加（PR #22/#23、2026-02-21デプロイ済み）。
 groups_master テーブル: 69グループ登録済み。members テーブル: 192件にgroups列付与済み。
 
-### 直近の変更（2026-03-01: 今セッション）
+### 直近の変更（2026-03-07: 今セッション）
+
+**PR #38: グループ単位のユーザー一括登録 + 定時自動同期**（337bbd7、マージ済み、デプロイ待ち）
+
+- `dashboard_users` に `source_group` 列追加（グループ由来/手動登録の識別）
+- ユーザー管理UI: グループ選択→プレビュー→一括登録のフロー追加
+- `cloud-run/bq_loader.py`: `sync_dashboard_users_from_groups()` 追加（追加/削除/手動登録不可侵/ロール継承）
+- `cloud-run/sheets_collector.py`: `list_group_members()` 追加（Admin Directory API、ページネーション対応）
+- `cloud-run/main.py`: 定時更新 Step 5 で `dashboard_users` をグループメンバーと自動同期
+- ユニットテスト14件追加（`test_list_group_members.py` 6件 + `test_sync_dashboard_users.py` 8件）
+
+**PR #39/#40: BQ予約語 GROUPS をバッククォートでエスケープ**（0846a95、マージ済み、デプロイ待ち）
+
+- `user_management.py`: `GROUPS` → `` `groups` `` でエスケープ（BQ予約語エラー修正）
+
+**PR #41/#42: グループプレビューの重複表示を DISTINCT で解消**（d8d530d、マージ済み、デプロイ待ち）
+
+- `user_management.py`: グループメンバープレビュークエリに `DISTINCT` 追加
+
+**PR #43/#44: グループ一括登録にプログレスバーを追加**（b3fefff、マージ済み、デプロイ待ち）
+
+- `user_management.py`: 一括登録処理に `st.progress` + 進捗テキスト表示を追加
+
+**PR #45: アーキテクチャ図にグループ一括登録・自動同期を反映**（d18c8fe、マージ済み、デプロイ待ち）
+
+- 全体構成図: Step5 dashboard_users同期を追加
+- データフロー: グループ→dashboard_usersの同期・Dashboard一括登録を追加
+- ER図: `dashboard_users` に `source_group` 列、`groups_master` との関連を追加
+- 認証フロー: admin→グループ一括登録の経路を追加
+
+### 直近の変更（2026-03-01）
 
 **CLAUDE.md: ダッシュボードデプロイ前チェックリスト追加**（e0a8333）
 
@@ -299,7 +329,10 @@ gcloud run deploy pay-dashboard \
 13. ~~**アーキテクチャ図を最新状態に更新**~~: ✅ 完了（rev 00053-4cx）
 14. ~~**メンバー検索でニックネームに加え本名でも絞り込み可能に**~~: ✅ 完了（PR #30）
 15. ~~**データ未登録メンバーを0値で表示**~~: ✅ 完了（PR #32/#33/#34/#35: 4段階修正）
-16. **Dashboard再デプロイ**: PR #26〜#35の変更をCloud Runに反映する必要あり（最優先）
+16. **Dashboard + Collector 再デプロイ**: PR #26〜#45の変更をCloud Runに反映する必要あり（最優先）
+    - Dashboard: PR #26〜#35（help/architecture修正, 空データガード, altair置換, full_name検索, 未登録メンバー0値表示）+ PR #38〜#45（グループ一括登録・自動同期）
+    - Collector: PR #38（グループ同期 Step 5 追加、`source_group` 列への書き込み）
+    - BQスキーマ: `dashboard_users` テーブルに `source_group STRING` 列追加が必要（ALTERが先）
 17. **管理設定JST修正確認**: `table.modified` が既にタイムゾーン付きで返される場合の動作確認・修正（Issue #24の残課題）
 
 ### デプロイ済み状態
@@ -308,8 +341,9 @@ gcloud run deploy pay-dashboard \
   - rev 00018-pbj: グループ機能 + /update-groups エンドポイント
   - rev 00017: db-dtypes 追加（BQ to_dataframe 依存）
   - rev 00014: レート制限改善（throttle 0.5s + num_retries=5）
-- **Dashboard**: rev 00060-kb4（2026-02-28: 管理設定JST修正 + CLAUDE.mdデプロイ手順追記）**※次回デプロイ必須（PR #26〜#35未反映）**
-  - **マージ済み・未デプロイ**: PR #26(help/architecture修正) / #27(空データガード) / #28(altair置換) / #30(full_name検索) / #32〜#35(未登録メンバー0値表示)
+- **Dashboard**: rev 00060-kb4（2026-02-28: 管理設定JST修正 + CLAUDE.mdデプロイ手順追記）**※次回デプロイ必須（PR #26〜#45未反映）**
+  - **マージ済み・未デプロイ**: PR #26(help/architecture修正) / #27(空データガード) / #28(altair置換) / #30(full_name検索) / #32〜#35(未登録メンバー0値表示) / #38(グループ一括登録・自動同期) / #39/#40(BQ予約語エスケープ) / #41/#42(重複DISTINCT) / #43/#44(プログレスバー) / #45(アーキテクチャ図更新)
+  - **デプロイ前にBQ ALTER TABLE必須**: `dashboard_users` に `source_group STRING` 列追加
   - rev 00053-4cx: アーキテクチャ図を最新状態に更新
   - rev 00052-tcb: ダッシュボード各テーブルにURLリンク追加
   - rev 00051-l7v: メンバー名に本名を全箇所で併記
