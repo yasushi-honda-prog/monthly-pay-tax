@@ -1,4 +1,4 @@
-"""タダカヨ 月次報酬ダッシュボード - エントリポイント
+"""タダカヨ 活動時間・報酬マネジメントダッシュボード - エントリポイント
 
 Streamlit OIDC認証 + BQホワイトリスト照合 → st.navigationでページルーティング。
 """
@@ -9,7 +9,7 @@ from lib.auth import get_user_email, get_user_role
 from lib.styles import apply_custom_css
 
 st.set_page_config(
-    page_title="タダカヨ 月次報酬ダッシュボード",
+    page_title="タダカヨ 活動時間・報酬マネジメントダッシュボード",
     page_icon="📊",
     layout="wide",
 )
@@ -19,7 +19,7 @@ apply_custom_css()
 
 # --- 未認証/未登録ユーザー用ページ ---
 def _login_page():
-    st.markdown("### タダカヨ 月次報酬ダッシュボード")
+    st.markdown("### タダカヨ 活動時間・報酬マネジメントダッシュボード")
     st.button("Googleでログイン", on_click=st.login)
 
 
@@ -82,6 +82,6 @@ nav.run()
 with st.sidebar:
     st.divider()
     st.markdown("### 📊 タダカヨ")
-    st.caption("月次報酬ダッシュボード")
+    st.caption("活動時間・報酬マネジメントダッシュボード")
     st.caption(f"{email}")
     st.button("ログアウト", on_click=st.logout)
