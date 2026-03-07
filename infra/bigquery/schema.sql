@@ -65,6 +65,7 @@ CREATE TABLE IF NOT EXISTS `monthly-pay-tax.pay_reports.dashboard_users` (
   role STRING NOT NULL,                  -- "admin" | "checker" | "viewer"
   display_name STRING,                   -- 表示名
   added_by STRING NOT NULL,              -- 追加者メールアドレス
+  source_group STRING,                   -- グループ由来の場合グループメール（NULLなら手動登録）
   created_at TIMESTAMP NOT NULL,         -- 作成日時
   updated_at TIMESTAMP NOT NULL          -- 更新日時
 );

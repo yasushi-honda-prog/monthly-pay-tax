@@ -52,6 +52,28 @@ def run_consolidation():
         except Exception as grp_err:
             logger.warning("グループ情報更新スキップ（本体処理は完了）: %s", grp_err, exc_info=True)
 
+        # Step 5: dashboard_usersグループベース自動同期（失敗しても本体は成功扱い）
+        try:
+            logger.info("--- dashboard_usersグループ同期開始 ---")
+            group_users = bq_loader.read_group_based_users()
+            if group_users:
+                admin_service = sheets_collector._build_admin_service()
+                group_members_map = {}
+                for group_email in group_users:
+                    members_list = sheets_collector.list_group_members(admin_service, group_email)
+                    group_members_map[group_email] = members_list
+                sync_result = bq_loader.sync_dashboard_users_from_groups(group_members_map)
+                results["dashboard_users_sync"] = sync_result
+                logger.info(
+                    "--- dashboard_usersグループ同期完了 (追加: %d, 削除: %d) ---",
+                    sync_result["added"],
+                    sync_result["removed"],
+                )
+            else:
+                logger.info("--- dashboard_usersグループ同期: 対象グループなし ---")
+        except Exception as sync_err:
+            logger.warning("dashboard_usersグループ同期スキップ: %s", sync_err, exc_info=True)
+
         elapsed = round(time.time() - start, 1)
         summary = {
             "status": "success",
@@ -82,12 +104,33 @@ def update_groups():
         groups_count = bq_loader.load_to_bigquery(
             bq_loader.config.BQ_TABLE_GROUPS_MASTER, groups_master
         )
+
+        # dashboard_usersグループ同期
+        sync_result = {"added": 0, "removed": 0}
+        try:
+            group_users = bq_loader.read_group_based_users()
+            if group_users:
+                admin_service = sheets_collector._build_admin_service()
+                group_members_map = {}
+                for group_email in group_users:
+                    members_list = sheets_collector.list_group_members(admin_service, group_email)
+                    group_members_map[group_email] = members_list
+                sync_result = bq_loader.sync_dashboard_users_from_groups(group_members_map)
+                logger.info(
+                    "dashboard_usersグループ同期完了 (追加: %d, 削除: %d)",
+                    sync_result["added"],
+                    sync_result["removed"],
+                )
+        except Exception as sync_err:
+            logger.warning("dashboard_usersグループ同期スキップ: %s", sync_err, exc_info=True)
+
         elapsed = round(time.time() - start, 1)
         summary = {
             "status": "success",
             "elapsed_seconds": elapsed,
             "members_updated": count,
             "groups_master": groups_count,
+            "dashboard_users_sync": sync_result,
         }
         logger.info("--- グループ情報更新完了 (%s秒) ---", elapsed)
         return jsonify(summary), 200
