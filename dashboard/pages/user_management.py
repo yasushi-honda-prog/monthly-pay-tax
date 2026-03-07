@@ -54,7 +54,7 @@ def load_group_members(group_email: str):
     FROM `{MEMBERS_TABLE}`
     WHERE gws_account IS NOT NULL
       AND gws_account != ''
-      AND CONCAT(',', groups, ',') LIKE CONCAT('%,', @group_email, ',%')
+      AND CONCAT(',', `groups`, ',') LIKE CONCAT('%,', @group_email, ',%')
     ORDER BY nickname
     """
     job_config = bigquery.QueryJobConfig(
