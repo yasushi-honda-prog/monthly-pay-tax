@@ -108,7 +108,7 @@ PR #26〜#46 全てデプロイ済み（Collector rev 00020-g6b / Dashboard rev 
 2. **管理設定JST修正（Issue #24, PR #25）**: `admin_settings.py` の BQテーブル最終更新時間を UTC→JST 変換。`table.modified.replace(tzinfo=timezone.utc).astimezone(JST)` で変換。
 3. **CLAUDE.mdにダッシュボードデプロイ手順追記**: `--allow-unauthenticated` 必須の注意書き付き。
 
-**未解決**: 管理設定の最終更新時間がデプロイ後もJST変換されていない。`table.modified` が既にタイムゾーン付きで返される場合、`replace(tzinfo=...)` が無効になる可能性あり。次セッションで要調査・修正。
+**解決済み**: 管理設定JST変換のコードは正しい。BQ Python client の `table.modified` は `_EPOCH(UTC-aware) + timedelta` で返されるため timezone-aware (UTC)。`replace(tzinfo=UTC)` は実質no-opだが `.astimezone(JST)` で正しくJST変換される。2026-03-07 ソースコード調査で確認。
 
 ### 直近の変更（2026-02-22）
 
@@ -338,7 +338,7 @@ gcloud run deploy pay-dashboard \
 14. ~~**メンバー検索でニックネームに加え本名でも絞り込み可能に**~~: ✅ 完了（PR #30）
 15. ~~**データ未登録メンバーを0値で表示**~~: ✅ 完了（PR #32/#33/#34/#35: 4段階修正）
 16. ~~**Dashboard + Collector 再デプロイ**~~: ✅ 完了（Collector rev 00020-g6b / Dashboard rev 00078-hm4、BQ `source_group` 列追加済み）
-17. **管理設定JST修正確認**: `table.modified` が既にタイムゾーン付きで返される場合の動作確認・修正（Issue #24の残課題）
+17. ~~**管理設定JST修正確認**~~: ✅ 解決済み（BQ client の `table.modified` は UTC-aware、コードは正しくJST変換される。2026-03-07確認）
 
 ### デプロイ済み状態
 
