@@ -17,6 +17,8 @@ Cloud Scheduler (0 6 * * * JST, OIDC認証)
     Step 4: Admin Directory API
       → BigQuery pay_reports.{groups_master} (WRITE_TRUNCATE)
       → BigQuery pay_reports.members.groups (UPDATE)
+    Step 5: dashboard_usersグループ同期
+      → BigQuery pay_reports.dashboard_users (MERGE/DELETE: source_group由来ユーザーの追加・削除)
 ```
 
 認証はWorkload Identity + IAM signBlob APIによるキーレスDomain-Wide Delegation。
@@ -100,7 +102,7 @@ BQ接続が必要なためローカル実行での完全な動作確認は困難
 - `hojo_reports`: source_url, year, month, hours, compensation, dx_subsidy, reimbursement, total_amount, monthly_complete, dx_receipt, expense_receipt
 - `members`: report_url, member_id, nickname, gws_account, full_name, qualification_allowance, position_rate, corporate_sheet, donation_sheet, qualification_sheet, sheet_number, groups
 - `withholding_targets`: work_category, licensed_member_id（源泉対象リスト: 15業務分類 + 2士業メンバー）
-- `dashboard_users`: email, role, display_name, added_by, created_at, updated_at（ホワイトリスト + ロール管理）
+- `dashboard_users`: email, role, display_name, added_by, source_group, created_at, updated_at（ホワイトリスト + ロール管理、source_group: グループ由来の場合グループメール/NULLなら手動登録）
 - `check_logs`: source_url, year, month, status, checker_email, memo, action_log, updated_at（業務チェック管理）
 - `groups_master`: group_email, group_name, ingested_at（Googleグループマスタ: 69グループ）
 

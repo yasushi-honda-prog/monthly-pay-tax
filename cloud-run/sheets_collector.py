@@ -145,6 +145,39 @@ def collect_member_groups(
         return "", []
 
 
+def list_group_members(admin_service, group_email: str) -> list[str]:
+    """Directory APIで指定グループのメンバーメールアドレス一覧を取得
+
+    Returns:
+        メンバーのメールアドレスリスト
+    """
+    if not group_email:
+        return []
+    try:
+        members: list[str] = []
+        page_token = None
+        while True:
+            result = (
+                admin_service.members()
+                .list(groupKey=group_email, pageToken=page_token, maxResults=200)
+                .execute()
+            )
+            for m in result.get("members", []):
+                if m.get("type") == "USER" and m.get("email"):
+                    members.append(m["email"].lower())
+            page_token = result.get("nextPageToken")
+            if not page_token:
+                break
+        time.sleep(config.SHEETS_API_SLEEP_BETWEEN_REQUESTS)
+        return members
+    except HttpError as e:
+        logger.warning("グループメンバー取得エラー (%s): %s", group_email, e)
+        return []
+    except Exception as e:
+        logger.warning("グループメンバー取得エラー (%s): %s", group_email, e)
+        return []
+
+
 def _extract_spreadsheet_id(url: str) -> str:
     """スプレッドシートURLからIDを抽出"""
     match = re.search(r"/spreadsheets/d/([a-zA-Z0-9_-]+)", url)
