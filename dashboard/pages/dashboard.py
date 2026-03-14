@@ -739,10 +739,10 @@ with tab2:
 
         st.subheader("メンバー別 月次金額")
         if not filtered_g.empty:
-            _piv_g = filtered_g.copy()
+            _piv_g = filtered_g[filtered_g["month_num"].str.isdigit()].copy()
             _piv_g["ym_label"] = (
                 _piv_g["year"].astype(int).astype(str) + "年" +
-                _piv_g["month_num"].apply(lambda x: x if x.isdigit() else "0") + "月"
+                _piv_g["month_num"] + "月"
             )
             _ym_sort_g = dict(zip(
                 _piv_g["ym_label"],
