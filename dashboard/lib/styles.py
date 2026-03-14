@@ -64,9 +64,14 @@ CUSTOM_CSS = """
         font-size: 0.8rem !important;
     }
 
-    /* セレクトボックスのドロップダウン選択肢リスト */
-    [data-baseweb="option"] {
-        font-size: 0.8rem !important;
+    /* セレクトボックスのドロップダウン選択肢リスト（ラベルより小さめ） */
+    [data-baseweb="option"],
+    [data-baseweb="option"] div,
+    [data-baseweb="option"] span,
+    [data-baseweb="menu"] li,
+    [role="listbox"] [role="option"],
+    [role="option"] div {
+        font-size: 0.75rem !important;
     }
     .sidebar-section-title {
         font-size: 0.8rem;
