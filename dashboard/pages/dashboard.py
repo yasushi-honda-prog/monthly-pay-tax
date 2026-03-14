@@ -152,20 +152,35 @@ with st.sidebar:
         year_key="global_year", month_key="global_month", include_all_month=True,
     )
 
-    # 決算期設定
-    st.markdown('<div class="sidebar-section-title">決算期</div>', unsafe_allow_html=True)
-    fiscal_start = st.selectbox(
-        "年度開始月", list(range(1, 13)),
-        index=9,  # デフォルト: 10月始まり
-        format_func=lambda m: f"{m}月",
-        key="fiscal_start",
-        label_visibility="collapsed",
-    )
-    if fiscal_start == 1:
-        st.caption(f"{selected_year}年1月 〜 {selected_year}年12月")
+    # 全月選択時: 表示期間を自由指定
+    if selected_month == "全月":
+        st.markdown('<div class="sidebar-section-title">表示期間</div>', unsafe_allow_html=True)
+        _range_years = list(range(2024, 2027))
+        col_l, col_r = st.columns(2)
+        with col_l:
+            st.caption("開始")
+            range_start_year = st.selectbox(
+                "開始年", _range_years, index=0,
+                key="range_start_year", label_visibility="collapsed",
+            )
+            range_start_month = st.selectbox(
+                "開始月", list(range(1, 13)), index=9,
+                format_func=lambda m: f"{m}月",
+                key="range_start_month", label_visibility="collapsed",
+            )
+        with col_r:
+            st.caption("終了")
+            range_end_year = st.selectbox(
+                "終了年", _range_years, index=len(_range_years) - 1,
+                key="range_end_year", label_visibility="collapsed",
+            )
+            range_end_month = st.selectbox(
+                "終了月", list(range(1, 13)), index=8,
+                format_func=lambda m: f"{m}月",
+                key="range_end_month", label_visibility="collapsed",
+            )
     else:
-        fy_end_month = fiscal_start - 1
-        st.caption(f"{selected_year - 1}年{fiscal_start}月 〜 {selected_year}年{fy_end_month}月")
+        range_start_year = range_start_month = range_end_year = range_end_month = None
 
     # グループ選択
     st.markdown('<div class="sidebar-section-title">グループ</div>', unsafe_allow_html=True)
@@ -507,19 +522,15 @@ with tab1:
                 (df_comp["month"] == int(selected_month.replace("月", "")))
             ]
         else:
-            # 全月選択時: 決算期12か月（年またぎ対応）
-            _base_year = selected_year - 1 if fiscal_start > 1 else selected_year
-            _fy_pairs = set()
-            for _i in range(12):
-                _m = fiscal_start + _i
-                _y = _base_year
-                if _m > 12:
-                    _m -= 12
-                    _y += 1
-                _fy_pairs.add((_y, _m))
+            # 全月選択時: 指定期間（年またぎ対応）
+            _start_ym = range_start_year * 100 + range_start_month
+            _end_ym = range_end_year * 100 + range_end_month
             _ym_num = df_comp["year"].astype(int) * 100 + df_comp["month"].astype(int)
-            _fy_nums = {y * 100 + m for y, m in _fy_pairs}
-            filtered = df_comp[_ym_num.isin(_fy_nums)]
+            if _end_ym < _start_ym:
+                st.warning("終了年月が開始年月より前になっています")
+                filtered = df_comp.iloc[0:0]
+            else:
+                filtered = df_comp[(_ym_num >= _start_ym) & (_ym_num <= _end_ym)]
         if selected_members:
             filtered = filtered[filtered["nickname"].isin(selected_members)]
 
