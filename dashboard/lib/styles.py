@@ -4,6 +4,11 @@ import streamlit as st
 
 CUSTOM_CSS = """
 <style>
+    /* ページ上部の余白を縮小 */
+    .main .block-container {
+        padding-top: 1.5rem !important;
+    }
+
     /* ヘッダー */
     .dashboard-header {
         padding: 0.25rem 0 1rem 0;
@@ -11,14 +16,18 @@ CUSTOM_CSS = """
         margin-bottom: 1rem;
     }
     .dashboard-header h1 {
-        font-size: 1.75rem;
+        font-size: 1.75rem !important;
         font-weight: 700;
         margin: 0;
         letter-spacing: 0.02em;
     }
 
-    /* サイドバーナビゲーションメニューのフォントサイズ */
-    [data-testid="stSidebarNavLink"] {
+    /* サイドバーナビゲーションメニューのフォントサイズ（複数セレクタで対応） */
+    [data-testid="stSidebarNavLink"],
+    [data-testid="stSidebarNavLink"] span,
+    [data-testid="stSidebarNavLink"] p,
+    section[data-testid="stSidebar"] nav a,
+    section[data-testid="stSidebar"] ul li a {
         font-size: 1rem !important;
     }
     .dashboard-header .user-email {
