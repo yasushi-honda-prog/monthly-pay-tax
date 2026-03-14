@@ -47,7 +47,7 @@ CUSTOM_CSS = """
 
     /* サイドバー */
     section[data-testid="stSidebar"] {
-        width: 320px !important;
+        width: 280px !important;
     }
     section[data-testid="stSidebar"] .stSelectbox label,
     section[data-testid="stSidebar"] .stTextInput label {
@@ -55,15 +55,10 @@ CUSTOM_CSS = """
         font-weight: 600;
         letter-spacing: 0.03em;
     }
-    section[data-testid="stSidebar"] [data-baseweb="select"] [data-baseweb="single-value"],
-    section[data-testid="stSidebar"] [data-baseweb="select"] [data-baseweb="placeholder"] {
-        font-size: 0.78rem;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-    }
-    section[data-testid="stSidebar"] [data-baseweb="select"] {
-        font-size: 0.78rem;
+
+    /* セレクトボックスのドロップダウン選択肢リスト */
+    [data-baseweb="option"] {
+        font-size: 0.8rem !important;
     }
     .sidebar-section-title {
         font-size: 0.7rem;
