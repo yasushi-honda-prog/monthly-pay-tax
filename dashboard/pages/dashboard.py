@@ -708,9 +708,19 @@ with tab2:
         df_gyomu["year"] = df_gyomu["year"].astype(int)
         df_gyomu["display_name"] = df_gyomu["nickname"].map(lambda n: name_map.get(n, n))
 
-        filtered_g = df_gyomu[df_gyomu["year"] == selected_year]
         if selected_month != "期間指定":
-            filtered_g = filtered_g[filtered_g["month_num"] == str(int(selected_month.replace("月", "")))]
+            filtered_g = df_gyomu[
+                (df_gyomu["year"] == selected_year) &
+                (df_gyomu["month_num"] == str(int(selected_month.replace("月", ""))))
+            ]
+        else:
+            _gm_ym_g = df_gyomu["year"] * 100 + df_gyomu["month_num"].apply(
+                lambda x: int(x) if x.isdigit() else 0
+            )
+            filtered_g = df_gyomu[
+                (_gm_ym_g >= range_start_year * 100 + range_start_month) &
+                (_gm_ym_g <= range_end_year * 100 + range_end_month)
+            ]
 
         sponsors = filtered_g["sponsor"].dropna().unique().tolist()
         sponsors = [s for s in sponsors if s and s.strip()]
@@ -756,6 +766,16 @@ with tab2:
                 fill_value=0,
             )
             pivot_g = pivot_g[sorted(pivot_g.columns, key=lambda c: _ym_sort_g.get(c, 9999))]
+            # 期間指定時: 範囲内の全月を列として強制表示（データなしは0）
+            if selected_month == "期間指定" and range_start_year is not None:
+                _all_cols_g = []
+                _y, _m = range_start_year, range_start_month
+                while _y * 100 + _m <= range_end_year * 100 + range_end_month:
+                    _all_cols_g.append(f"{_y}年{_m}月")
+                    _m += 1
+                    if _m > 12:
+                        _m, _y = 1, _y + 1
+                pivot_g = pivot_g.reindex(columns=_all_cols_g, fill_value=0)
             pivot_g["合計"] = pivot_g.sum(axis=1)
             pivot_g = pivot_g.sort_values("合計", ascending=False)
             st.dataframe(
