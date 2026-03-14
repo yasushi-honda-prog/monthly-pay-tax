@@ -62,7 +62,6 @@ def render_sidebar_year_month(*, year_key: str, month_key: str, include_all_mont
     返り値の month_value は "全月" または "N月" 文字列。
     include_all_month=False の場合、月選択は 1-12 の整数を返す。
     """
-    st.markdown('<div class="sidebar-section-title">期間</div>', unsafe_allow_html=True)
     all_years = list(range(2024, 2027))
     selected_year = st.selectbox("年度", all_years, index=len(all_years) - 1, key=year_key)
 
