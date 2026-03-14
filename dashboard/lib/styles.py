@@ -6,15 +6,20 @@ CUSTOM_CSS = """
 <style>
     /* ヘッダー */
     .dashboard-header {
-        padding: 0.5rem 0 1rem 0;
+        padding: 0.25rem 0 1rem 0;
         border-bottom: 2px solid #0EA5E9;
         margin-bottom: 1rem;
     }
     .dashboard-header h1 {
-        font-size: 1.6rem;
+        font-size: 1.75rem;
         font-weight: 700;
         margin: 0;
         letter-spacing: 0.02em;
+    }
+
+    /* サイドバーナビゲーションメニューのフォントサイズ */
+    [data-testid="stSidebarNavLink"] {
+        font-size: 1rem !important;
     }
     .dashboard-header .user-email {
         font-size: 0.8rem;
