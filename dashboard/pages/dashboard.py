@@ -152,6 +152,21 @@ with st.sidebar:
         year_key="global_year", month_key="global_month", include_all_month=True,
     )
 
+    # 決算期設定
+    st.markdown('<div class="sidebar-section-title">決算期</div>', unsafe_allow_html=True)
+    fiscal_start = st.selectbox(
+        "年度開始月", list(range(1, 13)),
+        index=9,  # デフォルト: 10月始まり
+        format_func=lambda m: f"{m}月",
+        key="fiscal_start",
+        label_visibility="collapsed",
+    )
+    if fiscal_start == 1:
+        st.caption(f"{selected_year}年1月 〜 {selected_year}年12月")
+    else:
+        fy_end_month = fiscal_start - 1
+        st.caption(f"{selected_year - 1}年{fiscal_start}月 〜 {selected_year}年{fy_end_month}月")
+
     # グループ選択
     st.markdown('<div class="sidebar-section-title">グループ</div>', unsafe_allow_html=True)
     try:
@@ -486,9 +501,25 @@ with tab1:
 
         df_comp["display_name"] = df_comp["nickname"].map(lambda n: name_map.get(n, n))
 
-        filtered = df_comp[df_comp["year"] == selected_year]
         if selected_month != "全月":
-            filtered = filtered[filtered["month"] == int(selected_month.replace("月", ""))]
+            filtered = df_comp[
+                (df_comp["year"] == selected_year) &
+                (df_comp["month"] == int(selected_month.replace("月", "")))
+            ]
+        else:
+            # 全月選択時: 決算期12か月（年またぎ対応）
+            _base_year = selected_year - 1 if fiscal_start > 1 else selected_year
+            _fy_pairs = set()
+            for _i in range(12):
+                _m = fiscal_start + _i
+                _y = _base_year
+                if _m > 12:
+                    _m -= 12
+                    _y += 1
+                _fy_pairs.add((_y, _m))
+            _ym_num = df_comp["year"].astype(int) * 100 + df_comp["month"].astype(int)
+            _fy_nums = {y * 100 + m for y, m in _fy_pairs}
+            filtered = df_comp[_ym_num.isin(_fy_nums)]
         if selected_members:
             filtered = filtered[filtered["nickname"].isin(selected_members)]
 
@@ -514,20 +545,31 @@ with tab1:
 
         # メンバー×月ピボット
         st.subheader("メンバー別 月次支払額")
-        pivot = filtered.pivot_table(
+        _piv_src = filtered.copy()
+        _multi_year = _piv_src["year"].nunique() > 1
+        if _multi_year:
+            _piv_src["_col"] = (
+                _piv_src["year"].astype(int).astype(str) + "年" +
+                _piv_src["month"].astype(int).astype(str) + "月"
+            )
+        else:
+            _piv_src["_col"] = _piv_src["month"].astype(int).astype(str) + "月"
+        _sort_map = dict(zip(
+            _piv_src["_col"],
+            _piv_src["year"].astype(int) * 100 + _piv_src["month"].astype(int),
+        ))
+        pivot = _piv_src.pivot_table(
             values="payment",
             index="display_name",
-            columns="month",
+            columns="_col",
             aggfunc="sum",
             fill_value=0,
         )
-        pivot.columns = pivot.columns.astype(str)
-        month_order = sorted(pivot.columns, key=lambda x: int(float(x)) if x.replace(".", "").isdigit() else 99)
-        pivot = pivot[month_order]
+        pivot = pivot[sorted(pivot.columns, key=lambda c: _sort_map.get(c, 9999))]
         # データ未登録メンバーを0行として追加
         if missing_members and pivot.empty:
             pivot = pd.DataFrame(
-                {"年間合計": 0},
+                {"合計": 0},
                 index=[name_map.get(m, m) for m in missing_members],
             )
         else:
@@ -535,8 +577,8 @@ with tab1:
                 disp = name_map.get(m, m)
                 if disp not in pivot.index:
                     pivot.loc[disp] = 0
-            pivot["年間合計"] = pivot.sum(axis=1)
-        pivot = pivot.sort_values("年間合計", ascending=False)
+            pivot["合計"] = pivot.sum(axis=1)
+        pivot = pivot.sort_values("合計", ascending=False)
         st.dataframe(
             pivot.style.format("¥{:,.0f}"),
             use_container_width=True,
