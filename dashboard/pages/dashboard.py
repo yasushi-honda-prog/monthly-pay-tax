@@ -152,6 +152,34 @@ with st.sidebar:
         year_key="global_year", month_key="global_month", include_all_month=True,
     )
 
+    # グループ選択
+    st.markdown('<div class="sidebar-section-title">グループ</div>', unsafe_allow_html=True)
+    try:
+        df_gm_sb = load_groups_master()
+        df_mwg_sb = load_members_with_groups()
+        email_to_name_sb: dict[str, str] = dict(zip(df_gm_sb["group_email"], df_gm_sb["group_name"]))
+        group_to_members_sb: dict[str, list[str]] = {}
+        for _, mrow in df_mwg_sb.iterrows():
+            if not mrow["groups"]:
+                continue
+            for email in str(mrow["groups"]).split(","):
+                email = email.strip()
+                if not email or email not in email_to_name_sb:
+                    continue
+                gname = email_to_name_sb[email]
+                if gname not in group_to_members_sb:
+                    group_to_members_sb[gname] = []
+                if mrow["nickname"] not in group_to_members_sb[gname]:
+                    group_to_members_sb[gname].append(mrow["nickname"])
+        group_options = ["全グループ"] + sorted(group_to_members_sb.keys())
+    except Exception:
+        group_options = ["全グループ"]
+        group_to_members_sb = {}
+
+    selected_group_sb = st.selectbox(
+        "グループ", group_options, key="sb_group", label_visibility="collapsed",
+    )
+
     # メンバー選択
     st.markdown('<div class="sidebar-section-title">メンバー</div>', unsafe_allow_html=True)
     member_search = st.text_input("検索", key="member_search", placeholder="名前で絞り込み...",
@@ -167,14 +195,21 @@ with st.sidebar:
     except Exception:
         name_map, url_map = {}, {}
 
+    # グループ選択で絞り込み
+    if selected_group_sb != "全グループ":
+        group_filtered_members = group_to_members_sb.get(selected_group_sb, [])
+        base_members = [m for m in all_members if m in group_filtered_members]
+    else:
+        base_members = all_members
+
     if member_search:
         _q = member_search.lower()
         display_members = [
-            m for m in all_members
+            m for m in base_members
             if _q in m.lower() or _q in name_map.get(m, "").lower()
         ]
     else:
-        display_members = all_members
+        display_members = base_members
 
     col_a, col_b = st.columns(2)
     with col_a:
