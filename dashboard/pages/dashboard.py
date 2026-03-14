@@ -5,6 +5,7 @@ BQ VIEWs (v_gyomu_enriched, v_hojo_enriched, v_monthly_compensation) 経由で�
 """
 
 import logging
+from datetime import date as _date
 
 import altair as alt
 import pandas as pd
@@ -154,15 +155,24 @@ with st.sidebar:
 
     # 期間指定選択時: 年月を1つのプルダウンで指定
     if selected_month == "期間指定":
-        _ym_options = [f"{y}年{m}月" for y in range(2024, 2027) for m in range(1, 13)]
+        _ym_options = [f"{y}年{m}月" for y in range(2024, 2028) for m in range(1, 13)]
+        _t = _date.today()
+        _fy_start_year = _t.year - 1 if _t.month < 11 else _t.year
+        _fy_end_year = _fy_start_year + 1
+        _default_start = f"{_fy_start_year}年11月"
+        _default_end = f"{_fy_end_year}年10月"
+        if _default_start not in _ym_options:
+            _default_start = _ym_options[0]
+        if _default_end not in _ym_options:
+            _default_end = _ym_options[-1]
         _start_str = st.selectbox(
             "開始", _ym_options,
-            index=_ym_options.index("2025年11月"),
+            index=_ym_options.index(_default_start),
             key="range_start_ym",
         )
         _end_str = st.selectbox(
             "終了", _ym_options,
-            index=_ym_options.index("2026年10月"),
+            index=_ym_options.index(_default_end),
             key="range_end_ym",
         )
         range_start_year = int(_start_str.split("年")[0])
@@ -643,22 +653,26 @@ with tab1:
         # 月次推移チャート
         st.subheader("月次推移")
         if not filtered.empty:
-            monthly = filtered.groupby("month").agg(
+            monthly = filtered.groupby(["year", "month"]).agg(
                 業務報酬=("qualification_adjusted_compensation", "sum"),
                 源泉徴収=("withholding_tax", "sum"),
                 DX補助=("dx_subsidy", "sum"),
                 立替=("reimbursement", "sum"),
             ).reset_index()
+            monthly["year"] = monthly["year"].astype(int)
             monthly["month"] = monthly["month"].apply(
                 lambda x: int(float(x)) if str(x).replace(".", "").isdigit() else 0
             )
-            monthly = monthly.sort_values("month")
+            monthly["ym_sort"] = monthly["year"] * 100 + monthly["month"]
+            monthly["ym_label"] = monthly["year"].astype(str) + "年" + monthly["month"].astype(str) + "月"
+            monthly = monthly.sort_values("ym_sort")
+            _ym_order = monthly["ym_label"].tolist()
             chart_data = monthly.melt(
-                id_vars="month", value_vars=["業務報酬", "源泉徴収", "DX補助", "立替"],
+                id_vars="ym_label", value_vars=["業務報酬", "源泉徴収", "DX補助", "立替"],
                 var_name="項目", value_name="金額",
             )
             chart = alt.Chart(chart_data).mark_bar().encode(
-                x=alt.X("month:O", title="月"),
+                x=alt.X("ym_label:O", title="年月", sort=_ym_order),
                 y=alt.Y("金額:Q", title="金額", axis=alt.Axis(format=",.0f")),
                 color=alt.Color("項目:N", title="項目"),
                 xOffset="項目:N",
@@ -718,20 +732,25 @@ with tab2:
 
         st.subheader("メンバー別 月次金額")
         if not filtered_g.empty:
-            pivot_g = filtered_g.pivot_table(
+            _piv_g = filtered_g.copy()
+            _piv_g["ym_label"] = (
+                _piv_g["year"].astype(int).astype(str) + "年" +
+                _piv_g["month_num"].apply(lambda x: x if x.isdigit() else "0") + "月"
+            )
+            _ym_sort_g = dict(zip(
+                _piv_g["ym_label"],
+                _piv_g["year"].astype(int) * 100 + _piv_g["month_num"].apply(lambda x: int(x) if x.isdigit() else 0),
+            ))
+            pivot_g = _piv_g.pivot_table(
                 values="amount_num",
                 index="display_name",
-                columns="month_num",
+                columns="ym_label",
                 aggfunc="sum",
                 fill_value=0,
             )
-            month_order_g = sorted(
-                pivot_g.columns,
-                key=lambda x: int(x) if x.isdigit() else 99,
-            )
-            pivot_g = pivot_g[month_order_g]
-            pivot_g["年間合計"] = pivot_g.sum(axis=1)
-            pivot_g = pivot_g.sort_values("年間合計", ascending=False)
+            pivot_g = pivot_g[sorted(pivot_g.columns, key=lambda c: _ym_sort_g.get(c, 9999))]
+            pivot_g["合計"] = pivot_g.sum(axis=1)
+            pivot_g = pivot_g.sort_values("合計", ascending=False)
             st.dataframe(
                 pivot_g.style.format("¥{:,.0f}"),
                 use_container_width=True,

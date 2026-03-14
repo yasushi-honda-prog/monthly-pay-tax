@@ -63,15 +63,19 @@ def render_sidebar_year_month(*, year_key: str, month_key: str, include_all_mont
     include_all_month=False の場合、月選択は 1-12 の整数を返す。
     """
     all_years = list(range(2024, 2027))
-    selected_year = st.selectbox("年度", all_years, index=len(all_years) - 1, key=year_key)
+    _today = date.today()
+    _prev_month = _today.month - 1 if _today.month > 1 else 12
+    _prev_year = _today.year if _today.month > 1 else _today.year - 1
+    _default_year_idx = all_years.index(_prev_year) if _prev_year in all_years else len(all_years) - 1
+    selected_year = st.selectbox("年度", all_years, index=_default_year_idx, key=year_key)
 
     if include_all_month:
         month_options = ["期間指定"] + [f"{m}月" for m in range(1, 13)]
-        selected_month = st.selectbox("月", month_options, key=month_key)
+        selected_month = st.selectbox("月", month_options, index=_prev_month, key=month_key)
     else:
         selected_month = st.selectbox(
             "月", list(range(1, 13)),
-            index=date.today().month - 1,
+            index=_prev_month - 1,
             key=month_key,
         )
 
