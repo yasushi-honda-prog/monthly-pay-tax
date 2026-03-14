@@ -59,10 +59,20 @@ CUSTOM_CSS = """
     /* サイドバー内コンポーネントの余白を統一 */
     section[data-testid="stSidebar"] .stSelectbox,
     section[data-testid="stSidebar"] .stTextInput,
-    section[data-testid="stSidebar"] .stCheckbox,
     section[data-testid="stSidebar"] .stMultiSelect {
         margin-bottom: 0.5rem !important;
         margin-top: 0 !important;
+    }
+
+    /* メンバーリストのチェックボックス：フォント小さめ・行間を詰める */
+    section[data-testid="stSidebar"] .stCheckbox {
+        margin-bottom: 0 !important;
+        margin-top: 0 !important;
+    }
+    section[data-testid="stSidebar"] .stCheckbox label,
+    section[data-testid="stSidebar"] .stCheckbox label p {
+        font-size: 0.78rem !important;
+        line-height: 1.2 !important;
     }
 
     .sidebar-section-title {
