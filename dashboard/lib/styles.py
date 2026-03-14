@@ -74,15 +74,6 @@ CUSTOM_CSS = """
         margin-bottom: 0 !important;
     }
 
-    /* セレクトボックスのドロップダウン選択肢リスト（ラベルより小さめ） */
-    [data-baseweb="option"],
-    [data-baseweb="option"] div,
-    [data-baseweb="option"] span,
-    [data-baseweb="menu"] li,
-    [role="listbox"] [role="option"],
-    [role="option"] div {
-        font-size: 0.75rem !important;
-    }
     .sidebar-section-title {
         font-size: 0.8rem;
         font-weight: 700;
