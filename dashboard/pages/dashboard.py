@@ -152,35 +152,23 @@ with st.sidebar:
         year_key="global_year", month_key="global_month", include_all_month=True,
     )
 
-    # 期間指定選択時: 開始・終了年月を1行ずつ表示
+    # 期間指定選択時: 年月を1つのプルダウンで指定
     if selected_month == "期間指定":
-        _range_years = list(range(2024, 2027))
-        col_y, col_m = st.columns([2, 3])
-        with col_y:
-            range_start_year = st.selectbox(
-                "開始", _range_years, index=1,
-                key="range_start_year",
-            )
-        with col_m:
-            range_start_month = st.selectbox(
-                "開始月", list(range(1, 13)), index=10,
-                format_func=lambda m: f"{m}月",
-                key="range_start_month",
-                label_visibility="hidden",
-            )
-        col_y2, col_m2 = st.columns([2, 3])
-        with col_y2:
-            range_end_year = st.selectbox(
-                "終了", _range_years, index=len(_range_years) - 1,
-                key="range_end_year",
-            )
-        with col_m2:
-            range_end_month = st.selectbox(
-                "終了月", list(range(1, 13)), index=9,
-                format_func=lambda m: f"{m}月",
-                key="range_end_month",
-                label_visibility="hidden",
-            )
+        _ym_options = [f"{y}年{m}月" for y in range(2024, 2027) for m in range(1, 13)]
+        _start_str = st.selectbox(
+            "開始", _ym_options,
+            index=_ym_options.index("2025年11月"),
+            key="range_start_ym",
+        )
+        _end_str = st.selectbox(
+            "終了", _ym_options,
+            index=_ym_options.index("2026年10月"),
+            key="range_end_ym",
+        )
+        range_start_year = int(_start_str.split("年")[0])
+        range_start_month = int(_start_str.split("年")[1].replace("月", ""))
+        range_end_year = int(_end_str.split("年")[0])
+        range_end_month = int(_end_str.split("年")[1].replace("月", ""))
     else:
         range_start_year = range_start_month = range_end_year = range_end_month = None
 
