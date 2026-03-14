@@ -735,21 +735,21 @@ with tab3:
         categories = ["活動分類"] + sorted(
             result["activity_category"].dropna().unique().tolist()
         )
-        work_categories = ["全業務分類"] + sorted(
+        work_categories = sorted(
             result["work_category"].dropna().unique().tolist()
         )
         col_cat, col_wcat = st.columns([1, 3])
         with col_cat:
             sel_cat = st.selectbox("活動分類", categories, key="list_cat", label_visibility="collapsed")
         with col_wcat:
-            sel_wcat = st.selectbox("業務分類", work_categories, key="list_wcat", label_visibility="collapsed")
+            sel_wcat = st.multiselect("業務分類", work_categories, key="list_wcat", placeholder="全業務分類")
 
         if selected_members:
             result = result[result["nickname"].isin(selected_members)]
         if sel_cat != "活動分類":
             result = result[result["activity_category"] == sel_cat]
-        if sel_wcat != "全業務分類":
-            result = result[result["work_category"] == sel_wcat]
+        if sel_wcat:
+            result = result[result["work_category"].isin(sel_wcat)]
 
         result["amount_num"] = clean_numeric_series(result["amount"])
 
