@@ -232,6 +232,13 @@ with st.sidebar:
     else:
         base_members = all_members
 
+    # グループ変更時: グループメンバーを自動全選択
+    _prev_group = st.session_state.get("_prev_group_sb", "全グループ")
+    if selected_group_sb != _prev_group and selected_group_sb != "全グループ":
+        for m in base_members:
+            st.session_state[f"sb_{m}"] = True
+    st.session_state["_prev_group_sb"] = selected_group_sb
+
     if member_search:
         _q = member_search.lower()
         display_members = [
