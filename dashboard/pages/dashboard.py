@@ -239,7 +239,7 @@ with st.sidebar:
 # --- ヘッダー ---
 st.markdown("""
 <div class="dashboard-header">
-    <h1>活動時間・報酬マネジメントダッシュボード</h1>
+    <h1 style="font-size: 1.75rem; font-weight: 700; margin: 0; letter-spacing: 0.02em;">活動時間・報酬マネジメントダッシュボード</h1>
 </div>
 """, unsafe_allow_html=True)
 

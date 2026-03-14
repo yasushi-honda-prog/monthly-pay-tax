@@ -5,7 +5,10 @@ import streamlit as st
 CUSTOM_CSS = """
 <style>
     /* ページ上部の余白を縮小 */
-    .main .block-container {
+    .main .block-container,
+    section.main .block-container,
+    [data-testid="stMain"] .block-container,
+    .stMainBlockContainer {
         padding-top: 1.5rem !important;
     }
 
