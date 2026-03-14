@@ -56,20 +56,20 @@ CUSTOM_CSS = """
         letter-spacing: 0.03em;
     }
 
-    /* サイドバー内テキストのフォントサイズ統一（年度表示と同じ 0.875rem） */
+    /* サイドバー内テキストのフォントサイズ統一（年度・月ラベルと同じ 0.8rem） */
     section[data-testid="stSidebar"] [data-baseweb="single-value"],
     section[data-testid="stSidebar"] [data-baseweb="placeholder"],
     section[data-testid="stSidebar"] [data-baseweb="tag"] span,
     section[data-testid="stSidebar"] .stCheckbox label p {
-        font-size: 0.875rem !important;
+        font-size: 0.8rem !important;
     }
 
     /* セレクトボックスのドロップダウン選択肢リスト */
     [data-baseweb="option"] {
-        font-size: 0.875rem !important;
+        font-size: 0.8rem !important;
     }
     .sidebar-section-title {
-        font-size: 0.7rem;
+        font-size: 0.8rem;
         font-weight: 700;
         text-transform: uppercase;
         letter-spacing: 0.1em;
