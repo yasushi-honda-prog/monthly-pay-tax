@@ -222,7 +222,7 @@ with st.sidebar:
                 st.session_state[f"sb_{m}"] = False
 
     selected_members = []
-    with st.container(height=250):
+    with st.container(height=560):
         for m in display_members:
             label = name_map.get(m, m)
             if st.checkbox(label, key=f"sb_{m}"):
