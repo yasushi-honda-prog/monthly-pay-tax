@@ -714,6 +714,16 @@ with tab3:
         if sel_wcat != "全業務分類":
             result = result[result["work_category"] == sel_wcat]
 
+        result["amount_num"] = clean_numeric_series(result["amount"])
+
+        k1, k2, k3 = st.columns(3)
+        with k1:
+            render_kpi("総額", f"¥{result['amount_num'].sum():,.0f}")
+        with k2:
+            render_kpi("件数", f"{len(result):,}")
+        with k3:
+            render_kpi("メンバー数", f"{result['nickname'].nunique()}")
+
         st.markdown(f'<div class="count-badge">{len(result):,} 件</div>', unsafe_allow_html=True)
         st.dataframe(
             result[
