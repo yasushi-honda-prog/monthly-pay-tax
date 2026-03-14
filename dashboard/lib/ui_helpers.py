@@ -66,7 +66,7 @@ def render_sidebar_year_month(*, year_key: str, month_key: str, include_all_mont
     selected_year = st.selectbox("年度", all_years, index=len(all_years) - 1, key=year_key)
 
     if include_all_month:
-        month_options = ["全月"] + [f"{m}月" for m in range(1, 13)]
+        month_options = ["期間指定"] + [f"{m}月" for m in range(1, 13)]
         selected_month = st.selectbox("月", month_options, key=month_key)
     else:
         selected_month = st.selectbox(

@@ -152,28 +152,32 @@ with st.sidebar:
         year_key="global_year", month_key="global_month", include_all_month=True,
     )
 
-    # 全月選択時: 表示期間を自由指定
-    if selected_month == "全月":
-        st.markdown('<div class="sidebar-section-title">表示期間</div>', unsafe_allow_html=True)
+    # 期間指定選択時: 開始・終了年月を1行ずつ表示
+    if selected_month == "期間指定":
         _range_years = list(range(2024, 2027))
-        col_l, col_r = st.columns(2)
-        with col_l:
+        col_lbl, col_y, col_m = st.columns([1.2, 2, 1.8])
+        with col_lbl:
             st.caption("開始")
+        with col_y:
             range_start_year = st.selectbox(
                 "開始年", _range_years, index=0,
                 key="range_start_year", label_visibility="collapsed",
             )
+        with col_m:
             range_start_month = st.selectbox(
                 "開始月", list(range(1, 13)), index=9,
                 format_func=lambda m: f"{m}月",
                 key="range_start_month", label_visibility="collapsed",
             )
-        with col_r:
+        col_lbl2, col_y2, col_m2 = st.columns([1.2, 2, 1.8])
+        with col_lbl2:
             st.caption("終了")
+        with col_y2:
             range_end_year = st.selectbox(
                 "終了年", _range_years, index=len(_range_years) - 1,
                 key="range_end_year", label_visibility="collapsed",
             )
+        with col_m2:
             range_end_month = st.selectbox(
                 "終了月", list(range(1, 13)), index=8,
                 format_func=lambda m: f"{m}月",
@@ -375,7 +379,7 @@ def _render_group_tab(selected_year: int, selected_month: str) -> None:
             (df_comp_g["year"] == selected_year)
             & (df_comp_g["nickname"].isin(group_members))
         ]
-        if selected_month != "全月":
+        if selected_month != "期間指定":
             filtered_gc = filtered_gc[
                 filtered_gc["month"] == int(selected_month.replace("月", ""))
             ]
@@ -427,7 +431,7 @@ def _render_group_tab(selected_year: int, selected_month: str) -> None:
             (df_gyomu_g["year"] == selected_year)
             & (df_gyomu_g["nickname"].isin(group_members))
         ]
-        if selected_month != "全月":
+        if selected_month != "期間指定":
             result_g = result_g[
                 result_g["month"] == int(selected_month.replace("月", ""))
             ]
@@ -516,7 +520,7 @@ with tab1:
 
         df_comp["display_name"] = df_comp["nickname"].map(lambda n: name_map.get(n, n))
 
-        if selected_month != "全月":
+        if selected_month != "期間指定":
             filtered = df_comp[
                 (df_comp["year"] == selected_year) &
                 (df_comp["month"] == int(selected_month.replace("月", "")))
@@ -698,7 +702,7 @@ with tab2:
         df_gyomu["display_name"] = df_gyomu["nickname"].map(lambda n: name_map.get(n, n))
 
         filtered_g = df_gyomu[df_gyomu["year"] == selected_year]
-        if selected_month != "全月":
+        if selected_month != "期間指定":
             filtered_g = filtered_g[filtered_g["month_num"] == str(int(selected_month.replace("月", "")))]
 
         sponsors = filtered_g["sponsor"].dropna().unique().tolist()
@@ -781,7 +785,7 @@ with tab3:
         df_gyomu_all["display_name"] = df_gyomu_all["nickname"].map(lambda n: name_map.get(n, n))
 
         result = df_gyomu_all[df_gyomu_all["year"] == selected_year]
-        if selected_month != "全月":
+        if selected_month != "期間指定":
             month_val = int(selected_month.replace("月", ""))
             result = result[result["month"] == month_val]
 
