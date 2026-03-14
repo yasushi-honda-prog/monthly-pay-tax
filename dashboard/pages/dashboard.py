@@ -376,11 +376,13 @@ def _render_group_tab(selected_year: int, selected_month: str) -> None:
         if sel_wcat_g != "全業務分類":
             result_g = result_g[result_g["work_category"] == sel_wcat_g]
 
-        k1, k2 = st.columns(2)
+        k1, k2, k3 = st.columns(3)
         with k1:
             render_kpi("総額", f"¥{result_g['amount_num'].sum():,.0f}")
         with k2:
             render_kpi("件数", f"{len(result_g):,}")
+        with k3:
+            render_kpi("メンバー数", f"{result_g['nickname'].nunique()}")
 
         if not result_g.empty:
             st.dataframe(
