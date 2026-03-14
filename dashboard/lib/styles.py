@@ -47,13 +47,23 @@ CUSTOM_CSS = """
 
     /* サイドバー */
     section[data-testid="stSidebar"] {
-        width: 280px !important;
+        width: 320px !important;
     }
     section[data-testid="stSidebar"] .stSelectbox label,
     section[data-testid="stSidebar"] .stTextInput label {
         font-size: 0.8rem;
         font-weight: 600;
         letter-spacing: 0.03em;
+    }
+    section[data-testid="stSidebar"] [data-baseweb="select"] [data-baseweb="single-value"],
+    section[data-testid="stSidebar"] [data-baseweb="select"] [data-baseweb="placeholder"] {
+        font-size: 0.78rem;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    section[data-testid="stSidebar"] [data-baseweb="select"] {
+        font-size: 0.78rem;
     }
     .sidebar-section-title {
         font-size: 0.7rem;
