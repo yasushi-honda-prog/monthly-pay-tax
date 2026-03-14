@@ -232,11 +232,15 @@ with st.sidebar:
     else:
         base_members = all_members
 
-    # グループ変更時: グループメンバーを自動全選択
+    # グループ変更時: 前グループのチェックを全解除 → 特定グループなら自動全選択
     _prev_group = st.session_state.get("_prev_group_sb", "全グループ")
-    if selected_group_sb != _prev_group and selected_group_sb != "全グループ":
-        for m in base_members:
-            st.session_state[f"sb_{m}"] = True
+    if selected_group_sb != _prev_group:
+        _prev_grp_members = group_to_members_sb.get(_prev_group, [])
+        for m in (_prev_grp_members if _prev_grp_members else all_members):
+            st.session_state[f"sb_{m}"] = False
+        if selected_group_sb != "全グループ":
+            for m in base_members:
+                st.session_state[f"sb_{m}"] = True
     st.session_state["_prev_group_sb"] = selected_group_sb
 
     if member_search:
@@ -283,7 +287,11 @@ st.markdown("""
 
 # --- Tab 4 フラグメント定義（グループ選択時にスクリプト全体を再実行させない） ---
 @st.fragment
-def _render_group_tab(selected_year: int, selected_month: str) -> None:
+def _render_group_tab(
+    selected_year: int, selected_month: str,
+    selected_members: list,
+    range_start_year, range_start_month, range_end_year, range_end_month,
+) -> None:
     """グループ別タブ本体。@st.fragment により外側タブのリセットを防ぐ。"""
     try:
         df_gm = load_groups_master()
@@ -329,6 +337,9 @@ def _render_group_tab(selected_year: int, selected_month: str) -> None:
         )
 
     group_members = group_to_members.get(selected_group, [])
+    # サイドバーのメンバーフィルターも適用
+    if selected_members:
+        group_members = [m for m in group_members if m in selected_members]
     st.markdown(
         f'<div class="count-badge">{selected_group} &nbsp;|&nbsp; {len(group_members)} 名</div>',
         unsafe_allow_html=True,
@@ -378,13 +389,18 @@ def _render_group_tab(selected_year: int, selected_month: str) -> None:
             df_comp_g[col] = df_comp_g[col].fillna(0).astype(float)
 
         df_comp_g["display_name"] = df_comp_g["nickname"].map(lambda n: _name_map.get(n, n))
-        filtered_gc = df_comp_g[
-            (df_comp_g["year"] == selected_year)
-            & (df_comp_g["nickname"].isin(group_members))
-        ]
         if selected_month != "期間指定":
-            filtered_gc = filtered_gc[
-                filtered_gc["month"] == int(selected_month.replace("月", ""))
+            filtered_gc = df_comp_g[
+                (df_comp_g["year"] == selected_year)
+                & (df_comp_g["month"] == int(selected_month.replace("月", "")))
+                & (df_comp_g["nickname"].isin(group_members))
+            ]
+        else:
+            _ym_gc = df_comp_g["year"].astype(int) * 100 + df_comp_g["month"].astype(int)
+            filtered_gc = df_comp_g[
+                (_ym_gc >= range_start_year * 100 + range_start_month)
+                & (_ym_gc <= range_end_year * 100 + range_end_month)
+                & (df_comp_g["nickname"].isin(group_members))
             ]
 
         k1, k2, k3 = st.columns(3)
@@ -397,19 +413,27 @@ def _render_group_tab(selected_year: int, selected_month: str) -> None:
 
         if not filtered_gc.empty:
             st.subheader("メンバー別 月次支払額")
-            pivot_gc = filtered_gc.pivot_table(
+            _piv_gc_src = filtered_gc.copy()
+            _multi_year_gc = _piv_gc_src["year"].nunique() > 1
+            if _multi_year_gc:
+                _piv_gc_src["_col"] = (
+                    _piv_gc_src["year"].astype(int).astype(str) + "年" +
+                    _piv_gc_src["month"].astype(int).astype(str) + "月"
+                )
+            else:
+                _piv_gc_src["_col"] = _piv_gc_src["month"].astype(int).astype(str) + "月"
+            _sort_map_gc = dict(zip(
+                _piv_gc_src["_col"],
+                _piv_gc_src["year"].astype(int) * 100 + _piv_gc_src["month"].astype(int),
+            ))
+            pivot_gc = _piv_gc_src.pivot_table(
                 values="payment",
                 index="display_name",
-                columns="month",
+                columns="_col",
                 aggfunc="sum",
                 fill_value=0,
             )
-            pivot_gc.columns = pivot_gc.columns.astype(str)
-            month_order_gc = sorted(
-                pivot_gc.columns,
-                key=lambda x: int(float(x)) if x.replace(".", "").isdigit() else 99,
-            )
-            pivot_gc = pivot_gc[month_order_gc]
+            pivot_gc = pivot_gc[sorted(pivot_gc.columns, key=lambda c: _sort_map_gc.get(c, 9999))]
             pivot_gc["合計"] = pivot_gc.sum(axis=1)
             pivot_gc = pivot_gc.sort_values("合計", ascending=False)
             st.dataframe(pivot_gc.style.format("¥{:,.0f}"), use_container_width=True)
@@ -430,13 +454,20 @@ def _render_group_tab(selected_year: int, selected_month: str) -> None:
         df_gyomu_g["amount_num"] = clean_numeric_series(df_gyomu_g["amount"])
         df_gyomu_g["display_name"] = df_gyomu_g["nickname"].map(lambda n: _name_map.get(n, n))
 
-        result_g = df_gyomu_g[
-            (df_gyomu_g["year"] == selected_year)
-            & (df_gyomu_g["nickname"].isin(group_members))
-        ]
         if selected_month != "期間指定":
+            result_g = df_gyomu_g[
+                (df_gyomu_g["year"] == selected_year)
+                & (df_gyomu_g["nickname"].isin(group_members))
+            ]
             result_g = result_g[
                 result_g["month"] == int(selected_month.replace("月", ""))
+            ]
+        else:
+            _ym_rg = df_gyomu_g["year"].astype(int) * 100 + df_gyomu_g["month"].astype("Int64").fillna(0).astype(int)
+            result_g = df_gyomu_g[
+                (_ym_rg >= range_start_year * 100 + range_start_month)
+                & (_ym_rg <= range_end_year * 100 + range_end_month)
+                & (df_gyomu_g["nickname"].isin(group_members))
             ]
 
         work_cats_g = ["全業務分類"] + sorted(
@@ -883,4 +914,8 @@ with tab3:
 
 # ===== Tab 4: グループ別 =====
 with tab4:
-    _render_group_tab(selected_year, selected_month)
+    _render_group_tab(
+        selected_year, selected_month,
+        selected_members,
+        range_start_year, range_start_month, range_end_year, range_end_month,
+    )
