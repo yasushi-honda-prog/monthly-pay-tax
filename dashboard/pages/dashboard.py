@@ -738,7 +738,7 @@ with tab3:
         work_categories = ["全業務分類"] + sorted(
             result["work_category"].dropna().unique().tolist()
         )
-        col_cat, col_wcat, col_spacer = st.columns([1, 1, 2])
+        col_cat, col_wcat = st.columns([1, 3])
         with col_cat:
             sel_cat = st.selectbox("活動分類", categories, key="list_cat", label_visibility="collapsed")
         with col_wcat:
