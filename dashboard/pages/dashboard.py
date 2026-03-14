@@ -155,33 +155,29 @@ with st.sidebar:
     # 期間指定選択時: 開始・終了年月を1行ずつ表示
     if selected_month == "期間指定":
         _range_years = list(range(2024, 2027))
-        col_lbl, col_y, col_m = st.columns([1.2, 2, 1.8])
-        with col_lbl:
-            st.caption("開始")
+        col_y, col_m = st.columns([3, 2])
         with col_y:
             range_start_year = st.selectbox(
-                "開始年", _range_years, index=0,
-                key="range_start_year", label_visibility="collapsed",
+                "開始年", _range_years, index=1,
+                key="range_start_year",
             )
         with col_m:
             range_start_month = st.selectbox(
-                "開始月", list(range(1, 13)), index=9,
+                "開始月", list(range(1, 13)), index=10,
                 format_func=lambda m: f"{m}月",
-                key="range_start_month", label_visibility="collapsed",
+                key="range_start_month",
             )
-        col_lbl2, col_y2, col_m2 = st.columns([1.2, 2, 1.8])
-        with col_lbl2:
-            st.caption("終了")
+        col_y2, col_m2 = st.columns([3, 2])
         with col_y2:
             range_end_year = st.selectbox(
                 "終了年", _range_years, index=len(_range_years) - 1,
-                key="range_end_year", label_visibility="collapsed",
+                key="range_end_year",
             )
         with col_m2:
             range_end_month = st.selectbox(
-                "終了月", list(range(1, 13)), index=8,
+                "終了月", list(range(1, 13)), index=9,
                 format_func=lambda m: f"{m}月",
-                key="range_end_month", label_visibility="collapsed",
+                key="range_end_month",
             )
     else:
         range_start_year = range_start_month = range_end_year = range_end_month = None
