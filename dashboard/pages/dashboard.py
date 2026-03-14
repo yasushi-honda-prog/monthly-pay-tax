@@ -534,46 +534,6 @@ with tab1:
         if selected_members:
             filtered = filtered[filtered["nickname"].isin(selected_members)]
 
-        # 活動分類・業務分類フィルター（gyomuデータ経由でニックネームを絞り込む）
-        try:
-            _gyomu_t1 = load_gyomu_with_members()
-            _gyomu_t1 = fill_empty_nickname(_gyomu_t1)
-            _gyomu_t1["year"] = valid_years(_gyomu_t1["year"])
-            _gyomu_t1 = _gyomu_t1[_gyomu_t1["year"].notna()]
-            _gyomu_t1["year"] = _gyomu_t1["year"].astype(int)
-            _gyomu_t1["_m"] = _gyomu_t1["month"].apply(
-                lambda x: int(float(x)) if pd.notna(x) and str(x).replace(".", "").isdigit() else 0
-            )
-            if selected_month != "期間指定":
-                _gyomu_p = _gyomu_t1[
-                    (_gyomu_t1["year"] == selected_year) &
-                    (_gyomu_t1["_m"] == int(selected_month.replace("月", "")))
-                ]
-            else:
-                _gm_ym = _gyomu_t1["year"] * 100 + _gyomu_t1["_m"]
-                _gyomu_p = _gyomu_t1[
-                    (_gm_ym >= range_start_year * 100 + range_start_month) &
-                    (_gm_ym <= range_end_year * 100 + range_end_month)
-                ]
-            _cats1 = ["活動分類"] + sorted(_gyomu_p["activity_category"].dropna().unique().tolist())
-            _wcats1 = sorted(_gyomu_p["work_category"].dropna().unique().tolist())
-        except Exception:
-            _gyomu_p, _cats1, _wcats1 = pd.DataFrame(), ["活動分類"], []
-
-        col_cat1, col_wcat1 = st.columns([1, 3])
-        with col_cat1:
-            sel_cat1 = st.selectbox("活動分類", _cats1, key="comp_cat", label_visibility="collapsed")
-        with col_wcat1:
-            sel_wcat1 = st.multiselect("業務分類", _wcats1, key="comp_wcat", placeholder="全業務分類", label_visibility="collapsed")
-
-        if (sel_cat1 != "活動分類" or sel_wcat1) and not _gyomu_p.empty:
-            _gf1 = _gyomu_p.copy()
-            if sel_cat1 != "活動分類":
-                _gf1 = _gf1[_gf1["activity_category"] == sel_cat1]
-            if sel_wcat1:
-                _gf1 = _gf1[_gf1["work_category"].isin(sel_wcat1)]
-            filtered = filtered[filtered["nickname"].isin(set(_gf1["nickname"]))]
-
         # 選択されたメンバーのうちデータ未登録のものを検出
         if selected_members:
             existing_nicks = set(filtered["nickname"].unique())
