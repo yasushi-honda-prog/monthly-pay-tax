@@ -193,10 +193,13 @@ with st.sidebar:
     )
 
     all_members = sorted(df["nickname"].unique().tolist())
+    _nick_to_full = dict(zip(df["nickname"], df["full_name"]))
+    nick_to_label = {
+        m: (f"{m}（{_nick_to_full[m]}）" if _nick_to_full.get(m, "").strip() else m)
+        for m in all_members
+    }
     if member_search:
         _q = member_search.lower()
-        # nickname→full_nameの逆引き辞書を作成
-        _nick_to_full = dict(zip(df["nickname"], df["full_name"]))
         display_members = [
             m for m in all_members
             if _q in m.lower() or _q in _nick_to_full.get(m, "").lower()
@@ -217,7 +220,7 @@ with st.sidebar:
     selected_members = []
     with st.container(height=250):
         for m in display_members:
-            if st.checkbox(m, key=f"chk_{m}"):
+            if st.checkbox(nick_to_label.get(m, m), key=f"chk_{m}"):
                 selected_members.append(m)
 
     count = len(selected_members)
