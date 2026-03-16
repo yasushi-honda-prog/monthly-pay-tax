@@ -692,6 +692,7 @@ with tab1:
             pivot = pivot.sort_values("合計", ascending=False)
             pivot_display = pivot.reset_index().rename(columns={"display_name": "メンバー"})
             _fmt = {col: "¥{:,.0f}" for col in pivot_display.columns if col != "メンバー"}
+            st.markdown(f'<div class="count-badge">{len(pivot_display)} 名</div>', unsafe_allow_html=True)
             st.dataframe(
                 pivot_display.style.format(_fmt),
                 hide_index=True,
@@ -729,6 +730,7 @@ with tab1:
                         if c not in zero_row:
                             zero_row[c] = 0
                     detail = pd.concat([detail, pd.DataFrame([zero_row])], ignore_index=True)
+            st.markdown(f'<div class="count-badge">{len(detail)} 件</div>', unsafe_allow_html=True)
             st.dataframe(
                 detail.style.format({
                     "時間": "{:,.1f}",
