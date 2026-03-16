@@ -181,26 +181,40 @@ with st.sidebar:
         except Exception:
             _all_data_yms = [f"{y}年{m}月" for y in range(2024, 2028) for m in range(1, 13)]
 
+        # 当期: _fy_start_year年11月 〜 _fy_end_year年10月
+        _fy_start_str = f"{_fy_start_year}年11月"
+        _fy_end_str = f"{_fy_end_year}年10月"
+
         # 表示範囲セレクタ（スライダーに表示する月数を絞る）
-        _view_options = {"直近1年": 12, "直近2年": 24, "直近3年": 36, "全期間": None}
+        _view_options = {"当期": "当期", "直近1年": 12, "直近2年": 24, "直近3年": 36, "全期間": None}
+        _prev_view = st.session_state.get("_prev_range_view_scope", None)
         _view_label = st.selectbox(
-            "表示範囲", list(_view_options.keys()), index=1, key="range_view_scope",
+            "表示範囲", list(_view_options.keys()), index=0, key="range_view_scope",
             label_visibility="collapsed",
         )
+        # 表示範囲が変わったらスライダーの選択をリセット
+        if _view_label != _prev_view:
+            st.session_state.pop("range_ym_slider", None)
+        st.session_state["_prev_range_view_scope"] = _view_label
         _months_limit = _view_options[_view_label]
-        if _months_limit is not None:
+        if _months_limit == "当期":
+            # 当期に含まれるデータ月のみ（なければ全期間）
+            _ym_options = [ym for ym in _all_data_yms if _fy_start_str <= ym <= _fy_end_str]
+            if not _ym_options:
+                _ym_options = _all_data_yms
+            _default_start_str = _ym_options[0]
+            _default_end_str = _ym_options[-1]
+        elif _months_limit is not None:
             _ym_options = _all_data_yms[-_months_limit:]
+            _default_start_str = _ym_options[0]
+            _default_end_str = _ym_options[-1]
         else:
             _ym_options = _all_data_yms
+            _default_start_str = _ym_options[0]
+            _default_end_str = _ym_options[-1]
         if not _ym_options:
             _ym_options = [f"{_t.year}年{_t.month}月"]
-
-        _default_start_str = f"{_fy_start_year}年11月"
-        _default_end_str = f"{_fy_end_year}年10月"
-        if _default_start_str not in _ym_options:
-            _default_start_str = _ym_options[0]
-        if _default_end_str not in _ym_options:
-            _default_end_str = _ym_options[-1]
+            _default_start_str = _default_end_str = _ym_options[0]
         _range = st.select_slider(
             "期間",
             options=_ym_options,
