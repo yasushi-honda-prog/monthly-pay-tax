@@ -177,12 +177,26 @@ with st.sidebar:
         _fy_start_year = _t.year - 1 if _t.month < 11 else _t.year
         _fy_end_year = _fy_start_year + 1
         try:
-            _ym_options = load_available_year_months()
+            _all_data_yms = load_available_year_months()
         except Exception:
-            _ym_options = [f"{y}年{m}月" for y in range(2024, 2028) for m in range(1, 13)]
+            _all_data_yms = [f"{y}年{m}月" for y in range(2024, 2028) for m in range(1, 13)]
+
+        # 表示範囲セレクタ（スライダーに表示する月数を絞る）
+        _view_options = {"直近1年": 12, "直近2年": 24, "直近3年": 36, "全期間": None}
+        _view_label = st.selectbox(
+            "表示範囲", list(_view_options.keys()), index=1, key="range_view_scope",
+            label_visibility="collapsed",
+        )
+        _months_limit = _view_options[_view_label]
+        if _months_limit is not None:
+            _ym_options = _all_data_yms[-_months_limit:]
+        else:
+            _ym_options = _all_data_yms
+        if not _ym_options:
+            _ym_options = [f"{_t.year}年{_t.month}月"]
+
         _default_start_str = f"{_fy_start_year}年11月"
         _default_end_str = f"{_fy_end_year}年10月"
-        # デフォルト値がオプション範囲外の場合はオプションの先頭・末尾にフォールバック
         if _default_start_str not in _ym_options:
             _default_start_str = _ym_options[0]
         if _default_end_str not in _ym_options:
