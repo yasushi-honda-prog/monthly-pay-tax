@@ -331,12 +331,16 @@ def _render_group_tab(
     with col_grp:
         selected_group = st.selectbox(
             "グループ選択",
-            all_group_names,
+            ["全グループ"] + all_group_names,
             key="group_selector",
             label_visibility="collapsed",
         )
 
-    group_members = group_to_members.get(selected_group, [])
+    if selected_group == "全グループ":
+        all_group_members = sorted({m for members in group_to_members.values() for m in members})
+        group_members = all_group_members
+    else:
+        group_members = group_to_members.get(selected_group, [])
     # サイドバーのメンバーフィルターも適用
     if selected_members:
         group_members = [m for m in group_members if m in selected_members]
