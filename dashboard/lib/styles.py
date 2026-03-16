@@ -42,18 +42,30 @@ CUSTOM_CSS = """
         font-size: 1rem !important;
     }
 
-    /* ナビゲーションアイコン: サイズ拡大 + 差し色 */
+    /* ナビゲーションアイコン: サイズ拡大 */
     section[data-testid="stSidebar"] [data-testid="stSidebarNavLink"] svg {
         width: 1.4rem !important;
         height: 1.4rem !important;
         min-width: 1.4rem !important;
+        transition: color 0.15s, fill 0.15s;
+    }
+
+    /* ホバー時: 青 */
+    section[data-testid="stSidebar"] [data-testid="stSidebarNavLink"]:hover svg,
+    section[data-testid="stSidebar"] [data-testid="stSidebarNavLink"]:hover svg path,
+    section[data-testid="stSidebar"] [data-testid="stSidebarNavLink"]:hover svg circle,
+    section[data-testid="stSidebar"] [data-testid="stSidebarNavLink"]:hover svg rect {
         color: #0EA5E9 !important;
         fill: #0EA5E9 !important;
     }
-    section[data-testid="stSidebar"] [data-testid="stSidebarNavLink"] svg path,
-    section[data-testid="stSidebar"] [data-testid="stSidebarNavLink"] svg circle,
-    section[data-testid="stSidebar"] [data-testid="stSidebarNavLink"] svg rect {
-        fill: #0EA5E9 !important;
+
+    /* 選択中（アクティブ）: 赤 */
+    section[data-testid="stSidebar"] [data-testid="stSidebarNavLink"][aria-current="page"] svg,
+    section[data-testid="stSidebar"] [data-testid="stSidebarNavLink"][aria-current="page"] svg path,
+    section[data-testid="stSidebar"] [data-testid="stSidebarNavLink"][aria-current="page"] svg circle,
+    section[data-testid="stSidebar"] [data-testid="stSidebarNavLink"][aria-current="page"] svg rect {
+        color: #EF4444 !important;
+        fill: #EF4444 !important;
     }
     .dashboard-header .user-email {
         font-size: 0.8rem;
