@@ -62,7 +62,7 @@ def render_sidebar_year_month(*, year_key: str, month_key: str, include_all_mont
     返り値の month_value は "全月" または "N月" 文字列。
     include_all_month=False の場合、月選択は 1-12 の整数を返す。
     """
-    all_years = list(range(2024, 2027))
+    all_years = list(range(2026, 2023, -1))
     _today = date.today()
     _prev_month = _today.month - 1 if _today.month > 1 else 12
     _prev_year = _today.year if _today.month > 1 else _today.year - 1
