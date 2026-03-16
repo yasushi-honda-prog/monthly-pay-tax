@@ -12,6 +12,14 @@ CUSTOM_CSS = """
         padding-top: 1.5rem !important;
     }
 
+    /* multiselect タグのテキストを省略せず全表示 */
+    [data-baseweb="tag"] span[class] {
+        white-space: normal !important;
+        overflow: visible !important;
+        text-overflow: unset !important;
+        max-width: none !important;
+    }
+
     /* ヘッダー */
     .dashboard-header {
         padding: 0.25rem 0 1rem 0;
