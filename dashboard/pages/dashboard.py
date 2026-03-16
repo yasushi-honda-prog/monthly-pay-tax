@@ -27,20 +27,6 @@ logger = logging.getLogger(__name__)
 
 # --- データ読み込み ---
 @st.cache_data(ttl=3600)
-def load_hojo_with_members():
-    query = f"""
-    SELECT
-        nickname, full_name, year, month,
-        hours, compensation, dx_subsidy, reimbursement,
-        total_amount, monthly_complete
-    FROM `{PROJECT_ID}.{DATASET}.v_hojo_enriched`
-    WHERE year IS NOT NULL
-    ORDER BY year, month
-    """
-    return load_data(query)
-
-
-@st.cache_data(ttl=3600)
 def load_monthly_compensation():
     query = f"""
     SELECT
@@ -113,6 +99,28 @@ def load_members_with_groups():
         AND `groups` IS NOT NULL AND `groups` != ''
     """
     return load_data(query)
+
+
+@st.cache_data(ttl=3600)
+def load_group_to_members() -> dict[str, list[str]]:
+    """グループ名 → メンバーnickname一覧の辞書を返す（サイドバー・グループタブ共用）"""
+    df_gm = load_groups_master()
+    df_mwg = load_members_with_groups()
+    email_to_name: dict[str, str] = dict(zip(df_gm["group_email"], df_gm["group_name"]))
+    result: dict[str, list[str]] = {}
+    for _, mrow in df_mwg.iterrows():
+        if not mrow["groups"]:
+            continue
+        for email in str(mrow["groups"]).split(","):
+            email = email.strip()
+            if not email or email not in email_to_name:
+                continue
+            gname = email_to_name[email]
+            if gname not in result:
+                result[gname] = []
+            if mrow["nickname"] not in result[gname]:
+                result[gname].append(mrow["nickname"])
+    return result
 
 
 @st.cache_data(ttl=3600)
@@ -236,22 +244,7 @@ with st.sidebar:
     # グループ選択
     st.markdown('<div class="sidebar-section-title">グループ</div>', unsafe_allow_html=True)
     try:
-        df_gm_sb = load_groups_master()
-        df_mwg_sb = load_members_with_groups()
-        email_to_name_sb: dict[str, str] = dict(zip(df_gm_sb["group_email"], df_gm_sb["group_name"]))
-        group_to_members_sb: dict[str, list[str]] = {}
-        for _, mrow in df_mwg_sb.iterrows():
-            if not mrow["groups"]:
-                continue
-            for email in str(mrow["groups"]).split(","):
-                email = email.strip()
-                if not email or email not in email_to_name_sb:
-                    continue
-                gname = email_to_name_sb[email]
-                if gname not in group_to_members_sb:
-                    group_to_members_sb[gname] = []
-                if mrow["nickname"] not in group_to_members_sb[gname]:
-                    group_to_members_sb[gname].append(mrow["nickname"])
+        group_to_members_sb = load_group_to_members()
         group_options = ["全グループ"] + sorted(group_to_members_sb.keys())
     except Exception:
         group_options = ["全グループ"]
@@ -345,33 +338,16 @@ def _render_group_tab(
 ) -> None:
     """グループ別タブ本体。@st.fragment により外側タブのリセットを防ぐ。"""
     try:
-        df_gm = load_groups_master()
-        df_mwg = load_members_with_groups()
+        group_to_members = load_group_to_members()
         _name_map, _ = load_member_name_map()
     except Exception as e:
         logger.error("グループデータ取得失敗: %s", e, exc_info=True)
         st.error(f"データ取得エラー: {e}")
         return
 
-    if df_gm.empty:
+    if not group_to_members:
         st.info("グループマスターデータがありません。管理者に /update-groups の実行を依頼してください。")
         return
-
-    email_to_name: dict[str, str] = dict(zip(df_gm["group_email"], df_gm["group_name"]))
-
-    group_to_members: dict[str, list[str]] = {}
-    for _, mrow in df_mwg.iterrows():
-        if not mrow["groups"]:
-            continue
-        for email in str(mrow["groups"]).split(","):
-            email = email.strip()
-            if not email or email not in email_to_name:
-                continue
-            gname = email_to_name[email]
-            if gname not in group_to_members:
-                group_to_members[gname] = []
-            if mrow["nickname"] not in group_to_members[gname]:
-                group_to_members[gname].append(mrow["nickname"])
 
     all_group_names = sorted(group_to_members.keys())
     if not all_group_names:
