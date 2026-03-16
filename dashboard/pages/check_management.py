@@ -11,9 +11,13 @@ import pandas as pd
 import streamlit as st
 from google.cloud import bigquery
 
+import google.auth.transport.requests
+import google.oauth2.id_token
+import requests as _requests
+
 from lib.auth import require_checker
 from lib.bq_client import get_bq_client
-from lib.constants import PROJECT_ID, DATASET, CHECK_LOGS_TABLE
+from lib.constants import PROJECT_ID, DATASET, CHECK_LOGS_TABLE, COLLECTOR_URL
 from lib.ui_helpers import clean_numeric_scalar, render_kpi, render_sidebar_year_month
 
 logger = logging.getLogger(__name__)
@@ -350,8 +354,23 @@ if changes:
 # --- 操作ログ ---
 st.divider()
 with st.expander("操作ログを確認"):
+    # 最終保存者をデフォルト選択
+    def _latest_log_ts(log_str):
+        if not log_str or not pd.notna(log_str):
+            return ""
+        try:
+            logs = json.loads(log_str)
+            if logs and isinstance(logs, list):
+                return max((e.get("ts", "") for e in logs if isinstance(e, dict)), default="")
+        except (json.JSONDecodeError, TypeError):
+            pass
+        return ""
+    _log_ts_map = {i: _latest_log_ts(filtered.loc[i, "action_log"]) for i in indices}
+    _default_log_idx = max(_log_ts_map, key=lambda i: _log_ts_map[i]) if indices else indices[0]
+
     log_member = st.selectbox(
         "メンバー", indices,
+        index=indices.index(_default_log_idx),
         format_func=lambda i: filtered.loc[i, "nickname"],
         key="log_member",
     )
@@ -371,3 +390,25 @@ with st.expander("操作ログを確認"):
             st.caption("操作ログはありません")
     else:
         st.caption("操作ログはありません")
+
+
+# --- データ更新（手動） ---
+with st.expander("データ更新（手動）"):
+    st.caption("スプレッドシートの最新データをBigQueryに反映します。通常は毎朝6時に自動更新されます。約4分かかります。")
+    if st.button("データを今すぐ更新する", type="secondary"):
+        with st.spinner("更新中です。約4分かかります..."):
+            try:
+                _auth_req = google.auth.transport.requests.Request()
+                _token = google.oauth2.id_token.fetch_id_token(_auth_req, COLLECTOR_URL)
+                _resp = _requests.post(
+                    COLLECTOR_URL,
+                    headers={"Authorization": f"Bearer {_token}"},
+                    timeout=1800,
+                )
+                if _resp.status_code == 200:
+                    st.success("更新が完了しました")
+                else:
+                    st.error(f"更新に失敗しました（HTTP {_resp.status_code}）")
+            except Exception as e:
+                logger.error("手動更新エラー: %s", e, exc_info=True)
+                st.error(f"更新エラー: {e}")
