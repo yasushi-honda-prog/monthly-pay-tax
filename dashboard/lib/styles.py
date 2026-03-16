@@ -41,6 +41,14 @@ CUSTOM_CSS = """
     section[data-testid="stSidebar"] ul li a {
         font-size: 1rem !important;
     }
+
+    /* ナビゲーションアイコン: サイズ拡大 + 差し色 */
+    [data-testid="stSidebarNavLink"] svg {
+        width: 1.4rem !important;
+        height: 1.4rem !important;
+        color: #0EA5E9 !important;
+        fill: #0EA5E9 !important;
+    }
     .dashboard-header .user-email {
         font-size: 0.8rem;
         opacity: 0.6;
