@@ -655,7 +655,6 @@ with tab1:
 
         # メンバー×月ピボット
         with mtab1:
-            st.subheader("メンバー別 月次支払額")
             _piv_src = filtered.copy()
             _multi_year = _piv_src["year"].nunique() > 1
             if _multi_year:
@@ -692,7 +691,7 @@ with tab1:
             pivot = pivot.sort_values("合計", ascending=False)
             pivot_display = pivot.reset_index().rename(columns={"display_name": "メンバー"})
             _fmt = {col: "¥{:,.0f}" for col in pivot_display.columns if col != "メンバー"}
-            st.markdown(f'<div class="count-badge">{len(pivot_display)} 名</div>', unsafe_allow_html=True)
+            st.markdown(f'<div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:0.5rem"><h3 style="margin:0">メンバー別 月次支払額</h3><span class="count-badge" style="margin-bottom:0">{len(pivot_display)} 名</span></div>', unsafe_allow_html=True)
             st.dataframe(
                 pivot_display.style.format(_fmt),
                 hide_index=True,
@@ -702,7 +701,6 @@ with tab1:
 
         # メンバー別詳細テーブル
         with mtab2:
-            st.subheader("メンバー別 報酬明細")
             detail = filtered.groupby(["display_name", "report_url"]).agg(
                 時間=("work_hours", "sum"),
                 時間報酬=("hour_compensation", "sum"),
@@ -730,7 +728,7 @@ with tab1:
                         if c not in zero_row:
                             zero_row[c] = 0
                     detail = pd.concat([detail, pd.DataFrame([zero_row])], ignore_index=True)
-            st.markdown(f'<div class="count-badge">{len(detail)} 件</div>', unsafe_allow_html=True)
+            st.markdown(f'<div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:0.5rem"><h3 style="margin:0">メンバー別 報酬明細</h3><span class="count-badge" style="margin-bottom:0">{len(detail)} 件</span></div>', unsafe_allow_html=True)
             st.dataframe(
                 detail.style.format({
                     "時間": "{:,.1f}",
