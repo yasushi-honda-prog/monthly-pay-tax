@@ -367,6 +367,7 @@ def _render_group_tab(
             },
             hide_index=True,
             use_container_width=True,
+            height=600,
         )
 
     with gtab2:
@@ -440,7 +441,7 @@ def _render_group_tab(
             pivot_gc = pivot_gc[sorted(pivot_gc.columns, key=lambda c: _sort_map_gc.get(c, 9999))]
             pivot_gc["合計"] = pivot_gc.sum(axis=1)
             pivot_gc = pivot_gc.sort_values("合計", ascending=False)
-            st.dataframe(pivot_gc.style.format("¥{:,.0f}"), use_container_width=True)
+            st.dataframe(pivot_gc.style.format("¥{:,.0f}"), use_container_width=True, height=600)
         else:
             st.info("対象期間のデータがありません")
 
@@ -512,6 +513,7 @@ def _render_group_tab(
                 }),
                 use_container_width=True,
                 hide_index=True,
+                height=600,
             )
         else:
             st.info("対象期間のデータがありません")
@@ -925,6 +927,7 @@ with tab3:
             },
             use_container_width=True,
             hide_index=True,
+            height=600,
         )
 
 
