@@ -789,56 +789,61 @@ with tab2:
         with k3:
             render_kpi("メンバー数", f"{filtered_g['nickname'].nunique()}")
 
-        st.subheader("メンバー別 月次金額")
-        if not filtered_g.empty:
-            _piv_g = filtered_g[filtered_g["month_num"].str.isdigit()].copy()
-            _piv_g["ym_label"] = (
-                _piv_g["year"].astype(int).astype(str) + "年" +
-                _piv_g["month_num"] + "月"
-            )
-            _ym_sort_g = dict(zip(
-                _piv_g["ym_label"],
-                _piv_g["year"].astype(int) * 100 + _piv_g["month_num"].apply(lambda x: int(x) if x.isdigit() else 0),
-            ))
-            pivot_g = _piv_g.pivot_table(
-                values="amount_num",
-                index="display_name",
-                columns="ym_label",
-                aggfunc="sum",
-                fill_value=0,
-            )
-            pivot_g = pivot_g[sorted(pivot_g.columns, key=lambda c: _ym_sort_g.get(c, 9999))]
-            # 期間指定時: 範囲内の全月を列として強制表示（データなしは0）
-            if selected_month == "期間指定" and range_start_year is not None:
-                _all_cols_g = []
-                _y, _m = range_start_year, range_start_month
-                while _y * 100 + _m <= range_end_year * 100 + range_end_month:
-                    _all_cols_g.append(f"{_y}年{_m}月")
-                    _m += 1
-                    if _m > 12:
-                        _m, _y = 1, _y + 1
-                pivot_g = pivot_g.reindex(columns=_all_cols_g, fill_value=0)
-            pivot_g["合計"] = pivot_g.sum(axis=1)
-            pivot_g = pivot_g.sort_values("合計", ascending=False)
-            st.dataframe(
-                pivot_g.style.format("¥{:,.0f}"),
-                use_container_width=True,
-            )
+        stab1, stab2 = st.tabs(["メンバー別 月次金額", "活動分類別 金額"])
 
-        st.subheader("活動分類別 金額")
-        cat_summary = (
-            filtered_g.groupby("activity_category")["amount_num"]
-            .sum()
-            .sort_values(ascending=False)
-        )
-        if not cat_summary.empty:
-            cat_df = cat_summary.reset_index()
-            cat_df.columns = ["活動分類", "金額"]
-            chart = alt.Chart(cat_df).mark_bar().encode(
-                x=alt.X("活動分類:N", sort="-y"),
-                y=alt.Y("金額:Q", axis=alt.Axis(format=",.0f")),
+        with stab1:
+            st.subheader("メンバー別 月次金額")
+            if not filtered_g.empty:
+                _piv_g = filtered_g[filtered_g["month_num"].str.isdigit()].copy()
+                _piv_g["ym_label"] = (
+                    _piv_g["year"].astype(int).astype(str) + "年" +
+                    _piv_g["month_num"] + "月"
+                )
+                _ym_sort_g = dict(zip(
+                    _piv_g["ym_label"],
+                    _piv_g["year"].astype(int) * 100 + _piv_g["month_num"].apply(lambda x: int(x) if x.isdigit() else 0),
+                ))
+                pivot_g = _piv_g.pivot_table(
+                    values="amount_num",
+                    index="display_name",
+                    columns="ym_label",
+                    aggfunc="sum",
+                    fill_value=0,
+                )
+                pivot_g = pivot_g[sorted(pivot_g.columns, key=lambda c: _ym_sort_g.get(c, 9999))]
+                # 期間指定時: 範囲内の全月を列として強制表示（データなしは0）
+                if selected_month == "期間指定" and range_start_year is not None:
+                    _all_cols_g = []
+                    _y, _m = range_start_year, range_start_month
+                    while _y * 100 + _m <= range_end_year * 100 + range_end_month:
+                        _all_cols_g.append(f"{_y}年{_m}月")
+                        _m += 1
+                        if _m > 12:
+                            _m, _y = 1, _y + 1
+                    pivot_g = pivot_g.reindex(columns=_all_cols_g, fill_value=0)
+                pivot_g["合計"] = pivot_g.sum(axis=1)
+                pivot_g = pivot_g.sort_values("合計", ascending=False)
+                st.dataframe(
+                    pivot_g.style.format("¥{:,.0f}"),
+                    use_container_width=True,
+                    height=600,
+                )
+
+        with stab2:
+            st.subheader("活動分類別 金額")
+            cat_summary = (
+                filtered_g.groupby("activity_category")["amount_num"]
+                .sum()
+                .sort_values(ascending=False)
             )
-            st.altair_chart(chart, use_container_width=True)
+            if not cat_summary.empty:
+                cat_df = cat_summary.reset_index()
+                cat_df.columns = ["活動分類", "金額"]
+                chart = alt.Chart(cat_df).mark_bar().encode(
+                    x=alt.X("活動分類:N", sort="-y"),
+                    y=alt.Y("金額:Q", axis=alt.Axis(format=",.0f")),
+                )
+                st.altair_chart(chart, use_container_width=True)
 
 
 # ===== Tab 3: 業務報告一覧 =====
