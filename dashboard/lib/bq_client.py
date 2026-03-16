@@ -11,7 +11,7 @@ def get_bq_client():
     return bigquery.Client(project=PROJECT_ID)
 
 
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=21600)
 def load_data(query: str):
     client = get_bq_client()
     return client.query(query).to_dataframe()
