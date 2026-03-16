@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 
 
 # --- データ読み込み ---
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=21600)
 def load_monthly_compensation():
     query = f"""
     SELECT
@@ -47,7 +47,7 @@ def load_monthly_compensation():
     return load_data(query)
 
 
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=21600)
 def load_gyomu_with_members():
     query = f"""
     SELECT
@@ -63,7 +63,7 @@ def load_gyomu_with_members():
     return load_data(query)
 
 
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=21600)
 def load_available_year_months() -> list[str]:
     """データが存在する年月を昇順で返す（期間指定スライダー用）"""
     query = f"""
@@ -80,7 +80,7 @@ def load_available_year_months() -> list[str]:
     return [f"{int(row.year)}年{int(row.month)}月" for _, row in df.iterrows()]
 
 
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=21600)
 def load_groups_master():
     query = f"""
     SELECT group_email, group_name
@@ -90,7 +90,7 @@ def load_groups_master():
     return load_data(query)
 
 
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=21600)
 def load_members_with_groups():
     query = f"""
     SELECT nickname, full_name, report_url, `groups`
@@ -101,7 +101,7 @@ def load_members_with_groups():
     return load_data(query)
 
 
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=21600)
 def load_group_to_members() -> dict[str, list[str]]:
     """グループ名 → メンバーnickname一覧の辞書を返す（サイドバー・グループタブ共用）"""
     df_gm = load_groups_master()
@@ -123,7 +123,7 @@ def load_group_to_members() -> dict[str, list[str]]:
     return result
 
 
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=21600)
 def load_all_members():
     query = f"""
     SELECT nickname, has_empty FROM (
@@ -151,7 +151,7 @@ def load_all_members():
     return load_data(query)["nickname"].tolist()
 
 
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=21600)
 def load_member_name_map() -> tuple[dict[str, str], dict[str, str]]:
     """nickname → "ニックネーム（本名）" と nickname → report_url の辞書を返す"""
     query = f"""
