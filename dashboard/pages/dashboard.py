@@ -78,6 +78,23 @@ def load_gyomu_with_members():
 
 
 @st.cache_data(ttl=3600)
+def load_available_year_months() -> list[str]:
+    """データが存在する年月を昇順で返す（期間指定スライダー用）"""
+    query = f"""
+    SELECT DISTINCT CAST(year AS INT64) AS year, CAST(month AS INT64) AS month
+    FROM `{PROJECT_ID}.{DATASET}.v_gyomu_enriched`
+    WHERE year IS NOT NULL AND month IS NOT NULL
+    UNION DISTINCT
+    SELECT DISTINCT CAST(year AS INT64) AS year, CAST(month AS INT64) AS month
+    FROM `{PROJECT_ID}.{DATASET}.v_hojo_enriched`
+    WHERE year IS NOT NULL AND month IS NOT NULL
+    ORDER BY year, month
+    """
+    df = load_data(query)
+    return [f"{int(row.year)}年{int(row.month)}月" for _, row in df.iterrows()]
+
+
+@st.cache_data(ttl=3600)
 def load_groups_master():
     query = f"""
     SELECT group_email, group_name
@@ -159,14 +176,17 @@ with st.sidebar:
         _t = _date.today()
         _fy_start_year = _t.year - 1 if _t.month < 11 else _t.year
         _fy_end_year = _fy_start_year + 1
-        _MONTHS_AROUND = 24
-        _ym_options = []
-        for _delta in range(-_MONTHS_AROUND, _MONTHS_AROUND + 1):
-            _oy = _t.year + (_t.month - 1 + _delta) // 12
-            _om = (_t.month - 1 + _delta) % 12 + 1
-            _ym_options.append(f"{_oy}年{_om}月")
+        try:
+            _ym_options = load_available_year_months()
+        except Exception:
+            _ym_options = [f"{y}年{m}月" for y in range(2024, 2028) for m in range(1, 13)]
         _default_start_str = f"{_fy_start_year}年11月"
         _default_end_str = f"{_fy_end_year}年10月"
+        # デフォルト値がオプション範囲外の場合はオプションの先頭・末尾にフォールバック
+        if _default_start_str not in _ym_options:
+            _default_start_str = _ym_options[0]
+        if _default_end_str not in _ym_options:
+            _default_end_str = _ym_options[-1]
         _range = st.select_slider(
             "期間",
             options=_ym_options,
