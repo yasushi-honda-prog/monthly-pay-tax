@@ -377,7 +377,6 @@ with st.expander("操作ログを確認"):
         key="log_member",
     )
     if log_member is None:
-        st.caption("操作ログはありません")
         log_str = None
     else:
         log_str = filtered.loc[log_member, "action_log"]
