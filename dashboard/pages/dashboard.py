@@ -159,7 +159,12 @@ with st.sidebar:
         _t = _date.today()
         _fy_start_year = _t.year - 1 if _t.month < 11 else _t.year
         _fy_end_year = _fy_start_year + 1
-        _ym_options = [f"{y}年{m}月" for y in range(2024, 2028) for m in range(1, 13)]
+        _MONTHS_AROUND = 24
+        _ym_options = []
+        for _delta in range(-_MONTHS_AROUND, _MONTHS_AROUND + 1):
+            _oy = _t.year + (_t.month - 1 + _delta) // 12
+            _om = (_t.month - 1 + _delta) % 12 + 1
+            _ym_options.append(f"{_oy}年{_om}月")
         _default_start_str = f"{_fy_start_year}年11月"
         _default_end_str = f"{_fy_end_year}年10月"
         _range = st.select_slider(
