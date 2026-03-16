@@ -339,6 +339,7 @@ def _render_group_tab(
     """グループ別タブ本体。@st.fragment により外側タブのリセットを防ぐ。"""
     try:
         group_to_members = load_group_to_members()
+        df_mwg = load_members_with_groups()
         _name_map, _ = load_member_name_map()
     except Exception as e:
         logger.error("グループデータ取得失敗: %s", e, exc_info=True)
