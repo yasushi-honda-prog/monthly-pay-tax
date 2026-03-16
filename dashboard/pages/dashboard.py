@@ -471,7 +471,7 @@ def _render_group_tab(
             pivot_gc = pivot_gc.sort_values("合計", ascending=False)
             pivot_gc_display = pivot_gc.reset_index().rename(columns={"display_name": "メンバー"})
             _fmt_gc = {col: "¥{:,.0f}" for col in pivot_gc_display.columns if col != "メンバー"}
-            st.dataframe(pivot_gc_display.style.format(_fmt_gc), hide_index=True, use_container_width=True, height=600)
+            st.dataframe(pivot_gc_display.style.format(_fmt_gc), hide_index=True, use_container_width=True, height=600, freeze_columns=1)
         else:
             st.info("対象期間のデータがありません")
 
@@ -674,6 +674,7 @@ with tab1:
                 hide_index=True,
                 use_container_width=True,
                 height=600,
+                freeze_columns=1,
             )
 
         # メンバー別詳細テーブル
