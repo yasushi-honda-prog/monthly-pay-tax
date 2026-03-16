@@ -598,7 +598,7 @@ with tab1:
         with k5:
             render_kpi("立替", f"¥{filtered['reimbursement'].sum():,.0f}")
 
-        mtab1, mtab2, mtab3 = st.tabs(["メンバー別 月次支払額", "メンバー別 報酬明細", "月次推移"])
+        mtab1, mtab2, mtab3, mtab4 = st.tabs(["メンバー別 月次支払額", "メンバー別 報酬明細", "月次 報酬明細", "月次推移"])
 
         # メンバー×月ピボット
         with mtab1:
@@ -700,8 +700,60 @@ with tab1:
                 height=600,
             )
 
-        # 月次推移チャート
+        # 月次 報酬明細（月ごと）
         with mtab3:
+            st.subheader("月次 報酬明細")
+            detail_m = filtered.copy()
+            detail_m["年月"] = detail_m["year"].astype(int).astype(str) + "年" + detail_m["month"].astype(int).astype(str) + "月"
+            detail_m["_ym_sort"] = detail_m["year"].astype(int) * 100 + detail_m["month"].astype(int)
+            detail_m = detail_m.groupby(["_ym_sort", "年月", "display_name", "report_url"]).agg(
+                時間=("work_hours", "sum"),
+                時間報酬=("hour_compensation", "sum"),
+                距離=("travel_distance_km", "sum"),
+                距離報酬=("distance_compensation", "sum"),
+                小計=("subtotal_compensation", "sum"),
+                役職手当後=("position_adjusted_compensation", "sum"),
+                資格手当加算後=("qualification_adjusted_compensation", "sum"),
+                源泉対象額=("withholding_target_amount", "sum"),
+                源泉徴収=("withholding_tax", "sum"),
+                DX補助=("dx_subsidy", "sum"),
+                立替=("reimbursement", "sum"),
+                支払い=("payment", "sum"),
+                寄付支払い=("donation_payment", "sum"),
+                一立て件数=("daily_wage_count", "sum"),
+                一立て報酬=("full_day_compensation", "sum"),
+                総稼働時間=("total_work_hours", "sum"),
+            ).reset_index().rename(columns={"display_name": "メンバー", "report_url": "URL"})
+            detail_m = detail_m.sort_values(["_ym_sort", "支払い"], ascending=[True, False]).drop(columns=["_ym_sort"])
+            st.dataframe(
+                detail_m.style.format({
+                    "時間": "{:,.1f}",
+                    "時間報酬": "¥{:,.0f}",
+                    "距離": "{:,.1f}",
+                    "距離報酬": "¥{:,.0f}",
+                    "小計": "¥{:,.0f}",
+                    "役職手当後": "¥{:,.0f}",
+                    "資格手当加算後": "¥{:,.0f}",
+                    "源泉対象額": "¥{:,.0f}",
+                    "源泉徴収": "¥{:,.0f}",
+                    "DX補助": "¥{:,.0f}",
+                    "立替": "¥{:,.0f}",
+                    "支払い": "¥{:,.0f}",
+                    "寄付支払い": "¥{:,.0f}",
+                    "一立て件数": "{:,.0f}",
+                    "一立て報酬": "¥{:,.0f}",
+                    "総稼働時間": "{:,.1f}",
+                }),
+                column_config={
+                    "URL": st.column_config.LinkColumn(display_text="開く"),
+                },
+                hide_index=True,
+                use_container_width=True,
+                height=600,
+            )
+
+        # 月次推移チャート
+        with mtab4:
             st.subheader("月次推移")
             if not filtered.empty:
                 monthly = filtered.groupby(["year", "month"]).agg(
