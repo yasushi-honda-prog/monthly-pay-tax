@@ -600,6 +600,7 @@ with tab1:
 
         # メンバー×月ピボット
         with mtab1:
+            st.subheader("メンバー別 月次支払額")
             _piv_src = filtered.copy()
             _multi_year = _piv_src["year"].nunique() > 1
             if _multi_year:
@@ -641,6 +642,7 @@ with tab1:
 
         # メンバー別詳細テーブル
         with mtab2:
+            st.subheader("メンバー別 報酬明細")
             detail = filtered.groupby(["display_name", "report_url"]).agg(
                 時間=("work_hours", "sum"),
                 時間報酬=("hour_compensation", "sum"),
@@ -696,6 +698,7 @@ with tab1:
 
         # 月次推移チャート
         with mtab3:
+            st.subheader("月次推移")
             if not filtered.empty:
                 monthly = filtered.groupby(["year", "month"]).agg(
                     業務報酬=("qualification_adjusted_compensation", "sum"),
