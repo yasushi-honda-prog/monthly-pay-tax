@@ -366,15 +366,21 @@ with st.expander("操作ログを確認"):
             pass
         return ""
     _log_ts_map = {i: _latest_log_ts(filtered.loc[i, "action_log"]) for i in indices}
-    _default_log_idx = max(_log_ts_map, key=lambda i: _log_ts_map[i]) if indices else indices[0]
+    _best_ts = max(_log_ts_map.values(), default="")
+    _default_log_idx = max(_log_ts_map, key=lambda i: _log_ts_map[i]) if _best_ts else None
 
     log_member = st.selectbox(
         "メンバー", indices,
-        index=indices.index(_default_log_idx),
+        index=indices.index(_default_log_idx) if _default_log_idx is not None else None,
         format_func=lambda i: filtered.loc[i, "nickname"],
+        placeholder="選択してください",
         key="log_member",
     )
-    log_str = filtered.loc[log_member, "action_log"]
+    if log_member is None:
+        st.caption("操作ログはありません")
+        log_str = None
+    else:
+        log_str = filtered.loc[log_member, "action_log"]
     if pd.notna(log_str) and log_str:
         try:
             logs = json.loads(log_str)
