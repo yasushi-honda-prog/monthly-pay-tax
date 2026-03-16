@@ -596,132 +596,134 @@ with tab1:
         with k5:
             render_kpi("立替", f"¥{filtered['reimbursement'].sum():,.0f}")
 
+        mtab1, mtab2, mtab3 = st.tabs(["メンバー別 月次支払額", "メンバー別 報酬明細", "月次推移"])
+
         # メンバー×月ピボット
-        st.subheader("メンバー別 月次支払額")
-        _piv_src = filtered.copy()
-        _multi_year = _piv_src["year"].nunique() > 1
-        if _multi_year:
-            _piv_src["_col"] = (
-                _piv_src["year"].astype(int).astype(str) + "年" +
-                _piv_src["month"].astype(int).astype(str) + "月"
+        with mtab1:
+            _piv_src = filtered.copy()
+            _multi_year = _piv_src["year"].nunique() > 1
+            if _multi_year:
+                _piv_src["_col"] = (
+                    _piv_src["year"].astype(int).astype(str) + "年" +
+                    _piv_src["month"].astype(int).astype(str) + "月"
+                )
+            else:
+                _piv_src["_col"] = _piv_src["month"].astype(int).astype(str) + "月"
+            _sort_map = dict(zip(
+                _piv_src["_col"],
+                _piv_src["year"].astype(int) * 100 + _piv_src["month"].astype(int),
+            ))
+            pivot = _piv_src.pivot_table(
+                values="payment",
+                index="display_name",
+                columns="_col",
+                aggfunc="sum",
+                fill_value=0,
             )
-        else:
-            _piv_src["_col"] = _piv_src["month"].astype(int).astype(str) + "月"
-        _sort_map = dict(zip(
-            _piv_src["_col"],
-            _piv_src["year"].astype(int) * 100 + _piv_src["month"].astype(int),
-        ))
-        pivot = _piv_src.pivot_table(
-            values="payment",
-            index="display_name",
-            columns="_col",
-            aggfunc="sum",
-            fill_value=0,
-        )
-        pivot = pivot[sorted(pivot.columns, key=lambda c: _sort_map.get(c, 9999))]
-        # データ未登録メンバーを0行として追加
-        if missing_members and pivot.empty:
-            pivot = pd.DataFrame(
-                {"合計": 0},
-                index=[name_map.get(m, m) for m in missing_members],
+            pivot = pivot[sorted(pivot.columns, key=lambda c: _sort_map.get(c, 9999))]
+            # データ未登録メンバーを0行として追加
+            if missing_members and pivot.empty:
+                pivot = pd.DataFrame(
+                    {"合計": 0},
+                    index=[name_map.get(m, m) for m in missing_members],
+                )
+            else:
+                for m in missing_members:
+                    disp = name_map.get(m, m)
+                    if disp not in pivot.index:
+                        pivot.loc[disp] = 0
+                pivot["合計"] = pivot.sum(axis=1)
+            pivot = pivot.sort_values("合計", ascending=False)
+            st.dataframe(
+                pivot.style.format("¥{:,.0f}"),
+                use_container_width=True,
             )
-        else:
-            for m in missing_members:
-                disp = name_map.get(m, m)
-                if disp not in pivot.index:
-                    pivot.loc[disp] = 0
-            pivot["合計"] = pivot.sum(axis=1)
-        pivot = pivot.sort_values("合計", ascending=False)
-        st.dataframe(
-            pivot.style.format("¥{:,.0f}"),
-            use_container_width=True,
-        )
 
         # メンバー別詳細テーブル
-        st.subheader("メンバー別 報酬明細")
-        detail = filtered.groupby(["display_name", "report_url"]).agg(
-            時間=("work_hours", "sum"),
-            時間報酬=("hour_compensation", "sum"),
-            距離=("travel_distance_km", "sum"),
-            距離報酬=("distance_compensation", "sum"),
-            小計=("subtotal_compensation", "sum"),
-            役職手当後=("position_adjusted_compensation", "sum"),
-            資格手当加算後=("qualification_adjusted_compensation", "sum"),
-            源泉対象額=("withholding_target_amount", "sum"),
-            源泉徴収=("withholding_tax", "sum"),
-            DX補助=("dx_subsidy", "sum"),
-            立替=("reimbursement", "sum"),
-            支払い=("payment", "sum"),
-            寄付支払い=("donation_payment", "sum"),
-            一立て件数=("daily_wage_count", "sum"),
-            一立て報酬=("full_day_compensation", "sum"),
-            総稼働時間=("total_work_hours", "sum"),
-        ).reset_index().rename(columns={"display_name": "メンバー", "report_url": "URL"}).sort_values("支払い", ascending=False)
-        # データ未登録メンバーを0行として追加
-        for m in missing_members:
-            disp = name_map.get(m, m)
-            if disp not in detail["メンバー"].values:
-                zero_row = {"メンバー": disp, "URL": url_map.get(m, "")}
-                for c in detail.columns:
-                    if c not in zero_row:
-                        zero_row[c] = 0
-                detail = pd.concat([detail, pd.DataFrame([zero_row])], ignore_index=True)
-        st.dataframe(
-            detail.style.format({
-                "時間": "{:,.1f}",
-                "時間報酬": "¥{:,.0f}",
-                "距離": "{:,.1f}",
-                "距離報酬": "¥{:,.0f}",
-                "小計": "¥{:,.0f}",
-                "役職手当後": "¥{:,.0f}",
-                "資格手当加算後": "¥{:,.0f}",
-                "源泉対象額": "¥{:,.0f}",
-                "源泉徴収": "¥{:,.0f}",
-                "DX補助": "¥{:,.0f}",
-                "立替": "¥{:,.0f}",
-                "支払い": "¥{:,.0f}",
-                "寄付支払い": "¥{:,.0f}",
-                "一立て件数": "{:,.0f}",
-                "一立て報酬": "¥{:,.0f}",
-                "総稼働時間": "{:,.1f}",
-            }),
-            column_config={
-                "URL": st.column_config.LinkColumn(display_text="開く"),
-            },
-            hide_index=True,
-            use_container_width=True,
-        )
-
-        # 月次推移チャート
-        st.subheader("月次推移")
-        if not filtered.empty:
-            monthly = filtered.groupby(["year", "month"]).agg(
-                業務報酬=("qualification_adjusted_compensation", "sum"),
+        with mtab2:
+            detail = filtered.groupby(["display_name", "report_url"]).agg(
+                時間=("work_hours", "sum"),
+                時間報酬=("hour_compensation", "sum"),
+                距離=("travel_distance_km", "sum"),
+                距離報酬=("distance_compensation", "sum"),
+                小計=("subtotal_compensation", "sum"),
+                役職手当後=("position_adjusted_compensation", "sum"),
+                資格手当加算後=("qualification_adjusted_compensation", "sum"),
+                源泉対象額=("withholding_target_amount", "sum"),
                 源泉徴収=("withholding_tax", "sum"),
                 DX補助=("dx_subsidy", "sum"),
                 立替=("reimbursement", "sum"),
-            ).reset_index()
-            monthly["year"] = monthly["year"].astype(int)
-            monthly["month"] = monthly["month"].apply(
-                lambda x: int(float(x)) if str(x).replace(".", "").isdigit() else 0
+                支払い=("payment", "sum"),
+                寄付支払い=("donation_payment", "sum"),
+                一立て件数=("daily_wage_count", "sum"),
+                一立て報酬=("full_day_compensation", "sum"),
+                総稼働時間=("total_work_hours", "sum"),
+            ).reset_index().rename(columns={"display_name": "メンバー", "report_url": "URL"}).sort_values("支払い", ascending=False)
+            # データ未登録メンバーを0行として追加
+            for m in missing_members:
+                disp = name_map.get(m, m)
+                if disp not in detail["メンバー"].values:
+                    zero_row = {"メンバー": disp, "URL": url_map.get(m, "")}
+                    for c in detail.columns:
+                        if c not in zero_row:
+                            zero_row[c] = 0
+                    detail = pd.concat([detail, pd.DataFrame([zero_row])], ignore_index=True)
+            st.dataframe(
+                detail.style.format({
+                    "時間": "{:,.1f}",
+                    "時間報酬": "¥{:,.0f}",
+                    "距離": "{:,.1f}",
+                    "距離報酬": "¥{:,.0f}",
+                    "小計": "¥{:,.0f}",
+                    "役職手当後": "¥{:,.0f}",
+                    "資格手当加算後": "¥{:,.0f}",
+                    "源泉対象額": "¥{:,.0f}",
+                    "源泉徴収": "¥{:,.0f}",
+                    "DX補助": "¥{:,.0f}",
+                    "立替": "¥{:,.0f}",
+                    "支払い": "¥{:,.0f}",
+                    "寄付支払い": "¥{:,.0f}",
+                    "一立て件数": "{:,.0f}",
+                    "一立て報酬": "¥{:,.0f}",
+                    "総稼働時間": "{:,.1f}",
+                }),
+                column_config={
+                    "URL": st.column_config.LinkColumn(display_text="開く"),
+                },
+                hide_index=True,
+                use_container_width=True,
             )
-            monthly["ym_sort"] = monthly["year"] * 100 + monthly["month"]
-            monthly["ym_label"] = monthly["year"].astype(str) + "年" + monthly["month"].astype(str) + "月"
-            monthly = monthly.sort_values("ym_sort")
-            _ym_order = monthly["ym_label"].tolist()
-            chart_data = monthly.melt(
-                id_vars="ym_label", value_vars=["業務報酬", "源泉徴収", "DX補助", "立替"],
-                var_name="項目", value_name="金額",
-            )
-            chart = alt.Chart(chart_data).mark_bar().encode(
-                x=alt.X("ym_label:O", title="年月", sort=_ym_order),
-                y=alt.Y("金額:Q", title="金額", axis=alt.Axis(format=",.0f")),
-                color=alt.Color("項目:N", title="項目"),
-                xOffset="項目:N",
-            )
-            st.altair_chart(chart, use_container_width=True)
-        else:
-            st.info("該当するデータがありません")
+
+        # 月次推移チャート
+        with mtab3:
+            if not filtered.empty:
+                monthly = filtered.groupby(["year", "month"]).agg(
+                    業務報酬=("qualification_adjusted_compensation", "sum"),
+                    源泉徴収=("withholding_tax", "sum"),
+                    DX補助=("dx_subsidy", "sum"),
+                    立替=("reimbursement", "sum"),
+                ).reset_index()
+                monthly["year"] = monthly["year"].astype(int)
+                monthly["month"] = monthly["month"].apply(
+                    lambda x: int(float(x)) if str(x).replace(".", "").isdigit() else 0
+                )
+                monthly["ym_sort"] = monthly["year"] * 100 + monthly["month"]
+                monthly["ym_label"] = monthly["year"].astype(str) + "年" + monthly["month"].astype(str) + "月"
+                monthly = monthly.sort_values("ym_sort")
+                _ym_order = monthly["ym_label"].tolist()
+                chart_data = monthly.melt(
+                    id_vars="ym_label", value_vars=["業務報酬", "源泉徴収", "DX補助", "立替"],
+                    var_name="項目", value_name="金額",
+                )
+                chart = alt.Chart(chart_data).mark_bar().encode(
+                    x=alt.X("ym_label:O", title="年月", sort=_ym_order),
+                    y=alt.Y("金額:Q", title="金額", axis=alt.Axis(format=",.0f")),
+                    color=alt.Color("項目:N", title="項目"),
+                    xOffset="項目:N",
+                )
+                st.altair_chart(chart, use_container_width=True)
+            else:
+                st.info("該当するデータがありません")
 
 
 # ===== Tab 2: スポンサー別業務委託費 =====
