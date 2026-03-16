@@ -155,7 +155,7 @@ with st.sidebar:
 
     # 期間指定選択時: 年月を1つのプルダウンで指定
     if selected_month == "期間指定":
-        _ym_options = [f"{y}年{m}月" for y in range(2024, 2028) for m in range(1, 13)]
+        _ym_options = [f"{y}年{m}月" for y in range(2027, 2023, -1) for m in range(12, 0, -1)]
         _t = _date.today()
         _fy_start_year = _t.year - 1 if _t.month < 11 else _t.year
         _fy_end_year = _fy_start_year + 1
