@@ -153,32 +153,28 @@ with st.sidebar:
         year_key="global_year", month_key="global_month", include_all_month=True,
     )
 
-    # 期間指定選択時: 年月を1つのプルダウンで指定
+    # 期間指定選択時: カレンダーピッカーで期間指定
     if selected_month == "期間指定":
-        _ym_options = [f"{y}年{m}月" for y in range(2027, 2023, -1) for m in range(12, 0, -1)]
         _t = _date.today()
         _fy_start_year = _t.year - 1 if _t.month < 11 else _t.year
         _fy_end_year = _fy_start_year + 1
-        _default_start = f"{_fy_start_year}年11月"
-        _default_end = f"{_fy_end_year}年10月"
-        if _default_start not in _ym_options:
-            _default_start = _ym_options[0]
-        if _default_end not in _ym_options:
-            _default_end = _ym_options[-1]
-        _start_str = st.selectbox(
-            "開始", _ym_options,
-            index=_ym_options.index(_default_start),
-            key="range_start_ym",
+        _default_start = _date(_fy_start_year, 11, 1)
+        _default_end = _date(_fy_end_year, 10, 1)
+        _date_range = st.date_input(
+            "期間",
+            value=(_default_start, _default_end),
+            min_value=_date(2024, 1, 1),
+            max_value=_date(2027, 12, 31),
+            format="YYYY/MM/DD",
+            key="range_dates",
         )
-        _end_str = st.selectbox(
-            "終了", _ym_options,
-            index=_ym_options.index(_default_end),
-            key="range_end_ym",
-        )
-        range_start_year = int(_start_str.split("年")[0])
-        range_start_month = int(_start_str.split("年")[1].replace("月", ""))
-        range_end_year = int(_end_str.split("年")[0])
-        range_end_month = int(_end_str.split("年")[1].replace("月", ""))
+        if isinstance(_date_range, (list, tuple)) and len(_date_range) == 2:
+            range_start_year = _date_range[0].year
+            range_start_month = _date_range[0].month
+            range_end_year = _date_range[1].year
+            range_end_month = _date_range[1].month
+        else:
+            range_start_year = range_start_month = range_end_year = range_end_month = None
     else:
         range_start_year = range_start_month = range_end_year = range_end_month = None
 
