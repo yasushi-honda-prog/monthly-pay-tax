@@ -199,7 +199,11 @@ with st.sidebar:
         _months_limit = _view_options[_view_label]
         if _months_limit == "当期":
             # 当期に含まれるデータ月のみ（なければ全期間）
-            _ym_options = [ym for ym in _all_data_yms if _fy_start_str <= ym <= _fy_end_str]
+            def _ym_tuple(s):
+                _mm = re.match(r"(\d+)年(\d+)月", s)
+                return int(_mm.group(1)), int(_mm.group(2))
+            _fy_s, _fy_e = _ym_tuple(_fy_start_str), _ym_tuple(_fy_end_str)
+            _ym_options = [ym for ym in _all_data_yms if _fy_s <= _ym_tuple(ym) <= _fy_e]
             if not _ym_options:
                 _ym_options = _all_data_yms
             _default_start_str = _ym_options[0]
