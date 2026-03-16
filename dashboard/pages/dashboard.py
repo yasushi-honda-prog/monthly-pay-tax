@@ -638,6 +638,7 @@ with tab1:
             st.dataframe(
                 pivot.style.format("¥{:,.0f}"),
                 use_container_width=True,
+                height=600,
             )
 
         # メンバー別詳細テーブル
@@ -694,6 +695,7 @@ with tab1:
                 },
                 hide_index=True,
                 use_container_width=True,
+                height=600,
             )
 
         # 月次推移チャート
