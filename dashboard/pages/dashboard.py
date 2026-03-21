@@ -840,8 +840,8 @@ with tab1:
                 monthly["ym_label"] = monthly["year"].astype(str) + "年" + monthly["month"].astype(str) + "月"
                 monthly = monthly.sort_values("ym_sort")
                 _ym_order = monthly["ym_label"].tolist()
-                # 棒1: 業務報酬（左Y軸）
-                _bar1 = monthly[["ym_label", "業務報酬"]].copy()
+                # 棒1: 総支払額（左Y軸）
+                _bar1 = monthly[["ym_label", "総支払額"]].copy()
                 _bar1["_group"] = "A"
                 # 棒2: 源泉徴収・DX補助・立替 積み上げ（右Y軸）
                 _bar2 = monthly.melt(
@@ -849,20 +849,20 @@ with tab1:
                     var_name="項目", value_name="金額",
                 )
                 _bar2["_group"] = "B"
-                chart_main = alt.Chart(_bar1).mark_bar(color="#4C78A8").encode(
+                chart_main = alt.Chart(_bar1).mark_bar(color="#54A24B").encode(
                     x=alt.X("ym_label:O", title="年月", sort=_ym_order,
                             axis=alt.Axis(labelAngle=-45)),
-                    y=alt.Y("業務報酬:Q", title="業務報酬（円）",
+                    y=alt.Y("総支払額:Q", title="総支払額（円）",
                             axis=alt.Axis(format=",.0f", tickMinStep=500000)),
                     xOffset=alt.XOffset("_group:N"),
                     tooltip=[
                         alt.Tooltip("ym_label:O", title="年月"),
-                        alt.Tooltip("業務報酬:Q", title="業務報酬", format=",.0f"),
+                        alt.Tooltip("総支払額:Q", title="総支払額", format=",.0f"),
                     ],
                 )
                 chart_detail = alt.Chart(_bar2).mark_bar().encode(
                     x=alt.X("ym_label:O", sort=_ym_order),
-                    y=alt.Y("金額:Q", title="内訳（円）",
+                    y=alt.Y("金額:Q", title="源泉徴収・DX補助・立替（円）",
                             stack="zero",
                             axis=alt.Axis(format=",.0f", tickMinStep=50000)),
                     color=alt.Color("項目:N", title="内訳",
