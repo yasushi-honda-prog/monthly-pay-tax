@@ -192,9 +192,11 @@ with st.sidebar:
             "表示範囲", list(_view_options.keys()), index=0, key="range_view_scope",
             label_visibility="collapsed",
         )
-        # 表示範囲が変わったらスライダーの選択をリセット
+        # 表示範囲が変わったらスライダーとプルダウンの選択をリセット
         if _view_label != _prev_view:
             st.session_state.pop("range_ym_slider", None)
+            st.session_state.pop("dd_range_start", None)
+            st.session_state.pop("dd_range_end", None)
         st.session_state["_prev_range_view_scope"] = _view_label
         _months_limit = _view_options[_view_label]
         if _months_limit == "当期":
@@ -219,11 +221,42 @@ with st.sidebar:
         if not _ym_options:
             _ym_options = [f"{_t.year}年{_t.month}月"]
             _default_start_str = _default_end_str = _ym_options[0]
+
+        # プルダウンのデフォルト: 現在月（なければ最新月）
+        _current_ym_str = f"{_t.year}年{_t.month}月"
+        _dd_default = _current_ym_str if _current_ym_str in _ym_options else _ym_options[-1]
+        _dd_default_idx = _ym_options.index(_dd_default)
+
+        # 開始月・終了月プルダウン ↔ スライダー 双方向同期
+        def _sync_dd_to_slider():
+            _s = st.session_state.get("dd_range_start")
+            _e = st.session_state.get("dd_range_end")
+            if _s and _e:
+                def _n(v):
+                    _m = re.match(r"(\d+)年(\d+)月", v)
+                    return int(_m.group(1)) * 12 + int(_m.group(2)) if _m else 0
+                st.session_state["range_ym_slider"] = (_s, _e) if _n(_s) <= _n(_e) else (_e, _s)
+
+        def _sync_slider_to_dd():
+            _v = st.session_state.get("range_ym_slider")
+            if _v:
+                st.session_state["dd_range_start"] = _v[0]
+                st.session_state["dd_range_end"] = _v[1]
+
+        _dd_col1, _dd_col2 = st.columns(2)
+        with _dd_col1:
+            st.selectbox("開始月", _ym_options, index=_dd_default_idx,
+                         key="dd_range_start", on_change=_sync_dd_to_slider)
+        with _dd_col2:
+            st.selectbox("終了月", _ym_options, index=_dd_default_idx,
+                         key="dd_range_end", on_change=_sync_dd_to_slider)
+
         _range = st.select_slider(
             "期間",
             options=_ym_options,
             value=(_default_start_str, _default_end_str),
             key="range_ym_slider",
+            on_change=_sync_slider_to_dd,
         )
         def _parse_ym(s):
             m = re.match(r"(\d+)年(\d+)月", s)
