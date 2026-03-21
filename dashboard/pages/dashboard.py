@@ -848,7 +848,7 @@ with tab1:
                 if not chart_data.empty:
                     chart = alt.Chart(chart_data).mark_bar().encode(
                         x=alt.X("ym_label:O", title="年月", sort=_ym_order),
-                        y=alt.Y("金額:Q", title="金額", axis=alt.Axis(format=",.0f")),
+                        y=alt.Y("金額:Q", title="金額", axis=alt.Axis(format=",.0f"), stack=False),
                         color=alt.Color("項目:N", title="項目"),
                         xOffset="項目:N",
                     )
@@ -972,7 +972,7 @@ with tab2:
                 cat_df.columns = ["活動分類", "金額"]
                 chart = alt.Chart(cat_df).mark_bar().encode(
                     x=alt.X("活動分類:N", sort="-y"),
-                    y=alt.Y("金額:Q", axis=alt.Axis(format=",.0f")),
+                    y=alt.Y("金額:Q", axis=alt.Axis(format=",.0f"), stack=False),
                 )
                 st.altair_chart(chart, use_container_width=True)
             else:
