@@ -194,9 +194,9 @@ with st.sidebar:
         )
         # 表示範囲が変わったらスライダーとプルダウンの選択をリセット
         if _view_label != _prev_view:
-            st.session_state.pop("range_ym_slider", None)
-            st.session_state.pop("dd_range_start", None)
-            st.session_state.pop("dd_range_end", None)
+            for _k in ("range_ym_slider", "dd_range_start", "dd_range_end",
+                       "_prev_dd_start", "_prev_dd_end", "_prev_slider"):
+                st.session_state.pop(_k, None)
         st.session_state["_prev_range_view_scope"] = _view_label
         _months_limit = _view_options[_view_label]
         if _months_limit == "当期":
@@ -222,7 +222,7 @@ with st.sidebar:
             _ym_options = [f"{_t.year}年{_t.month}月"]
             _default_start_str = _default_end_str = _ym_options[0]
 
-        # プルダウン・スライダーの初期値を表示範囲（当期等）の期首・期末で統一
+        # 初期値を期首・期末で統一（未設定時のみ）
         if "range_ym_slider" not in st.session_state:
             st.session_state["range_ym_slider"] = (_default_start_str, _default_end_str)
         if "dd_range_start" not in st.session_state:
@@ -230,29 +230,38 @@ with st.sidebar:
         if "dd_range_end" not in st.session_state:
             st.session_state["dd_range_end"] = _default_end_str
 
-        # 開始月・終了月プルダウン ↔ スライダー 双方向同期
-        def _sync_dd_to_slider():
-            _s = st.session_state.get("dd_range_start")
-            _e = st.session_state.get("dd_range_end")
-            if _s and _e:
-                def _n(v):
-                    _m = re.match(r"(\d+)年(\d+)月", v)
-                    return int(_m.group(1)) * 12 + int(_m.group(2)) if _m else 0
-                st.session_state["range_ym_slider"] = (_s, _e) if _n(_s) <= _n(_e) else (_e, _s)
+        # 双方向同期: コールバック不使用、スクリプト本体で前回値と比較して反映
+        def _ym_num(v):
+            _m = re.match(r"(\d+)年(\d+)月", v)
+            return int(_m.group(1)) * 12 + int(_m.group(2)) if _m else 0
 
-        def _sync_slider_to_dd():
-            _v = st.session_state.get("range_ym_slider")
-            if _v:
-                st.session_state["dd_range_start"] = _v[0]
-                st.session_state["dd_range_end"] = _v[1]
+        _prev_dd_start = st.session_state.get("_prev_dd_start", _default_start_str)
+        _prev_dd_end   = st.session_state.get("_prev_dd_end",   _default_end_str)
+        _prev_slider   = st.session_state.get("_prev_slider",   (_default_start_str, _default_end_str))
+        _cur_dd_start  = st.session_state["dd_range_start"]
+        _cur_dd_end    = st.session_state["dd_range_end"]
+        _cur_slider    = st.session_state["range_ym_slider"]
 
-        st.selectbox("開始月", _ym_options, key="dd_range_start", on_change=_sync_dd_to_slider)
-        st.selectbox("終了月", _ym_options, key="dd_range_end", on_change=_sync_dd_to_slider)
+        if _cur_dd_start != _prev_dd_start or _cur_dd_end != _prev_dd_end:
+            # プルダウン変更 → スライダーに反映
+            _s, _e = (_cur_dd_start, _cur_dd_end) if _ym_num(_cur_dd_start) <= _ym_num(_cur_dd_end) \
+                     else (_cur_dd_end, _cur_dd_start)
+            st.session_state["range_ym_slider"] = (_s, _e)
+        elif _cur_slider != _prev_slider:
+            # スライダー変更 → プルダウンに反映
+            st.session_state["dd_range_start"] = _cur_slider[0]
+            st.session_state["dd_range_end"]   = _cur_slider[1]
+
+        st.session_state["_prev_dd_start"] = st.session_state["dd_range_start"]
+        st.session_state["_prev_dd_end"]   = st.session_state["dd_range_end"]
+        st.session_state["_prev_slider"]   = st.session_state["range_ym_slider"]
+
+        st.selectbox("開始月", _ym_options, key="dd_range_start")
+        st.selectbox("終了月", _ym_options, key="dd_range_end")
         _range = st.select_slider(
             "期間",
             options=_ym_options,
             key="range_ym_slider",
-            on_change=_sync_slider_to_dd,
         )
         def _parse_ym(s):
             m = re.match(r"(\d+)年(\d+)月", s)
