@@ -455,7 +455,7 @@ def _render_group_tab(
             "donation_payment", "daily_wage_count", "full_day_compensation",
             "total_work_hours",
         ]:
-            df_comp_g[col] = df_comp_g[col].fillna(0).astype(float)
+            df_comp_g[col] = pd.to_numeric(df_comp_g[col], errors="coerce").fillna(0)
 
         df_comp_g["display_name"] = df_comp_g["nickname"].map(lambda n: _name_map.get(n, n))
         if selected_month != "期間指定":
@@ -622,7 +622,7 @@ with tab1:
             "total_work_hours",
         ]
         for col in num_cols:
-            df_comp[col] = df_comp[col].fillna(0).astype(float)
+            df_comp[col] = pd.to_numeric(df_comp[col], errors="coerce").fillna(0)
 
         df_comp["display_name"] = df_comp["nickname"].map(lambda n: name_map.get(n, n))
 
@@ -704,6 +704,9 @@ with tab1:
             pivot = pivot.sort_values("合計", ascending=False)
             pivot_display = pivot.reset_index().rename(columns={"display_name": "メンバー"})
             _fmt = {col: "¥{:,.0f}" for col in pivot_display.columns if col != "メンバー"}
+            for col in pivot_display.columns:
+                if col != "メンバー":
+                    pivot_display[col] = pd.to_numeric(pivot_display[col], errors="coerce").fillna(0)
             st.markdown(f'<div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:0.5rem"><h3 style="margin:0">メンバー別 月次支払額</h3><span class="count-badge" style="margin-bottom:0">{len(pivot_display)} 名</span></div>', unsafe_allow_html=True)
             st.dataframe(
                 pivot_display.style.format(_fmt),
@@ -946,6 +949,8 @@ with tab2:
                     pivot_g = pivot_g.reindex(columns=_all_cols_g, fill_value=0)
                 pivot_g["合計"] = pivot_g.sum(axis=1)
                 pivot_g = pivot_g.sort_values("合計", ascending=False)
+                for col in pivot_g.columns:
+                    pivot_g[col] = pd.to_numeric(pivot_g[col], errors="coerce").fillna(0)
                 st.dataframe(
                     pivot_g.style.format("¥{:,.0f}"),
                     use_container_width=True,
