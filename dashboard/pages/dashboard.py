@@ -840,70 +840,56 @@ with tab1:
                 monthly["ym_label"] = monthly["year"].astype(str) + "年" + monthly["month"].astype(str) + "月"
                 monthly = monthly.sort_values("ym_sort")
                 _ym_order = monthly["ym_label"].tolist()
-                # Y軸ドメイン: 内訳棒が全項目棒より視覚的に高くならないよう調整
-                _bar1_y_max = float(
-                    monthly[["業務報酬", "源泉徴収", "DX補助", "立替"]].sum(axis=1).max() * 1.15
-                )
-                _bar2_y_max = float(
-                    monthly[["源泉徴収", "DX補助"]].sum(axis=1).max() * 4.0
-                )
-                # グループ名: "内訳"=左、"全項目"=右 — sortで位置を明示固定
-                _GRP_DETAIL = "1_内訳"
-                _GRP_MAIN   = "2_全項目"
-                _grp_sort   = [_GRP_DETAIL, _GRP_MAIN]
-                # 棒（右・左Y軸）: 全項目積み上げ
-                _bar1 = monthly.melt(
-                    id_vars=["ym_label", "総支払額"],
-                    value_vars=["業務報酬", "源泉徴収", "DX補助", "立替"],
-                    var_name="項目", value_name="金額",
-                )
-                _bar1["_group"] = _GRP_MAIN
-                # 棒（左・右Y軸）: 源泉徴収・DX補助 積み上げ
-                _bar2 = monthly.melt(
-                    id_vars="ym_label", value_vars=["源泉徴収", "DX補助"],
-                    var_name="項目", value_name="金額",
-                )
-                _bar2["_group"] = _GRP_DETAIL
-                chart_main = alt.Chart(_bar1).mark_bar().encode(
-                    x=alt.X("ym_label:O", title="年月", sort=_ym_order,
-                            axis=alt.Axis(labelAngle=-45)),
-                    y=alt.Y("金額:Q", title="金額（円）", stack="zero",
-                            scale=alt.Scale(domain=[0, _bar1_y_max]),
-                            axis=alt.Axis(format=",.0f", tickMinStep=500000)),
-                    color=alt.Color("項目:N", title="項目",
-                                    scale=alt.Scale(
-                                        domain=["業務報酬", "源泉徴収", "DX補助", "立替"],
-                                        range=["#4C78A8", "#E45756", "#72B7B2", "#F58518"])),
-                    xOffset=alt.XOffset("_group:N", sort=_grp_sort),
-                    tooltip=[
-                        alt.Tooltip("ym_label:O", title="年月"),
-                        alt.Tooltip("総支払額:Q", title="総支払額", format=",.0f"),
-                        alt.Tooltip("項目:N", title="項目"),
-                        alt.Tooltip("金額:Q", title="金額", format=",.0f"),
-                    ],
-                )
-                chart_detail = alt.Chart(_bar2).mark_bar().encode(
-                    x=alt.X("ym_label:O", sort=_ym_order),
-                    y=alt.Y("金額:Q", title="源泉徴収・DX補助（円）", stack="zero",
-                            scale=alt.Scale(domain=[0, _bar2_y_max]),
-                            axis=alt.Axis(format=",.0f", tickMinStep=50000)),
-                    color=alt.Color("項目:N", title="内訳",
-                                    scale=alt.Scale(
-                                        domain=["源泉徴収", "DX補助"],
-                                        range=["#E45756", "#72B7B2"])),
-                    xOffset=alt.XOffset("_group:N", sort=_grp_sort),
-                    tooltip=[
-                        alt.Tooltip("ym_label:O", title="年月"),
-                        alt.Tooltip("項目:N", title="項目"),
-                        alt.Tooltip("金額:Q", title="金額", format=",.0f"),
-                    ],
-                )
-                chart = (
-                    alt.layer(chart_main, chart_detail)
-                    .resolve_scale(y="independent", color="independent")
-                    .properties(height=720)
-                )
-                st.altair_chart(chart, use_container_width=True)
+                # 左: 全項目積み上げ（業務報酬・源泉徴収・DX補助・立替）
+                # 右: 内訳（源泉徴収・DX補助）
+                # st.columns で左右を確実に配置
+                _col_left, _col_right = st.columns([3, 2])
+                with _col_left:
+                    st.caption("全項目")
+                    _main_data = monthly.melt(
+                        id_vars=["ym_label", "総支払額"],
+                        value_vars=["業務報酬", "源泉徴収", "DX補助", "立替"],
+                        var_name="項目", value_name="金額",
+                    )
+                    chart_left = alt.Chart(_main_data).mark_bar().encode(
+                        x=alt.X("ym_label:O", title="年月", sort=_ym_order,
+                                axis=alt.Axis(labelAngle=-45)),
+                        y=alt.Y("金額:Q", title="金額（円）", stack="zero",
+                                axis=alt.Axis(format=",.0f", tickMinStep=500000)),
+                        color=alt.Color("項目:N", title="項目",
+                                        scale=alt.Scale(
+                                            domain=["業務報酬", "源泉徴収", "DX補助", "立替"],
+                                            range=["#4C78A8", "#E45756", "#72B7B2", "#F58518"])),
+                        tooltip=[
+                            alt.Tooltip("ym_label:O", title="年月"),
+                            alt.Tooltip("総支払額:Q", title="総支払額", format=",.0f"),
+                            alt.Tooltip("項目:N", title="項目"),
+                            alt.Tooltip("金額:Q", title="金額", format=",.0f"),
+                        ],
+                    ).properties(height=650)
+                    st.altair_chart(chart_left, use_container_width=True)
+                with _col_right:
+                    st.caption("内訳（源泉徴収・DX補助）")
+                    _sub_data = monthly.melt(
+                        id_vars="ym_label", value_vars=["源泉徴収", "DX補助"],
+                        var_name="項目", value_name="金額",
+                    )
+                    chart_right = alt.Chart(_sub_data).mark_bar().encode(
+                        x=alt.X("ym_label:O", title="年月", sort=_ym_order,
+                                axis=alt.Axis(labelAngle=-45)),
+                        y=alt.Y("金額:Q", title="金額（円）", stack="zero",
+                                axis=alt.Axis(format=",.0f", tickMinStep=50000)),
+                        color=alt.Color("項目:N", title="内訳",
+                                        scale=alt.Scale(
+                                            domain=["源泉徴収", "DX補助"],
+                                            range=["#E45756", "#72B7B2"])),
+                        tooltip=[
+                            alt.Tooltip("ym_label:O", title="年月"),
+                            alt.Tooltip("項目:N", title="項目"),
+                            alt.Tooltip("金額:Q", title="金額", format=",.0f"),
+                        ],
+                    ).properties(height=300)
+                    st.altair_chart(chart_right, use_container_width=True)
             else:
                 st.info("該当するデータがありません")
 
