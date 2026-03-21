@@ -2,8 +2,8 @@
 
 **更新日**: 2026-03-21（今セッション末）
 **フェーズ**: 6完了 + グループ機能追加 + グループ一括登録・自動同期 + UX改善 + ドキュメント整備 + 数値変換リファクタ
-**最新デプロイ**: Collector rev 00020-g6b + Dashboard rev 00144-q9z（PR #47/#48はデプロイ待ち）
-**テストスイート**: 203テスト（全PASS、PR #38で14テスト追加）
+**最新デプロイ**: Collector rev 00020-g6b + Dashboard rev 00166-k42（PR #47/#48/#49 + Infinite extent修正すべてデプロイ済み）
+**テストスイート**: 209テスト（全PASS: dashboard 189 + cloud-run 20）
 
 ## 現在の状態
 
@@ -13,25 +13,26 @@ groups_master テーブル: 69グループ登録済み。members テーブル: 1
 
 ### 直近の変更（2026-03-21: 今セッション）
 
-**PR #48: 数値変換の重複排除とヘルパー関数抽出**（ce35430、デプロイ待ち）
+**PR #48: 数値変換の重複排除とヘルパー関数抽出**（ce35430、デプロイ済み rev 00166-k42）
 
 - `_COMP_NUM_COLS` 定数を導入し `num_cols` 定義の2箇所重複を解消
 - `_ensure_numeric_pivot()` ヘルパー関数を抽出し、ピボット表示前の数値保証処理（3箇所重複）を統一
 - 18列の個別 `for` ループを `.apply(pd.to_numeric)` に最適化
 - object型列のみ変換する条件付きロジックで不要な変換をスキップ
 
-**PR #47: 数値フォーマットが文字列型カラムに適用されるValueErrorを修正**（09d6f5a、デプロイ待ち）
+**PR #47: 数値フォーマットが文字列型カラムに適用されるValueErrorを修正**（09d6f5a、デプロイ済み rev 00166-k42）
 
 - BQからのデータが文字列型のまま残るケースで `style.format("¥{:,.0f}")` が `ValueError` を発生させていた問題を修正
 - `fillna(0).astype(float)` を `pd.to_numeric(errors="coerce")` に置換
 - ピボット表示前にも再正規化を追加
 - Closes #25
 
-**PR #49 + 追加修正: Altairチャート Infinite extent警告を解消**（5719d56〜04ffad5、デプロイ待ち）
+**PR #49 + 追加修正: Altairチャート防御的ガード追加**（5719d56〜04ffad5、デプロイ済み rev 00166-k42）
 
 - 月次推移チャート: NaNデータに対し `dropna()` + 空DataFrameガードを追加（5719d56）
-- 活動分類チャート: 金額0/空データ時の `y` スケール範囲が無限になる問題を修正、`scale=alt.Scale(zero=True)` を追加（bc323f1）
-- Altairチャート全般: `stack=False` を明示してVega-Lite v5/v6互換のInfinite extent警告を解消（04ffad5）
+- 活動分類チャート: 金額0のカテゴリを除外するガード追加（bc323f1）
+- Altairチャート全般: `stack=False` を明示してstack変換を抑止（04ffad5）
+- **結論**: コンソール警告（Infinite extent / fit-x / Vega-Lite version）はすべてStreamlitのVega-Lite v5→v6互換の副作用。チャート表示・データに影響なし。Streamlitの次期Altair 6対応で自然解消予定
 
 ### 直近の変更（2026-03-17）
 
