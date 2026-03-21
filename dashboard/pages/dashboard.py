@@ -1017,11 +1017,8 @@ with tab3:
         work_categories = sorted(
             result["work_category"].dropna().unique().tolist()
         )
-        col_cat, col_wcat = st.columns([1, 3])
-        with col_cat:
-            sel_cat = st.selectbox("活動分類", categories, key="list_cat", label_visibility="collapsed")
-        with col_wcat:
-            sel_wcat = st.multiselect("業務分類", work_categories, key="list_wcat", placeholder="全業務分類", label_visibility="collapsed")
+        sel_cat = st.selectbox("活動分類", categories, key="list_cat", label_visibility="collapsed")
+        sel_wcat = st.multiselect("業務分類", work_categories, key="list_wcat", placeholder="全業務分類", label_visibility="collapsed")
 
         if selected_members:
             result = result[result["nickname"].isin(selected_members)]
