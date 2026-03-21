@@ -844,13 +844,17 @@ with tab1:
                     id_vars="ym_label", value_vars=["業務報酬", "源泉徴収", "DX補助", "立替"],
                     var_name="項目", value_name="金額",
                 )
-                chart = alt.Chart(chart_data).mark_bar().encode(
-                    x=alt.X("ym_label:O", title="年月", sort=_ym_order),
-                    y=alt.Y("金額:Q", title="金額", axis=alt.Axis(format=",.0f")),
-                    color=alt.Color("項目:N", title="項目"),
-                    xOffset="項目:N",
-                )
-                st.altair_chart(chart, use_container_width=True)
+                chart_data = chart_data.dropna(subset=["金額"])
+                if not chart_data.empty:
+                    chart = alt.Chart(chart_data).mark_bar().encode(
+                        x=alt.X("ym_label:O", title="年月", sort=_ym_order),
+                        y=alt.Y("金額:Q", title="金額", axis=alt.Axis(format=",.0f")),
+                        color=alt.Color("項目:N", title="項目"),
+                        xOffset="項目:N",
+                    )
+                    st.altair_chart(chart, use_container_width=True)
+                else:
+                    st.info("該当するデータがありません")
             else:
                 st.info("該当するデータがありません")
 
