@@ -1,8 +1,8 @@
 # ハンドオフメモ - monthly-pay-tax
 
-**更新日**: 2026-03-17（今セッション末）
-**フェーズ**: 6完了 + グループ機能追加 + グループ一括登録・自動同期 + UX改善 + ドキュメント整備
-**最新デプロイ**: Collector rev 00020-g6b + Dashboard rev 00144-q9z
+**更新日**: 2026-03-21（今セッション末）
+**フェーズ**: 6完了 + グループ機能追加 + グループ一括登録・自動同期 + UX改善 + ドキュメント整備 + 数値変換リファクタ
+**最新デプロイ**: Collector rev 00020-g6b + Dashboard rev 00144-q9z（PR #47/#48はデプロイ待ち）
 **テストスイート**: 203テスト（全PASS、PR #38で14テスト追加）
 
 ## 現在の状態
@@ -11,7 +11,29 @@ Cloud Run + BigQuery + Streamlitダッシュボード本番稼働中。
 **Googleグループ機能デプロイ済み** - Admin SDK経由でメンバーのグループ所属を収集し、グループ別ダッシュボードタブを追加（PR #22/#23、2026-02-21デプロイ済み）。
 groups_master テーブル: 69グループ登録済み。members テーブル: 192件にgroups列付与済み。
 
-### 直近の変更（2026-03-17: 今セッション）
+### 直近の変更（2026-03-21: 今セッション）
+
+**PR #48: 数値変換の重複排除とヘルパー関数抽出**（ce35430、デプロイ待ち）
+
+- `_COMP_NUM_COLS` 定数を導入し `num_cols` 定義の2箇所重複を解消
+- `_ensure_numeric_pivot()` ヘルパー関数を抽出し、ピボット表示前の数値保証処理（3箇所重複）を統一
+- 18列の個別 `for` ループを `.apply(pd.to_numeric)` に最適化
+- object型列のみ変換する条件付きロジックで不要な変換をスキップ
+
+**PR #47: 数値フォーマットが文字列型カラムに適用されるValueErrorを修正**（09d6f5a、デプロイ待ち）
+
+- BQからのデータが文字列型のまま残るケースで `style.format("¥{:,.0f}")` が `ValueError` を発生させていた問題を修正
+- `fillna(0).astype(float)` を `pd.to_numeric(errors="coerce")` に置換
+- ピボット表示前にも再正規化を追加
+- Closes #25
+
+**PR #49 + 追加修正: Altairチャート Infinite extent警告を解消**（5719d56〜04ffad5、デプロイ待ち）
+
+- 月次推移チャート: NaNデータに対し `dropna()` + 空DataFrameガードを追加（5719d56）
+- 活動分類チャート: 金額0/空データ時の `y` スケール範囲が無限になる問題を修正、`scale=alt.Scale(zero=True)` を追加（bc323f1）
+- Altairチャート全般: `stack=False` を明示してVega-Lite v5/v6互換のInfinite extent警告を解消（04ffad5）
+
+### 直近の変更（2026-03-17）
 
 **人数・件数バッジをタイトル右にインライン表示**（32485f1、デプロイ済み rev 00144-q9z）
 
@@ -254,51 +276,7 @@ PR #26〜#46 全てデプロイ済み（Collector rev 00020-g6b / Dashboard rev 
 5. **状態遷移**: 未確認 → 確認中 → 確認完了 / 差戻し（MERGE文で原子的更新）
 6. **機能**: 年月セレクタ、KPIカード（完了/未確認/差戻し数）、フィルタ、スプレッドシートリンク、操作ログ自動記録
 
-### PR #13-#14: ユーザー管理 表示名編集機能（デプロイ済み rev 00036）
-
-1. **`update_display_name()` 関数追加** (`user_management.py`): BQの`dashboard_users.display_name`をパラメータ化クエリで更新
-2. **インライン編集UI**: 各ユーザー行の名前横に✏️ポップオーバーを配置、表示名を即時編集・保存
-3. **レイアウト改善** (PR #14): 編集ボタンを専用列から名前横のインラインに移動、4列→3列レイアウトでスペース効率化
-
-### PR #12: Sheets APIレート制限改善（デプロイ済み rev 00014）
-
-1. **`_execute_with_throttle` ヘルパー追加** (`sheets_collector.py`): 全Sheets APIリクエストにスロットリング（0.5秒間隔）+ 自動リトライ（`num_retries=5`, exponential backoff）を適用
-2. **設定定数追加** (`config.py`): `SHEETS_API_NUM_RETRIES=5`, `SHEETS_API_SLEEP_BETWEEN_REQUESTS=0.5`
-3. **3箇所の`.execute()`置換**: `get_url_list`, `get_sheet_data`, `collect_members` で `_execute_with_throttle()` を使用
-4. **ログ改善**: HttpError時にtransient(429/5xx)/permanentのログレベル分離 + ステータスコード記録
-5. **エラーハンドリング**: `get_url_list`にtry-except追加（レビュー指摘対応）
-6. **ユニットテスト6件追加** (`tests/test_sheets_collector.py`): 全PASS
-7. **処理時間**: ~217秒 → ~409秒（Cloud Run 1800秒に対し余裕あり）
-
-### PR #11: Mermaid図レンダリング修正
-
-1. **`streamlit-mermaid` → `components.html()` + Mermaid.js v11 CDN**: サードパーティライブラリを廃止し、CDN直接読み込みに変更
-2. **ダークモード対応**: `prefers-color-scheme` メディアクエリでライト/ダーク自動切替
-3. **erDiagram PKアノテーション削除**: パースエラーの原因だった `PK` を除去
-4. **図のサイズ改善**: SVG幅100%、フォント18px、ノード間隔拡大、各図の高さを個別設定
-5. **`streamlit-mermaid==0.2.0` を requirements.txt から削除**
-
-**技術的教訓**: `st.html()` はsandboxed iframeでESMモジュールインポートがブロックされる → `streamlit.components.v1.html()` + 通常の `<script>` タグで解決
-
-### PR #9: Phase 6 IAP → Streamlit OIDC移行
-
-1. **認証方式変更**: Cloud IAP → Streamlit OIDC（Google OAuth, `st.login`/`st.user`）
-2. **アクセスURL変更**: `sslip.io`（自己署名証明書） → `*.run.app`（Google管理SSL証明書）
-3. **lib/auth.py**: `get_iap_user_email()` → `get_user_email()`（`st.user.email`ベース）
-4. **app.py**: `st.login`/`st.logout`フロー + サイドバーにログアウトボタン
-5. **architecture.py**: 認証フロー図をOIDCに更新
-6. **Secret Manager**: `dashboard-auth-config` → `/app/.streamlit/secrets.toml`にマウント
-7. **Cloud Run設定**: `ingress=all` + `allUsers:run.invoker`（アプリ層で認証）
-
-### Phase 5: Dashboard Multipage
-
-1. **マルチページ化**: app.py（649行） → app.py（ルーター ~50行） + pages/ + lib/
-2. **BQユーザー認可**: `dashboard_users` テーブル + IAP email照合 + admin/viewer ロール
-3. **ユーザー管理ページ**: admin専用。追加/削除/ロール変更（BQ DML、重複チェック付き）
-4. **アーキテクチャページ**: 5つのMermaid図（全体構成/データフロー/ER図/VIEW計算チェーン/認証フロー）
-5. **ヘルプページ**: ページガイド/フィルター使い方/用語集/FAQ
-6. **管理設定ページ**: admin専用。キャッシュクリア/BQテーブル情報/ユーザー統計
-7. **共有ライブラリ**: lib/auth.py, lib/bq_client.py, lib/styles.py, lib/constants.py
+<!-- 旧変更履歴（PR #9〜#14、Phase 5）はアーカイブへ移動済み。git log参照 -->
 
 ### ファイル構成
 
