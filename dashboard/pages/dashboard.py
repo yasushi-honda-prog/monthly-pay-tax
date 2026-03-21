@@ -243,13 +243,10 @@ with st.sidebar:
                 st.session_state["dd_range_start"] = _v[0]
                 st.session_state["dd_range_end"] = _v[1]
 
-        _dd_col1, _dd_col2 = st.columns(2)
-        with _dd_col1:
-            st.selectbox("開始月", _ym_options, index=_dd_default_idx,
-                         key="dd_range_start", on_change=_sync_dd_to_slider)
-        with _dd_col2:
-            st.selectbox("終了月", _ym_options, index=_dd_default_idx,
-                         key="dd_range_end", on_change=_sync_dd_to_slider)
+        st.selectbox("開始月", _ym_options, index=_dd_default_idx,
+                     key="dd_range_start", on_change=_sync_dd_to_slider)
+        st.selectbox("終了月", _ym_options, index=_dd_default_idx,
+                     key="dd_range_end", on_change=_sync_dd_to_slider)
 
         _range = st.select_slider(
             "期間",
