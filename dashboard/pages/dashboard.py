@@ -222,10 +222,13 @@ with st.sidebar:
             _ym_options = [f"{_t.year}年{_t.month}月"]
             _default_start_str = _default_end_str = _ym_options[0]
 
-        # プルダウンのデフォルト: 現在月（なければ最新月）
-        _current_ym_str = f"{_t.year}年{_t.month}月"
-        _dd_default = _current_ym_str if _current_ym_str in _ym_options else _ym_options[-1]
-        _dd_default_idx = _ym_options.index(_dd_default)
+        # プルダウン・スライダーの初期値を表示範囲（当期等）の期首・期末で統一
+        if "range_ym_slider" not in st.session_state:
+            st.session_state["range_ym_slider"] = (_default_start_str, _default_end_str)
+        if "dd_range_start" not in st.session_state:
+            st.session_state["dd_range_start"] = _default_start_str
+        if "dd_range_end" not in st.session_state:
+            st.session_state["dd_range_end"] = _default_end_str
 
         # 開始月・終了月プルダウン ↔ スライダー 双方向同期
         def _sync_dd_to_slider():
@@ -243,14 +246,10 @@ with st.sidebar:
                 st.session_state["dd_range_start"] = _v[0]
                 st.session_state["dd_range_end"] = _v[1]
 
-        st.selectbox("開始月", _ym_options, index=_dd_default_idx,
+        st.selectbox("開始月", _ym_options, index=_ym_options.index(_default_start_str),
                      key="dd_range_start", on_change=_sync_dd_to_slider)
-        st.selectbox("終了月", _ym_options, index=_dd_default_idx,
+        st.selectbox("終了月", _ym_options, index=_ym_options.index(_default_end_str),
                      key="dd_range_end", on_change=_sync_dd_to_slider)
-
-        # session_state未設定時のみデフォルト値を注入（value=との競合警告を回避）
-        if "range_ym_slider" not in st.session_state:
-            st.session_state["range_ym_slider"] = (_default_start_str, _default_end_str)
         _range = st.select_slider(
             "期間",
             options=_ym_options,
