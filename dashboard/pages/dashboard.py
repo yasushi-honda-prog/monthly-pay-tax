@@ -840,23 +840,31 @@ with tab1:
                 monthly["ym_label"] = monthly["year"].astype(str) + "年" + monthly["month"].astype(str) + "月"
                 monthly = monthly.sort_values("ym_sort")
                 _ym_order = monthly["ym_label"].tolist()
-                # 棒1: 全項目積み上げ（業務報酬・源泉徴収・DX補助・立替、左Y軸）
+                # Y軸ドメイン: 内訳棒が全項目棒より視覚的に高くならないよう調整
+                _bar1_y_max = float(
+                    monthly[["業務報酬", "源泉徴収", "DX補助", "立替"]].sum(axis=1).max() * 1.15
+                )
+                _bar2_y_max = float(
+                    monthly[["源泉徴収", "DX補助"]].sum(axis=1).max() * 4.0
+                )
+                # 棒1（右）: 全項目積み上げ（業務報酬・源泉徴収・DX補助・立替、左Y軸）
                 _bar1 = monthly.melt(
-                    id_vars="ym_label",
+                    id_vars=["ym_label", "総支払額"],
                     value_vars=["業務報酬", "源泉徴収", "DX補助", "立替"],
                     var_name="項目", value_name="金額",
                 )
-                _bar1["_group"] = "A"
-                # 棒2: 源泉徴収・DX補助 積み上げ（立替を除く、右Y軸）
+                _bar1["_group"] = "B"
+                # 棒2（左）: 源泉徴収・DX補助 積み上げ（立替を除く、右Y軸）
                 _bar2 = monthly.melt(
                     id_vars="ym_label", value_vars=["源泉徴収", "DX補助"],
                     var_name="項目", value_name="金額",
                 )
-                _bar2["_group"] = "B"
+                _bar2["_group"] = "A"
                 chart_main = alt.Chart(_bar1).mark_bar().encode(
                     x=alt.X("ym_label:O", title="年月", sort=_ym_order,
                             axis=alt.Axis(labelAngle=-45)),
                     y=alt.Y("金額:Q", title="金額（円）", stack="zero",
+                            scale=alt.Scale(domain=[0, _bar1_y_max]),
                             axis=alt.Axis(format=",.0f", tickMinStep=500000)),
                     color=alt.Color("項目:N", title="項目",
                                     scale=alt.Scale(
@@ -865,6 +873,7 @@ with tab1:
                     xOffset=alt.XOffset("_group:N"),
                     tooltip=[
                         alt.Tooltip("ym_label:O", title="年月"),
+                        alt.Tooltip("総支払額:Q", title="総支払額", format=",.0f"),
                         alt.Tooltip("項目:N", title="項目"),
                         alt.Tooltip("金額:Q", title="金額", format=",.0f"),
                     ],
@@ -872,6 +881,7 @@ with tab1:
                 chart_detail = alt.Chart(_bar2).mark_bar().encode(
                     x=alt.X("ym_label:O", sort=_ym_order),
                     y=alt.Y("金額:Q", title="源泉徴収・DX補助（円）", stack="zero",
+                            scale=alt.Scale(domain=[0, _bar2_y_max]),
                             axis=alt.Axis(format=",.0f", tickMinStep=50000)),
                     color=alt.Color("項目:N", title="内訳",
                                     scale=alt.Scale(
