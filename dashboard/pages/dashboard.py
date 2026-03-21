@@ -24,6 +24,26 @@ from lib.ui_helpers import (
 
 logger = logging.getLogger(__name__)
 
+# v_monthly_compensation の数値カラム（BQ STRING → float 変換対象）
+_COMP_NUM_COLS = [
+    "work_hours", "hour_compensation", "travel_distance_km",
+    "distance_compensation", "subtotal_compensation",
+    "position_rate", "position_adjusted_compensation",
+    "qualification_allowance", "qualification_adjusted_compensation",
+    "withholding_target_amount", "withholding_tax",
+    "dx_subsidy", "reimbursement", "payment",
+    "donation_payment", "daily_wage_count", "full_day_compensation",
+    "total_work_hours",
+]
+
+
+def _ensure_numeric_pivot(df, exclude_col=None):
+    """ピボット表示前にobject型混入列を数値化する（missing_members補完後の型修復用）"""
+    obj_cols = [c for c in df.columns if c != exclude_col and df[c].dtype == object]
+    for col in obj_cols:
+        df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
+    return df
+
 
 # --- データ読み込み ---
 @st.cache_data(ttl=21600)
@@ -445,17 +465,7 @@ def _render_group_tab(
         df_comp_g = df_comp_g[df_comp_g["year"].notna()]
         df_comp_g["year"] = df_comp_g["year"].astype(int)
         df_comp_g["month"] = df_comp_g["month"].astype("Int64")
-        for col in [
-            "work_hours", "hour_compensation", "travel_distance_km",
-            "distance_compensation", "subtotal_compensation",
-            "position_rate", "position_adjusted_compensation",
-            "qualification_allowance", "qualification_adjusted_compensation",
-            "withholding_target_amount", "withholding_tax",
-            "dx_subsidy", "reimbursement", "payment",
-            "donation_payment", "daily_wage_count", "full_day_compensation",
-            "total_work_hours",
-        ]:
-            df_comp_g[col] = pd.to_numeric(df_comp_g[col], errors="coerce").fillna(0)
+        df_comp_g[_COMP_NUM_COLS] = df_comp_g[_COMP_NUM_COLS].apply(pd.to_numeric, errors="coerce").fillna(0)
 
         df_comp_g["display_name"] = df_comp_g["nickname"].map(lambda n: _name_map.get(n, n))
         if selected_month != "期間指定":
@@ -507,6 +517,7 @@ def _render_group_tab(
             pivot_gc = pivot_gc.sort_values("合計", ascending=False)
             pivot_gc_display = pivot_gc.reset_index().rename(columns={"display_name": "メンバー"})
             _fmt_gc = {col: "¥{:,.0f}" for col in pivot_gc_display.columns if col != "メンバー"}
+            _ensure_numeric_pivot(pivot_gc_display, exclude_col="メンバー")
             st.dataframe(pivot_gc_display.style.format(_fmt_gc), hide_index=True, use_container_width=True, height=600)
         else:
             st.info("対象期間のデータがありません")
@@ -611,18 +622,7 @@ with tab1:
         df_comp["year"] = df_comp["year"].astype(int)
         df_comp["month"] = df_comp["month"].astype("Int64")
 
-        num_cols = [
-            "work_hours", "hour_compensation", "travel_distance_km",
-            "distance_compensation", "subtotal_compensation",
-            "position_rate", "position_adjusted_compensation",
-            "qualification_allowance", "qualification_adjusted_compensation",
-            "withholding_target_amount", "withholding_tax",
-            "dx_subsidy", "reimbursement", "payment",
-            "donation_payment", "daily_wage_count", "full_day_compensation",
-            "total_work_hours",
-        ]
-        for col in num_cols:
-            df_comp[col] = pd.to_numeric(df_comp[col], errors="coerce").fillna(0)
+        df_comp[_COMP_NUM_COLS] = df_comp[_COMP_NUM_COLS].apply(pd.to_numeric, errors="coerce").fillna(0)
 
         df_comp["display_name"] = df_comp["nickname"].map(lambda n: name_map.get(n, n))
 
@@ -704,9 +704,7 @@ with tab1:
             pivot = pivot.sort_values("合計", ascending=False)
             pivot_display = pivot.reset_index().rename(columns={"display_name": "メンバー"})
             _fmt = {col: "¥{:,.0f}" for col in pivot_display.columns if col != "メンバー"}
-            for col in pivot_display.columns:
-                if col != "メンバー":
-                    pivot_display[col] = pd.to_numeric(pivot_display[col], errors="coerce").fillna(0)
+            _ensure_numeric_pivot(pivot_display, exclude_col="メンバー")
             st.markdown(f'<div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:0.5rem"><h3 style="margin:0">メンバー別 月次支払額</h3><span class="count-badge" style="margin-bottom:0">{len(pivot_display)} 名</span></div>', unsafe_allow_html=True)
             st.dataframe(
                 pivot_display.style.format(_fmt),
@@ -949,8 +947,8 @@ with tab2:
                     pivot_g = pivot_g.reindex(columns=_all_cols_g, fill_value=0)
                 pivot_g["合計"] = pivot_g.sum(axis=1)
                 pivot_g = pivot_g.sort_values("合計", ascending=False)
-                for col in pivot_g.columns:
-                    pivot_g[col] = pd.to_numeric(pivot_g[col], errors="coerce").fillna(0)
+                # pivot_gはreset_index()前のためインデックスが文字列だが列は数値のみ
+                _ensure_numeric_pivot(pivot_g)
                 st.dataframe(
                     pivot_g.style.format("¥{:,.0f}"),
                     use_container_width=True,
