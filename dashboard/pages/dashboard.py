@@ -839,17 +839,37 @@ with tab1:
                 monthly["ym_label"] = monthly["year"].astype(str) + "年" + monthly["month"].astype(str) + "月"
                 monthly = monthly.sort_values("ym_sort")
                 _ym_order = monthly["ym_label"].tolist()
-                chart_data = monthly.melt(
-                    id_vars="ym_label", value_vars=["業務報酬", "源泉徴収", "DX補助", "立替"],
+                # 業務報酬（左軸・棒）
+                bars = alt.Chart(monthly).mark_bar(color="#4C78A8", opacity=0.8).encode(
+                    x=alt.X("ym_label:O", title="年月", sort=_ym_order),
+                    y=alt.Y("業務報酬:Q", title="業務報酬（円）",
+                            axis=alt.Axis(format=",.0f", titleColor="#4C78A8")),
+                    tooltip=[
+                        alt.Tooltip("ym_label:O", title="年月"),
+                        alt.Tooltip("業務報酬:Q", title="業務報酬", format=",.0f"),
+                    ],
+                )
+                # 源泉徴収・DX補助・立替（右軸・折れ線）
+                _line_data = monthly.melt(
+                    id_vars="ym_label", value_vars=["源泉徴収", "DX補助", "立替"],
                     var_name="項目", value_name="金額",
                 )
-                chart = alt.Chart(chart_data).mark_bar().encode(
-                    x=alt.X("ym_label:O", title="年月", sort=_ym_order),
-                    y=alt.Y("金額:Q", title="金額", axis=alt.Axis(format=",.0f")),
-                    color=alt.Color("項目:N", title="項目"),
-                    xOffset="項目:N",
+                _line_colors = alt.Color("項目:N", title="項目",
+                                         scale=alt.Scale(range=["#E45756", "#72B7B2", "#F58518"]))
+                lines = alt.Chart(_line_data).mark_line(point=True, strokeWidth=2).encode(
+                    x=alt.X("ym_label:O", sort=_ym_order),
+                    y=alt.Y("金額:Q", title="源泉徴収・DX補助・立替（円）",
+                            axis=alt.Axis(format=",.0f")),
+                    color=_line_colors,
+                    tooltip=[
+                        alt.Tooltip("ym_label:O", title="年月"),
+                        alt.Tooltip("項目:N", title="項目"),
+                        alt.Tooltip("金額:Q", title="金額", format=",.0f"),
+                    ],
                 )
+                chart = alt.layer(bars, lines).resolve_scale(y="independent").properties(height=350)
                 st.altair_chart(chart, use_container_width=True)
+                st.caption("棒グラフ（左軸）: 業務報酬　折れ線（右軸）: 源泉徴収・DX補助・立替")
             else:
                 st.info("該当するデータがありません")
 
