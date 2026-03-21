@@ -847,19 +847,23 @@ with tab1:
                 _bar2_y_max = float(
                     monthly[["源泉徴収", "DX補助"]].sum(axis=1).max() * 4.0
                 )
-                # 棒1（右）: 全項目積み上げ（業務報酬・源泉徴収・DX補助・立替、左Y軸）
+                # グループ名: "内訳"=左、"全項目"=右 — sortで位置を明示固定
+                _GRP_DETAIL = "1_内訳"
+                _GRP_MAIN   = "2_全項目"
+                _grp_sort   = [_GRP_DETAIL, _GRP_MAIN]
+                # 棒（右・左Y軸）: 全項目積み上げ
                 _bar1 = monthly.melt(
                     id_vars=["ym_label", "総支払額"],
                     value_vars=["業務報酬", "源泉徴収", "DX補助", "立替"],
                     var_name="項目", value_name="金額",
                 )
-                _bar1["_group"] = "B"
-                # 棒2（左）: 源泉徴収・DX補助 積み上げ（立替を除く、右Y軸）
+                _bar1["_group"] = _GRP_MAIN
+                # 棒（左・右Y軸）: 源泉徴収・DX補助 積み上げ
                 _bar2 = monthly.melt(
                     id_vars="ym_label", value_vars=["源泉徴収", "DX補助"],
                     var_name="項目", value_name="金額",
                 )
-                _bar2["_group"] = "A"
+                _bar2["_group"] = _GRP_DETAIL
                 chart_main = alt.Chart(_bar1).mark_bar().encode(
                     x=alt.X("ym_label:O", title="年月", sort=_ym_order,
                             axis=alt.Axis(labelAngle=-45)),
@@ -870,7 +874,7 @@ with tab1:
                                     scale=alt.Scale(
                                         domain=["業務報酬", "源泉徴収", "DX補助", "立替"],
                                         range=["#4C78A8", "#E45756", "#72B7B2", "#F58518"])),
-                    xOffset=alt.XOffset("_group:N"),
+                    xOffset=alt.XOffset("_group:N", sort=_grp_sort),
                     tooltip=[
                         alt.Tooltip("ym_label:O", title="年月"),
                         alt.Tooltip("総支払額:Q", title="総支払額", format=",.0f"),
@@ -887,7 +891,7 @@ with tab1:
                                     scale=alt.Scale(
                                         domain=["源泉徴収", "DX補助"],
                                         range=["#E45756", "#72B7B2"])),
-                    xOffset=alt.XOffset("_group:N"),
+                    xOffset=alt.XOffset("_group:N", sort=_grp_sort),
                     tooltip=[
                         alt.Tooltip("ym_label:O", title="年月"),
                         alt.Tooltip("項目:N", title="項目"),
