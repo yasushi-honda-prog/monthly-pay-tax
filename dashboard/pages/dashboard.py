@@ -204,18 +204,14 @@ with st.sidebar:
             return int(_mm.group(1)), int(_mm.group(2))
 
         if _months_limit == "当期":
-            # 当期12ヶ月を全て生成（データ未登録月も選択肢に含める）
-            _ym_options = []
-            _y, _m = _fy_start_year, 11
-            while (_y, _m) <= (_fy_end_year, 10):
-                _ym_options.append(f"{_y}年{_m}月")
-                _m += 1
-                if _m > 12:
-                    _m, _y = 1, _y + 1
+            _fy_s, _fy_e = _ym_tuple(_fy_start_str), _ym_tuple(_fy_end_str)
+            _ym_options = [ym for ym in _all_data_yms if _fy_s <= _ym_tuple(ym) <= _fy_e]
+            if not _ym_options:
+                _ym_options = _all_data_yms
             _default_start_str = _ym_options[0]
-            # 終了デフォルト: 今月（当期内）、なければ最新データ月
-            _current_ym = f"{_t.year}年{_t.month}月"
-            _default_end_str = _current_ym if _current_ym in _ym_options else _ym_options[-1]
+            # 終了デフォルト: 当期内の最新データ月（全データ最新月が当期内ならそれを使用）
+            _latest_all = _all_data_yms[-1] if _all_data_yms else _ym_options[-1]
+            _default_end_str = _latest_all if _fy_s <= _ym_tuple(_latest_all) <= _fy_e else _ym_options[-1]
         elif _months_limit is not None:
             _ym_options = _all_data_yms[-_months_limit:]
             _default_start_str = _ym_options[0]
