@@ -192,24 +192,26 @@ with st.sidebar:
             "表示範囲", list(_view_options.keys()), index=0, key="range_view_scope",
             label_visibility="collapsed",
         )
-        # 表示範囲が変わったらスライダーとプルダウンの選択をリセット
+        # 表示範囲が変わったらプルダウンの選択をリセット
         if _view_label != _prev_view:
-            for _k in ("range_ym_slider", "dd_range_start", "dd_range_end",
-                       "_prev_dd_start", "_prev_dd_end", "_prev_slider"):
-                st.session_state.pop(_k, None)
+            st.session_state.pop("dd_range_start", None)
+            st.session_state.pop("dd_range_end", None)
         st.session_state["_prev_range_view_scope"] = _view_label
         _months_limit = _view_options[_view_label]
+
+        def _ym_tuple(s):
+            _mm = re.match(r"(\d+)年(\d+)月", s)
+            return int(_mm.group(1)), int(_mm.group(2))
+
         if _months_limit == "当期":
-            # 当期に含まれるデータ月のみ（なければ全期間）
-            def _ym_tuple(s):
-                _mm = re.match(r"(\d+)年(\d+)月", s)
-                return int(_mm.group(1)), int(_mm.group(2))
             _fy_s, _fy_e = _ym_tuple(_fy_start_str), _ym_tuple(_fy_end_str)
             _ym_options = [ym for ym in _all_data_yms if _fy_s <= _ym_tuple(ym) <= _fy_e]
             if not _ym_options:
                 _ym_options = _all_data_yms
             _default_start_str = _ym_options[0]
-            _default_end_str = _ym_options[-1]
+            # 終了デフォルト: 当期内の最新データ月（全データ最新月が当期内ならそれを使用）
+            _latest_all = _all_data_yms[-1] if _all_data_yms else _ym_options[-1]
+            _default_end_str = _latest_all if _fy_s <= _ym_tuple(_latest_all) <= _fy_e else _ym_options[-1]
         elif _months_limit is not None:
             _ym_options = _all_data_yms[-_months_limit:]
             _default_start_str = _ym_options[0]
@@ -222,52 +224,25 @@ with st.sidebar:
             _ym_options = [f"{_t.year}年{_t.month}月"]
             _default_start_str = _default_end_str = _ym_options[0]
 
-        # 初期値を期首・期末で統一（未設定時のみ）
-        if "range_ym_slider" not in st.session_state:
-            st.session_state["range_ym_slider"] = (_default_start_str, _default_end_str)
+        # 初期値（未設定時のみ）
         if "dd_range_start" not in st.session_state:
             st.session_state["dd_range_start"] = _default_start_str
         if "dd_range_end" not in st.session_state:
             st.session_state["dd_range_end"] = _default_end_str
 
-        # 双方向同期: コールバック不使用、スクリプト本体で前回値と比較して反映
-        def _ym_num(v):
-            _m = re.match(r"(\d+)年(\d+)月", v)
-            return int(_m.group(1)) * 12 + int(_m.group(2)) if _m else 0
-
-        _prev_dd_start = st.session_state.get("_prev_dd_start", _default_start_str)
-        _prev_dd_end   = st.session_state.get("_prev_dd_end",   _default_end_str)
-        _prev_slider   = st.session_state.get("_prev_slider",   (_default_start_str, _default_end_str))
-        _cur_dd_start  = st.session_state["dd_range_start"]
-        _cur_dd_end    = st.session_state["dd_range_end"]
-        _cur_slider    = st.session_state["range_ym_slider"]
-
-        if _cur_dd_start != _prev_dd_start or _cur_dd_end != _prev_dd_end:
-            # プルダウン変更 → スライダーに反映
-            _s, _e = (_cur_dd_start, _cur_dd_end) if _ym_num(_cur_dd_start) <= _ym_num(_cur_dd_end) \
-                     else (_cur_dd_end, _cur_dd_start)
-            st.session_state["range_ym_slider"] = (_s, _e)
-        elif _cur_slider != _prev_slider:
-            # スライダー変更 → プルダウンに反映
-            st.session_state["dd_range_start"] = _cur_slider[0]
-            st.session_state["dd_range_end"]   = _cur_slider[1]
-
-        st.session_state["_prev_dd_start"] = st.session_state["dd_range_start"]
-        st.session_state["_prev_dd_end"]   = st.session_state["dd_range_end"]
-        st.session_state["_prev_slider"]   = st.session_state["range_ym_slider"]
-
         st.selectbox("開始月", _ym_options, key="dd_range_start")
         st.selectbox("終了月", _ym_options, key="dd_range_end")
-        _range = st.select_slider(
-            "期間",
-            options=_ym_options,
-            key="range_ym_slider",
-        )
+
         def _parse_ym(s):
             m = re.match(r"(\d+)年(\d+)月", s)
             return int(m.group(1)), int(m.group(2))
-        range_start_year, range_start_month = _parse_ym(_range[0])
-        range_end_year, range_end_month = _parse_ym(_range[1])
+        _dd_start_val = st.session_state.get("dd_range_start", _default_start_str)
+        _dd_end_val   = st.session_state.get("dd_range_end",   _default_end_str)
+        # 開始 > 終了の場合はスワップ
+        if _ym_tuple(_dd_start_val) > _ym_tuple(_dd_end_val):
+            _dd_start_val, _dd_end_val = _dd_end_val, _dd_start_val
+        range_start_year, range_start_month = _parse_ym(_dd_start_val)
+        range_end_year, range_end_month = _parse_ym(_dd_end_val)
     else:
         range_start_year = range_start_month = range_end_year = range_end_month = None
 
