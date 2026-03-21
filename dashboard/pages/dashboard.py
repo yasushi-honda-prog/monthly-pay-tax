@@ -248,10 +248,12 @@ with st.sidebar:
         st.selectbox("終了月", _ym_options, index=_dd_default_idx,
                      key="dd_range_end", on_change=_sync_dd_to_slider)
 
+        # session_state未設定時のみデフォルト値を注入（value=との競合警告を回避）
+        if "range_ym_slider" not in st.session_state:
+            st.session_state["range_ym_slider"] = (_default_start_str, _default_end_str)
         _range = st.select_slider(
             "期間",
             options=_ym_options,
-            value=(_default_start_str, _default_end_str),
             key="range_ym_slider",
             on_change=_sync_slider_to_dd,
         )
