@@ -966,6 +966,7 @@ with tab2:
                 .sum()
                 .sort_values(ascending=False)
             )
+            cat_summary = cat_summary[cat_summary > 0]
             if not cat_summary.empty:
                 cat_df = cat_summary.reset_index()
                 cat_df.columns = ["活動分類", "金額"]
@@ -974,6 +975,8 @@ with tab2:
                     y=alt.Y("金額:Q", axis=alt.Axis(format=",.0f")),
                 )
                 st.altair_chart(chart, use_container_width=True)
+            else:
+                st.info("該当するデータがありません")
 
 
 # ===== Tab 3: 業務報告一覧 =====
