@@ -664,7 +664,7 @@ with tab1:
         with k5:
             render_kpi("立替", f"¥{filtered['reimbursement'].sum():,.0f}")
 
-        mtab1, mtab2, mtab3, mtab4 = st.tabs(["メンバー別 月次支払額", "メンバー別 報酬明細", "月次 報酬明細", "月次推移"])
+        mtab1, mtab2, mtab3, mtab4, mtab5 = st.tabs(["メンバー別 月次支払額", "メンバー別 月次活動時間", "メンバー別 報酬明細", "月次 報酬明細", "月次推移"])
 
         # メンバー×月ピボット
         with mtab1:
@@ -713,8 +713,54 @@ with tab1:
                 height=600,
             )
 
-        # メンバー別詳細テーブル
+        # メンバー×月 活動時間ピボット
         with mtab2:
+            _piv_hrs_src = filtered.copy()
+            _multi_year_hrs = _piv_hrs_src["year"].nunique() > 1
+            if _multi_year_hrs:
+                _piv_hrs_src["_col"] = (
+                    _piv_hrs_src["year"].astype(int).astype(str) + "年" +
+                    _piv_hrs_src["month"].astype(int).astype(str) + "月"
+                )
+            else:
+                _piv_hrs_src["_col"] = _piv_hrs_src["month"].astype(int).astype(str) + "月"
+            _sort_map_hrs = dict(zip(
+                _piv_hrs_src["_col"],
+                _piv_hrs_src["year"].astype(int) * 100 + _piv_hrs_src["month"].astype(int),
+            ))
+            pivot_hrs = _piv_hrs_src.pivot_table(
+                values="total_work_hours",
+                index="display_name",
+                columns="_col",
+                aggfunc="sum",
+                fill_value=0,
+            )
+            pivot_hrs = pivot_hrs[sorted(pivot_hrs.columns, key=lambda c: _sort_map_hrs.get(c, 9999))]
+            if missing_members and pivot_hrs.empty:
+                pivot_hrs = pd.DataFrame(
+                    {"合計": 0},
+                    index=[name_map.get(m, m) for m in missing_members],
+                )
+            else:
+                for m in missing_members:
+                    disp = name_map.get(m, m)
+                    if disp not in pivot_hrs.index:
+                        pivot_hrs.loc[disp] = 0
+                pivot_hrs["合計"] = pivot_hrs.sum(axis=1)
+            pivot_hrs = pivot_hrs.sort_values("合計", ascending=False)
+            pivot_hrs_display = pivot_hrs.reset_index().rename(columns={"display_name": "メンバー"})
+            _fmt_hrs = {col: "{:,.1f}" for col in pivot_hrs_display.columns if col != "メンバー"}
+            _ensure_numeric_pivot(pivot_hrs_display, exclude_col="メンバー")
+            st.markdown(f'<div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:0.5rem"><h3 style="margin:0">メンバー別 月次活動時間</h3><span class="count-badge" style="margin-bottom:0">{len(pivot_hrs_display)} 名</span></div>', unsafe_allow_html=True)
+            st.dataframe(
+                pivot_hrs_display.style.format(_fmt_hrs),
+                hide_index=True,
+                use_container_width=True,
+                height=600,
+            )
+
+        # メンバー別詳細テーブル
+        with mtab3:
             detail = filtered.groupby(["display_name", "report_url"]).agg(
                 時間=("work_hours", "sum"),
                 時間報酬=("hour_compensation", "sum"),
@@ -771,7 +817,7 @@ with tab1:
             )
 
         # 月次 報酬明細（月ごと）
-        with mtab3:
+        with mtab4:
             st.subheader("月次 報酬明細")
             detail_m = filtered.copy()
             detail_m["年月"] = detail_m["year"].astype(int).astype(str) + "年" + detail_m["month"].astype(int).astype(str) + "月"
@@ -823,7 +869,7 @@ with tab1:
             )
 
         # 月次推移チャート
-        with mtab4:
+        with mtab5:
             st.subheader("月次推移")
             if not filtered.empty:
                 monthly = filtered.groupby(["year", "month"]).agg(
