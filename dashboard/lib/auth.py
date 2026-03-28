@@ -94,3 +94,10 @@ def require_checker(email: str, role: str):
     if role not in ("checker", "admin"):
         st.error("このページはチェック担当者のみアクセスできます。")
         st.stop()
+
+
+def require_user(email: str, role: str):
+    """有効なロールを要求。ロールなしならst.stopで停止。"""
+    if role not in ("user", "viewer", "checker", "admin"):
+        st.error("このページにアクセスする権限がありません。")
+        st.stop()

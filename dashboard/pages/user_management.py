@@ -215,7 +215,7 @@ if df_groups is not None and not df_groups.empty:
         with col_g1:
             selected_label = st.selectbox("グループ", list(group_options.keys()))
         with col_g2:
-            group_role = st.selectbox("ロール", ["viewer", "checker", "admin"], key="group_role")
+            group_role = st.selectbox("ロール", ["user", "viewer", "checker", "admin"], key="group_role")
 
         selected_group_email = group_options[selected_label] if selected_label else None
 
@@ -268,7 +268,7 @@ with st.form("add_user_form"):
     with col1:
         new_email = st.text_input("メールアドレス", placeholder="user@tadakayo.jp")
     with col2:
-        new_role = st.selectbox("ロール", ["viewer", "checker", "admin"])
+        new_role = st.selectbox("ロール", ["user", "viewer", "checker", "admin"])
     with col3:
         display_name = st.text_input("表示名（任意）", placeholder="ニックネーム")
 
@@ -335,7 +335,7 @@ else:
                     st.markdown(f"🔒 **{row['role']}**")
                 else:
                     current_role = row["role"]
-                    role_options = ["admin", "checker", "viewer"]
+                    role_options = ["admin", "checker", "viewer", "user"]
                     new_r = st.selectbox(
                         "ロール",
                         role_options,
