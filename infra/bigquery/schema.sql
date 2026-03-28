@@ -89,6 +89,42 @@ CREATE TABLE IF NOT EXISTS `monthly-pay-tax.pay_reports.groups_master` (
   ingested_at TIMESTAMP NOT NULL          -- データ取得日時
 );
 
+-- アプリ入力: 業務報告（Collector管理テーブルとは独立）
+CREATE TABLE IF NOT EXISTS `monthly-pay-tax.pay_reports.app_gyomu_reports` (
+  user_email STRING NOT NULL,              -- 入力者GWSメール
+  date DATE NOT NULL,                      -- 業務日
+  year INT64 NOT NULL,                     -- 年（dateから導出）
+  month INT64 NOT NULL,                    -- 月（dateから導出）
+  day_of_week STRING,                      -- 曜日（dateから導出）
+  team STRING,                             -- 隊（チーム）
+  activity_category STRING,                -- 活動分類
+  work_category STRING,                    -- 業務分類
+  sponsor STRING,                          -- スポンサー
+  description STRING,                      -- 業務内容
+  unit_price FLOAT64,                      -- 業務単価（円/h）
+  hours FLOAT64,                           -- 所要時間（H）or 距離（km）
+  amount FLOAT64,                          -- 金額
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP(),
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP()
+);
+
+-- アプリ入力: 補助＆立替報告（Collector管理テーブルとは独立）
+CREATE TABLE IF NOT EXISTS `monthly-pay-tax.pay_reports.app_hojo_reports` (
+  user_email STRING NOT NULL,              -- 入力者GWSメール
+  year INT64 NOT NULL,                     -- 年
+  month INT64 NOT NULL,                    -- 月
+  hours FLOAT64,                           -- 時間
+  compensation FLOAT64,                    -- 報酬
+  dx_subsidy FLOAT64,                      -- DX補助
+  reimbursement FLOAT64,                   -- 立替
+  total_amount FLOAT64,                    -- 総額
+  monthly_complete BOOL DEFAULT FALSE,     -- 当月入力完了フラグ
+  dx_receipt STRING,                       -- DX補助用 領収書メモ
+  expense_receipt STRING,                  -- 個人立替用 領収書メモ
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP(),
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP()
+);
+
 -- シード: 初期管理者
 -- INSERT INTO `monthly-pay-tax.pay_reports.dashboard_users`
 --   (email, role, display_name, added_by, created_at, updated_at)

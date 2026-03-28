@@ -15,6 +15,7 @@ mock_st.session_state = {}
 # Create proper decorator mocks that accept function arguments
 def cache_data_decorator(**kwargs):
     def decorator(func):
+        func.clear = lambda: None
         return func
     return decorator
 
@@ -39,8 +40,9 @@ mock_st.checkbox = MagicMock(return_value=False)  # Return False for checkboxes
 
 # Mock st.columns to dynamically create the correct number of columns
 def mock_columns(spec):
-    """Return tuple of mock columns based on spec (list of proportions)"""
-    return tuple(MagicMock() for _ in spec)
+    """Return tuple of mock columns based on spec (list or int)"""
+    n = spec if isinstance(spec, int) else len(spec)
+    return tuple(MagicMock() for _ in range(n))
 
 mock_st.columns = mock_columns
 mock_st.container = MagicMock()
@@ -99,8 +101,26 @@ def mock_popover_fn(label):
 
 mock_st.popover = mock_popover_fn
 
+# Mock tabs as context manager
+def mock_tabs_fn(labels):
+    tabs = []
+    for _ in labels:
+        tab_mock = MagicMock()
+        tab_mock.__enter__ = MagicMock(return_value=tab_mock)
+        tab_mock.__exit__ = MagicMock(return_value=False)
+        tabs.append(tab_mock)
+    return tabs
+
+mock_st.tabs = mock_tabs_fn
+
 mock_st.subheader = MagicMock()
 mock_st.success = MagicMock()
+mock_st.date_input = MagicMock()
+mock_st.number_input = MagicMock(return_value=0.0)
+mock_st.text_area = MagicMock(return_value="")
+mock_st.metric = MagicMock()
+mock_st.dataframe = MagicMock()
+mock_st.warning = MagicMock()
 mock_st.form_submit_button = MagicMock()
 mock_st.iterrows = MagicMock()
 
