@@ -1220,6 +1220,40 @@ with tab5:
             _cost_ym_sort[_r["ym_label"]] = int(_r["year"]) * 100 + int(_r["month_num"])
         _cost_ym_order = sorted(_cost_ym_sort.keys(), key=lambda k: _cost_ym_sort[k])
 
+        # KPIカード（v_monthly_compensationより）
+        try:
+            _df_comp5 = load_monthly_compensation()
+            _df_comp5[_COMP_NUM_COLS] = _df_comp5[_COMP_NUM_COLS].apply(pd.to_numeric, errors="coerce").fillna(0)
+            _df_comp5["year"] = _df_comp5["year"].apply(lambda v: int(v) if pd.notna(v) else None)
+            _df_comp5 = _df_comp5[_df_comp5["year"].notna()]
+            _df_comp5["month"] = _df_comp5["month"].astype("Int64")
+            if selected_month != "期間指定":
+                _comp5_f = _df_comp5[
+                    (_df_comp5["year"] == selected_year) &
+                    (_df_comp5["month"] == int(selected_month.replace("月", "")))
+                ]
+            else:
+                _c5_ym = _df_comp5["year"].astype(int) * 100 + _df_comp5["month"].astype(int)
+                _comp5_f = _df_comp5[
+                    (_c5_ym >= range_start_year * 100 + range_start_month) &
+                    (_c5_ym <= range_end_year * 100 + range_end_month)
+                ]
+            if selected_members:
+                _comp5_f = _comp5_f[_comp5_f["nickname"].isin(selected_members)]
+            k1, k2, k3, k4, k5 = st.columns(5)
+            with k1:
+                render_kpi("総支払額", f"¥{_comp5_f['payment'].sum():,.0f}")
+            with k2:
+                render_kpi("業務報酬", f"¥{_comp5_f['qualification_adjusted_compensation'].sum():,.0f}")
+            with k3:
+                render_kpi("源泉徴収", f"¥{_comp5_f['withholding_tax'].sum():,.0f}")
+            with k4:
+                render_kpi("DX補助", f"¥{_comp5_f['dx_subsidy'].sum():,.0f}")
+            with k5:
+                render_kpi("立替", f"¥{_comp5_f['reimbursement'].sum():,.0f}")
+        except Exception:
+            pass
+
         ctab1, ctab2 = st.tabs(["業務委託費全体", "非営利活動"])
 
         def _render_cost_chart(df: pd.DataFrame, x_title: str) -> None:
