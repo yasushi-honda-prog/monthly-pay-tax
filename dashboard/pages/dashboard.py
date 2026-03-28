@@ -303,9 +303,20 @@ with st.sidebar:
             _latest_all = _all_data_yms[-1] if _all_data_yms else _ym_options[-1]
             _default_end_str = _latest_all if _fy_s <= _ym_tuple(_latest_all) <= _fy_e else _ym_options[-1]
         elif _months_limit is not None:
-            _ym_options = _all_data_yms[-_months_limit:]
-            _default_start_str = _ym_options[0]
-            _default_end_str = _ym_options[-1]
+            # カレンダーベースで直近N月を計算（例: 3月→4月〜3月の12ヶ月）
+            _end_y, _end_m = _t.year, _t.month
+            _cal_ym: list[str] = []
+            _cy, _cm = _end_y, _end_m
+            for _ in range(_months_limit):
+                _cal_ym.append(f"{_cy}年{_cm}月")
+                _cm -= 1
+                if _cm == 0:
+                    _cm = 12
+                    _cy -= 1
+            _cal_ym.reverse()
+            _ym_options = _cal_ym
+            _default_start_str = _cal_ym[0]
+            _default_end_str = _cal_ym[-1]
         else:
             _ym_options = _all_data_yms
             _default_start_str = _ym_options[0]
