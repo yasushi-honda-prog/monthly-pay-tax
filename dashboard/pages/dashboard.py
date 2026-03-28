@@ -96,6 +96,16 @@ _COST_GROUP_EXCLUDE_NONPROFIT: set[str] = {
     "電話対応（主に行政事業中心）",
 }
 
+# 固定カラードメイン（期間を変えても分類の色が変わらないよう全分類を明示）
+_TABLEAU20 = [
+    "#4c78a8","#9ecae9","#f58518","#ffbf79","#54a24b","#88d27a",
+    "#b79a20","#f2cf5b","#439894","#83bcb6","#e45756","#ff9d98",
+    "#79706e","#bab0ac","#d67195","#fcbfd2","#b279a2","#d6a5c9",
+    "#9e765f","#d8b5a5",
+]
+_COST_COLOR_DOMAIN: list[str] = sorted(set(_COST_GROUP_MAP.values()) | {"(未分類)"})
+_COST_COLOR_RANGE: list[str] = [_TABLEAU20[i % len(_TABLEAU20)] for i in range(len(_COST_COLOR_DOMAIN))]
+
 
 def _ensure_numeric_pivot(df, exclude_col=None):
     """ピボット表示前にobject型混入列を数値化する（missing_members補完後の型修復用）"""
@@ -1276,12 +1286,12 @@ with tab5:
                 st.info("対象期間の金額データがありません")
                 return
 
-            bar = alt.Chart(agg).mark_bar(size=40).encode(
+            bar = alt.Chart(agg).mark_bar().encode(
                 x=alt.X("年月:O", title=x_title, sort=_cost_ym_order,
                         axis=alt.Axis(labelAngle=0, labelFontSize=12)),
                 y=alt.Y("金額:Q", title="金額（円）", axis=alt.Axis(format=",.0f")),
                 color=alt.Color("分類:N", title="分類",
-                    scale=alt.Scale(scheme="tableau20"),
+                    scale=alt.Scale(domain=_COST_COLOR_DOMAIN, range=_COST_COLOR_RANGE),
                     legend=alt.Legend(orient="right", labelLimit=300, labelFontSize=10),
                 ),
                 tooltip=["年月:O", "分類:N", alt.Tooltip("金額:Q", format=",.0f")],
