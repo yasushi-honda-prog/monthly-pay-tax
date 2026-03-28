@@ -276,7 +276,7 @@ with st.sidebar:
         _fy_end_str = f"{_fy_end_year}年10月"
 
         # 表示範囲セレクタ（スライダーに表示する月数を絞る）
-        _view_options = {"当期": "当期", "直近1年": 12, "直近2年": 24, "直近3年": 36, "全期間": None}
+        _view_options = {"当期": "当期", "直近1年": 12, "直近2年": 24, "直近3年": 36, "全期間": None}  # noqa
         _prev_view = st.session_state.get("_prev_range_view_scope", None)
         _view_label = st.selectbox(
             "表示範囲", list(_view_options.keys()), index=0, key="range_view_scope",
