@@ -1269,8 +1269,31 @@ with tab5:
             agg.columns = ["年月", "分類", "金額"]
             agg = agg[agg["金額"] > 0]
 
-            st.metric("総額", f"¥{df['amount_num'].sum():,.0f}")
-            st.caption(f"件数：{len(df):,} 件")
+            _TABLEAU20 = [
+                "#4c78a8","#9ecae9","#f58518","#ffbf79","#54a24b","#88d27a",
+                "#b79a20","#f2cf5b","#439894","#83bcb6","#e45756","#ff9d98",
+                "#79706e","#bab0ac","#d67195","#fcbfd2","#b279a2","#d6a5c9",
+                "#9e765f","#d8b5a5",
+            ]
+            _cats = sorted(agg["分類"].unique()) if not agg.empty else []
+            _legend_html = "".join(
+                f'<span style="display:inline-flex;align-items:center;margin:2px 10px 2px 0;font-size:0.82rem">'
+                f'<span style="display:inline-block;width:11px;height:11px;border-radius:2px;'
+                f'background:{_TABLEAU20[i % len(_TABLEAU20)]};margin-right:5px;flex-shrink:0"></span>'
+                f'{cat}</span>'
+                for i, cat in enumerate(_cats)
+            )
+
+            _col_metric, _col_legend = st.columns([2, 8])
+            with _col_metric:
+                st.metric("総額", f"¥{df['amount_num'].sum():,.0f}")
+                st.caption(f"件数：{len(df):,} 件")
+            with _col_legend:
+                st.markdown(
+                    f'<div style="display:flex;flex-wrap:wrap;align-items:flex-start;padding-top:10px">'
+                    f'{_legend_html}</div>',
+                    unsafe_allow_html=True,
+                )
 
             if agg.empty:
                 st.info("対象期間の金額データがありません")
@@ -1280,9 +1303,9 @@ with tab5:
                 x=alt.X("年月:O", title=x_title, sort=_cost_ym_order,
                         axis=alt.Axis(labelAngle=0, labelFontSize=12)),
                 y=alt.Y("金額:Q", title="金額（円）", axis=alt.Axis(format=",.0f")),
-                color=alt.Color("分類:N", title="分類",
+                color=alt.Color("分類:N",
                     scale=alt.Scale(scheme="tableau20"),
-                    legend=alt.Legend(orient="right", labelLimit=300, labelFontSize=10),
+                    legend=None,
                 ),
                 tooltip=["年月:O", "分類:N", alt.Tooltip("金額:Q", format=",.0f")],
             )
