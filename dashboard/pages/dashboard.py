@@ -1306,10 +1306,11 @@ with tab5:
                 text=alt.Text("label:N"),
             )
 
-            st.altair_chart(
-                (bar + label).resolve_scale(color="shared").properties(height=580),
-                use_container_width=True,
-            )
+            _show_labels = len(_cost_ym_order) <= 12
+            _chart = (
+                (bar + label).resolve_scale(color="shared") if _show_labels else bar
+            ).properties(height=580)
+            st.altair_chart(_chart, use_container_width=True)
 
             pivot_c = agg.pivot_table(
                 values="金額", index="分類", columns="年月",
