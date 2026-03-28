@@ -36,6 +36,65 @@ _COMP_NUM_COLS = [
     "total_work_hours",
 ]
 
+# work_category → 業務委託費グラフ分類 マッピング
+_COST_GROUP_MAP: dict[str, str] = {
+    # 行政事業
+    "移動時間": "行政事業（行政事業：ケアプランデータ連携システムを広め隊＆神奈川県事業）",
+    "自家用車使用": "行政事業（行政事業：ケアプランデータ連携システムを広め隊＆神奈川県事業）",
+    "令和7年度行政事業（PM・経産省各リーダー担当者以上）": "行政事業（行政事業：ケアプランデータ連携システムを広め隊＆神奈川県事業）",
+    "令和7年度行政事業（ケアブー：全日稼働）※日給制": "行政事業（行政事業：ケアプランデータ連携システムを広め隊＆神奈川県事業）",
+    "令和7年度行政事業（ケアブー：半日稼働）※日給制": "行政事業（行政事業：ケアプランデータ連携システムを広め隊＆神奈川県事業）",
+    "令和7年度行政事業（共通）": "行政事業（行政事業：ケアプランデータ連携システムを広め隊＆神奈川県事業）",
+    # スポンサー対応
+    "スポンサー対応（PM業務）": "スポンサー対応（主にスマート介護士を推進し隊）",
+    "スポンサー対応（一般業務）": "スポンサー対応（主にスマート介護士を推進し隊）",
+    # タダスク
+    "タダスク関連": "タダスク（主にタダスクわいわい盛り上げ隊）",
+    "タダスク関連【1講座ごと】": "タダスク（主にタダスクわいわい盛り上げ隊）",
+    "タダスク関連打合せ【1講座ごと】": "タダスク（主にタダスクわいわい盛り上げ隊）",
+    "タダスク事務局関連": "タダスク（主にタダスクわいわい盛り上げ隊）",
+    # タダサポ
+    "タダサポ（個別支援）関連": "タダサポ（主にタダスクわいわい盛り上げ隊）",
+    # 出張タダスク
+    "フロント・フロントサポーター（旧ルール）": "出張タダスク（主に出張タダスクで喜ばれ隊）",
+    "フロント（新ルール）【開催日に包括算定】": "出張タダスク（主に出張タダスクで喜ばれ隊）",
+    "フロントサポーター（新ルール）【開催日に包括算定】": "出張タダスク（主に出張タダスクで喜ばれ隊）",
+    "出張タダスク関連": "出張タダスク（主に出張タダスクで喜ばれ隊）",
+    "出張タダスク講師（旧ルール）": "出張タダスク（主に出張タダスクで喜ばれ隊）",
+    "出張タダスク講師（新ルール）【開催日に包括算定】": "出張タダスク（主に出張タダスクで喜ばれ隊）",
+    # タダレク
+    "タダレク関連": "タダレク（主に色んな企業とwin-winになり隊）",
+    # イベント企画/コミュニティ
+    "イベント企画・運営関連": "イベント企画/コミュニティ（主にみんなと仲良くし隊）",
+    "コミュニティ運営（タダコミュ関連）": "イベント企画/コミュニティ（主にみんなと仲良くし隊）",
+    "社内イベント参加": "イベント企画/コミュニティ（主にみんなと仲良くし隊）",
+    # テクニカル・オペレーション業務
+    "オペレーション業務": "テクニカル・オペレーション業務（主にすごいシステムつくり隊）",
+    "テクニカル業務": "テクニカル・オペレーション業務（主にすごいシステムつくり隊）",
+    # タダカヨ経営戦略・業務管理
+    "スペシャリスト業務": "タダカヨ経営戦略・業務管理（主にしっかり法人を経営し隊）",
+    "タダカヨ経営戦略・業務管理": "タダカヨ経営戦略・業務管理（主にしっかり法人を経営し隊）",
+    "社内タダスク": "タダカヨ経営戦略・業務管理（主にしっかり法人を経営し隊）",
+    # 広報
+    "タダカヨ広報関連": "広報（主に広報がんばり隊、シン・もっと寄付を集め隊）",
+    # 法人内MTG
+    "法人内MTG": "法人内MTG（全隊）",
+    # 電話対応
+    "1件対応": "電話対応（主に行政事業中心）",
+    "2件対応": "電話対応（主に行政事業中心）",
+    "3件対応 or 合計30分以上対応": "電話対応（主に行政事業中心）",
+    "待機時間": "電話対応（主に行政事業中心）",
+    # その他
+    "その他（収益事業）": "その他",
+    "発送業務": "その他",
+}
+
+# 非営利活動タブで除外する分類
+_COST_GROUP_EXCLUDE_NONPROFIT: set[str] = {
+    "行政事業（行政事業：ケアプランデータ連携システムを広め隊＆神奈川県事業）",
+    "電話対応（主に行政事業中心）",
+}
+
 
 def _ensure_numeric_pivot(df, exclude_col=None):
     """ピボット表示前にobject型混入列を数値化する（missing_members補完後の型修復用）"""
@@ -597,11 +656,12 @@ def _render_group_tab(
 
 
 # --- タブ ---
-tab1, tab2, tab3, tab4 = st.tabs([
+tab1, tab2, tab3, tab4, tab5 = st.tabs([
     "月別報酬サマリー",
     "スポンサー別業務委託費",
     "業務報告一覧",
     "グループ別",
+    "業務委託費分析",
 ])
 
 
@@ -1112,3 +1172,123 @@ with tab4:
         selected_members,
         range_start_year, range_start_month, range_end_year, range_end_month,
     )
+
+
+# ===== Tab 5: 業務委託費分析 =====
+with tab5:
+    try:
+        df_cost = load_gyomu_with_members()
+    except Exception as e:
+        logger.error("業務委託費データ取得失敗: %s", e, exc_info=True)
+        st.error(f"データ取得エラー: {e}")
+        st.stop()
+
+    if df_cost.empty:
+        st.info("データがありません")
+    else:
+        df_cost = fill_empty_nickname(df_cost)
+        df_cost["year"] = valid_years(df_cost["year"])
+        df_cost = df_cost[df_cost["year"].notna()]
+        df_cost["year"] = df_cost["year"].astype(int)
+        df_cost["amount_num"] = clean_numeric_series(df_cost["amount"])
+        df_cost["month_num"] = df_cost["month"].astype("Int64").astype(str).replace("<NA>", "")
+
+        if selected_month != "期間指定":
+            _cost_f = df_cost[
+                (df_cost["year"] == selected_year) &
+                (df_cost["month_num"] == str(int(selected_month.replace("月", ""))))
+            ]
+        else:
+            _cost_ym = df_cost["year"] * 100 + df_cost["month_num"].apply(
+                lambda x: int(x) if x.isdigit() else 0
+            )
+            _cost_f = df_cost[
+                (_cost_ym >= range_start_year * 100 + range_start_month) &
+                (_cost_ym <= range_end_year * 100 + range_end_month)
+            ]
+        if selected_members:
+            _cost_f = _cost_f[_cost_f["nickname"].isin(selected_members)]
+
+        _cost_f = _cost_f.copy()
+        _cost_f["cost_group"] = _cost_f["work_category"].map(_COST_GROUP_MAP).fillna("(未分類)")
+
+        _cf = _cost_f[_cost_f["month_num"].str.isdigit()].copy()
+        _cf["ym_label"] = _cf["year"].astype(str) + "年" + _cf["month_num"] + "月"
+        _cost_ym_sort: dict[str, int] = {}
+        for _, _r in _cf.drop_duplicates("ym_label").iterrows():
+            _cost_ym_sort[_r["ym_label"]] = int(_r["year"]) * 100 + int(_r["month_num"])
+        _cost_ym_order = sorted(_cost_ym_sort.keys(), key=lambda k: _cost_ym_sort[k])
+
+        ctab1, ctab2 = st.tabs(["業務委託費全体", "非営利活動"])
+
+        def _render_cost_chart(df: pd.DataFrame, x_title: str) -> None:
+            if df.empty:
+                st.info("対象期間のデータがありません")
+                return
+
+            agg = (
+                df.groupby(["ym_label", "cost_group"])["amount_num"]
+                .sum()
+                .reset_index()
+            )
+            agg.columns = ["年月", "分類", "金額"]
+            agg = agg[agg["金額"] > 0]
+
+            st.metric("総額", f"¥{df['amount_num'].sum():,.0f}")
+            st.caption(f"件数：{len(df):,} 件")
+
+            if agg.empty:
+                st.info("対象期間の金額データがありません")
+                return
+
+            bar = alt.Chart(agg).mark_bar(size=40).encode(
+                x=alt.X("年月:O", title=x_title, sort=_cost_ym_order,
+                        axis=alt.Axis(labelAngle=0, labelFontSize=12)),
+                y=alt.Y("金額:Q", title="金額（円）", axis=alt.Axis(format=",.0f")),
+                color=alt.Color("分類:N", title="分類",
+                    scale=alt.Scale(scheme="tableau20"),
+                    legend=alt.Legend(orient="right", labelLimit=300, labelFontSize=10),
+                ),
+                tooltip=["年月:O", "分類:N", alt.Tooltip("金額:Q", format=",.0f")],
+            )
+
+            totals = agg.groupby("年月")["金額"].sum().reset_index()
+            totals.columns = ["年月", "合計"]
+            totals["label"] = totals["合計"].apply(lambda x: f"¥{x:,.0f}")
+            label = alt.Chart(totals).mark_text(dy=-8, fontSize=11, color="#666666").encode(
+                x=alt.X("年月:O", sort=_cost_ym_order),
+                y=alt.Y("合計:Q", stack="zero"),
+                text=alt.Text("label:N"),
+            )
+
+            st.altair_chart(
+                (bar + label).resolve_scale(color="shared").properties(height=580),
+                use_container_width=True,
+            )
+
+            pivot_c = agg.pivot_table(
+                values="金額", index="分類", columns="年月",
+                aggfunc="sum", fill_value=0,
+            )
+            pivot_c = pivot_c[sorted(pivot_c.columns, key=lambda c: _cost_ym_sort.get(c, 9999))]
+            pivot_c["合計"] = pivot_c.sum(axis=1)
+            pivot_c = pivot_c.sort_values("合計", ascending=False)
+            st.dataframe(pivot_c.style.format("¥{:,.0f}"), use_container_width=True)
+
+            unmapped = df[df["cost_group"] == "(未分類)"]["work_category"].drop_duplicates().sort_values()
+            if not unmapped.empty:
+                with st.expander(f"未分類の業務分類（{len(unmapped)} 件）", expanded=True):
+                    items = "".join(f"<li>{v}</li>" for v in unmapped)
+                    st.markdown(
+                        f'<ul style="color:#888888;font-size:0.9rem;margin:0">{items}</ul>',
+                        unsafe_allow_html=True,
+                    )
+
+        with ctab1:
+            st.subheader("業務委託費全体（分類別・月次推移）")
+            _render_cost_chart(_cf, x_title="人件費（全体）")
+
+        with ctab2:
+            st.subheader("非営利活動（分類別・月次推移）")
+            _cf_np = _cf[~_cf["cost_group"].isin(_COST_GROUP_EXCLUDE_NONPROFIT)].copy()
+            _render_cost_chart(_cf_np, x_title="人件費（行政事業以外）")
