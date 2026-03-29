@@ -1299,6 +1299,10 @@ with tab5:
 
             _sel_name = f"sel_{chart_key}"
             _sel = alt.selection_point(name=_sel_name, fields=["分類"])
+            _ver_key = f"_chart_ver_{chart_key}"
+            if _ver_key not in st.session_state:
+                st.session_state[_ver_key] = 0
+            _widget_key = f"chart_{chart_key}_{st.session_state[_ver_key]}"
 
             bar = alt.Chart(agg).mark_bar().encode(
                 x=alt.X("年月:O", title=x_title, sort=_cost_ym_order,
@@ -1325,7 +1329,7 @@ with tab5:
             _chart = (
                 (bar + label).resolve_scale(color="shared") if _show_labels else bar
             ).properties(height=580)
-            _event = st.altair_chart(_chart, use_container_width=True, on_select="rerun", key=f"chart_{chart_key}")
+            _event = st.altair_chart(_chart, use_container_width=True, on_select="rerun", key=_widget_key)
 
             # ドリルダウン：分類クリック時にメンバー別内訳を表示
             _selected_cost = None
@@ -1338,8 +1342,13 @@ with tab5:
 
             if _selected_cost:
                 st.divider()
-                st.markdown(f"#### ドリルダウン：{_selected_cost}")
-                st.caption("同じ分類バーをもう一度クリックすると解除されます")
+                _hdr_col, _btn_col = st.columns([4, 1])
+                with _hdr_col:
+                    st.markdown(f"#### ドリルダウン：{_selected_cost}")
+                with _btn_col:
+                    if st.button("選択解除", key=f"clear_{chart_key}"):
+                        st.session_state[_ver_key] += 1
+                        st.rerun()
                 _drill_df = df[df["cost_group"] == _selected_cost].copy()
                 _drill_df["display_name"] = _drill_df["nickname"].map(lambda n: name_map.get(n, n))
                 _drill_agg = (
@@ -1362,7 +1371,7 @@ with tab5:
                         color=alt.Color("メンバー:N",
                             legend=alt.Legend(orient="right", labelFontSize=10)),
                         tooltip=["年月:O", "メンバー:N", alt.Tooltip("金額:Q", format=",.0f")],
-                    ).properties(height=350)
+                    ).properties(height=500)
                     st.altair_chart(_drill_chart, use_container_width=True)
                     _member_total = (
                         _drill_df.groupby(_drill_df["nickname"].map(lambda n: name_map.get(n, n)))["amount_num"]
