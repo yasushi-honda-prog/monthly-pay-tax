@@ -979,8 +979,8 @@ with tab1:
                         y=alt.Y("金額:Q", title="金額", axis=alt.Axis(format=",.0f"), stack=False),
                         color=alt.Color("項目:N", title="項目"),
                         xOffset="項目:N",
-                    )
-                    st.altair_chart(chart, use_container_width=True)
+                    ).properties(width="container")
+                    st.altair_chart(chart, use_container_width=False)
                 else:
                     st.info("該当するデータがありません")
             else:
@@ -1101,8 +1101,8 @@ with tab2:
                 chart = alt.Chart(cat_df).mark_bar().encode(
                     x=alt.X("活動分類:N", sort="-y"),
                     y=alt.Y("金額:Q", axis=alt.Axis(format=",.0f"), stack=False),
-                )
-                st.altair_chart(chart, use_container_width=True)
+                ).properties(width="container")
+                st.altair_chart(chart, use_container_width=False)
             else:
                 st.info("該当するデータがありません")
 
@@ -1300,7 +1300,7 @@ with tab5:
             bar = alt.Chart(agg).mark_bar().encode(
                 x=alt.X("年月:O", title=x_title, sort=_cost_ym_order,
                         axis=alt.Axis(labelAngle=0, labelFontSize=12)),
-                y=alt.Y("金額:Q", title="金額（円）", axis=alt.Axis(format=",.0f")),
+                y=alt.Y("金額:Q", title="金額（円）", axis=alt.Axis(format=",.0f"), stack="zero"),
                 color=alt.Color("分類:N", title="分類",
                     scale=alt.Scale(domain=_COST_COLOR_DOMAIN, range=_COST_COLOR_RANGE),
                     legend=alt.Legend(orient="right", labelLimit=300, labelFontSize=10),
@@ -1313,15 +1313,15 @@ with tab5:
             totals["label"] = totals["合計"].apply(lambda x: f"¥{x:,.0f}")
             label = alt.Chart(totals).mark_text(dy=-8, fontSize=11, color="#666666").encode(
                 x=alt.X("年月:O", sort=_cost_ym_order),
-                y=alt.Y("合計:Q", stack="zero"),
+                y=alt.Y("合計:Q", stack=False),
                 text=alt.Text("label:N"),
             )
 
             _show_labels = len(_cost_ym_order) <= 12
             _chart = (
                 (bar + label).resolve_scale(color="shared") if _show_labels else bar
-            ).properties(height=580)
-            st.altair_chart(_chart, use_container_width=True)
+            ).properties(height=580, width="container")
+            st.altair_chart(_chart, use_container_width=False)
 
             pivot_c = agg.pivot_table(
                 values="金額", index="分類", columns="年月",
