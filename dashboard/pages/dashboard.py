@@ -1277,7 +1277,7 @@ with tab5:
 
         ctab1, ctab2 = st.tabs(["業務委託費全体", "非営利活動"])
 
-        def _render_cost_chart(df: pd.DataFrame, x_title: str) -> None:
+        def _render_cost_chart(df: pd.DataFrame, x_title: str, chart_key: str = "default") -> None:
             if df.empty:
                 st.info("対象期間のデータがありません")
                 return
@@ -1291,11 +1291,14 @@ with tab5:
             agg = agg[agg["金額"] > 0]
 
             st.metric("総額", f"¥{df['amount_num'].sum():,.0f}")
-            st.caption(f"件数：{len(df):,} 件")
+            st.caption(f"件数：{len(df):,} 件  ／  分類バーをクリックするとメンバー別にドリルダウンします")
 
             if agg.empty:
                 st.info("対象期間の金額データがありません")
                 return
+
+            _sel_name = f"sel_{chart_key}"
+            _sel = alt.selection_point(name=_sel_name, fields=["分類"])
 
             bar = alt.Chart(agg).mark_bar().encode(
                 x=alt.X("年月:O", title=x_title, sort=_cost_ym_order,
@@ -1305,8 +1308,9 @@ with tab5:
                     scale=alt.Scale(domain=_COST_COLOR_DOMAIN, range=_COST_COLOR_RANGE),
                     legend=alt.Legend(orient="right", labelLimit=300, labelFontSize=10),
                 ),
+                opacity=alt.condition(_sel, alt.value(1.0), alt.value(0.35)),
                 tooltip=["年月:O", "分類:N", alt.Tooltip("金額:Q", format=",.0f")],
-            )
+            ).add_params(_sel)
 
             totals = agg.groupby("年月")["金額"].sum().reset_index()
             totals.columns = ["年月", "合計"]
@@ -1321,7 +1325,59 @@ with tab5:
             _chart = (
                 (bar + label).resolve_scale(color="shared") if _show_labels else bar
             ).properties(height=580)
-            st.altair_chart(_chart, use_container_width=True)
+            _event = st.altair_chart(_chart, use_container_width=True, on_select="rerun", key=f"chart_{chart_key}")
+
+            # ドリルダウン：分類クリック時にメンバー別内訳を表示
+            _selected_cost = None
+            try:
+                _pts = (_event.selection or {}).get(_sel_name, [])
+                if _pts:
+                    _selected_cost = _pts[0].get("分類")
+            except Exception:
+                pass
+
+            if _selected_cost:
+                st.divider()
+                st.markdown(f"#### ドリルダウン：{_selected_cost}")
+                st.caption("同じ分類バーをもう一度クリックすると解除されます")
+                _drill_df = df[df["cost_group"] == _selected_cost].copy()
+                _drill_df["display_name"] = _drill_df["nickname"].map(lambda n: name_map.get(n, n))
+                _drill_agg = (
+                    _drill_df.groupby(["ym_label", "display_name"])["amount_num"]
+                    .sum()
+                    .reset_index()
+                )
+                _drill_agg.columns = ["年月", "メンバー", "金額"]
+                _drill_agg = _drill_agg[_drill_agg["金額"] > 0]
+                if not _drill_agg.empty:
+                    dc1, dc2 = st.columns(2)
+                    with dc1:
+                        render_kpi("分類合計", f"¥{_drill_df['amount_num'].sum():,.0f}")
+                    with dc2:
+                        render_kpi("メンバー数", f"{_drill_df['nickname'].nunique()} 名")
+                    _drill_chart = alt.Chart(_drill_agg).mark_bar().encode(
+                        x=alt.X("年月:O", title="年月", sort=_cost_ym_order,
+                                axis=alt.Axis(labelAngle=0, labelFontSize=11)),
+                        y=alt.Y("金額:Q", title="金額（円）", axis=alt.Axis(format=",.0f"), stack="zero"),
+                        color=alt.Color("メンバー:N",
+                            legend=alt.Legend(orient="right", labelFontSize=10)),
+                        tooltip=["年月:O", "メンバー:N", alt.Tooltip("金額:Q", format=",.0f")],
+                    ).properties(height=350)
+                    st.altair_chart(_drill_chart, use_container_width=True)
+                    _member_total = (
+                        _drill_df.groupby(_drill_df["nickname"].map(lambda n: name_map.get(n, n)))["amount_num"]
+                        .sum()
+                        .sort_values(ascending=False)
+                        .reset_index()
+                    )
+                    _member_total.columns = ["メンバー", "合計（円）"]
+                    st.dataframe(
+                        _member_total.style.format({"合計（円）": "¥{:,.0f}"}),
+                        hide_index=True, use_container_width=True,
+                    )
+                else:
+                    st.info("対象期間にデータがありません")
+                st.divider()
 
             pivot_c = agg.pivot_table(
                 values="金額", index="分類", columns="年月",
@@ -1349,9 +1405,9 @@ with tab5:
 
         with ctab1:
             st.subheader("業務委託費全体（分類別・月次推移）")
-            _render_cost_chart(_cf, x_title="人件費（全体）")
+            _render_cost_chart(_cf, x_title="人件費（全体）", chart_key="all")
 
         with ctab2:
             st.subheader("非営利活動（分類別・月次推移）")
             _cf_np = _cf[~_cf["cost_group"].isin(_COST_GROUP_EXCLUDE_NONPROFIT)].copy()
-            _render_cost_chart(_cf_np, x_title="人件費（行政事業以外）")
+            _render_cost_chart(_cf_np, x_title="人件費（行政事業以外）", chart_key="np")
