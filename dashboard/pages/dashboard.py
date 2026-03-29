@@ -1342,9 +1342,7 @@ with tab5:
 
             if _selected_cost:
                 st.divider()
-                _hdr_col, _btn_col = st.columns([4, 1])
-                with _hdr_col:
-                    st.markdown(f"#### ドリルダウン：{_selected_cost}")
+                _btn_col, _ = st.columns([1, 4])
                 with _btn_col:
                     if st.button("選択解除", key=f"clear_{chart_key}"):
                         st.session_state[_ver_key] += 1
@@ -1359,12 +1357,6 @@ with tab5:
                 _drill_agg.columns = ["年月", "メンバー", "金額"]
                 _drill_agg = _drill_agg[_drill_agg["金額"] > 0]
                 if not _drill_agg.empty:
-                    # 含まれる業務分類を明示
-                    _wcat_in_group = sorted(_drill_df["work_category"].dropna().unique())
-                    st.caption(
-                        f"集計対象：{_selected_cost} に属する業務分類のみ"
-                        f"（{', '.join(_wcat_in_group)}）"
-                    )
                     dc1, dc2 = st.columns(2)
                     with dc1:
                         render_kpi("分類合計", f"¥{_drill_df['amount_num'].sum():,.0f}")
