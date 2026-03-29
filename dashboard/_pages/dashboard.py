@@ -1291,7 +1291,7 @@ with tab5:
             agg = agg[agg["金額"] > 0]
 
             st.metric("総額", f"¥{df['amount_num'].sum():,.0f}")
-            st.caption(f"件数：{len(df):,} 件  ／  分類バーをクリックするとメンバー別にドリルダウンします  ／  ダブルクリックするとドリルダウンが解除されます")
+            st.caption(f"件数：{len(df):,} 件  ／  分類バーをクリックするとメンバー別にドリルダウンします")
 
             if agg.empty:
                 st.info("対象期間の金額データがありません")
@@ -1349,6 +1349,7 @@ with tab5:
                     if st.button("選択解除", key=f"clear_{chart_key}"):
                         st.session_state[_ver_key] += 1
                         st.rerun()
+                st.caption("ダブルクリックするとドリルダウンが解除されます")
                 _drill_df = df[df["cost_group"] == _selected_cost].copy()
                 _drill_df["display_name"] = _drill_df["nickname"].map(lambda n: name_map.get(n, n))
                 _drill_agg = (
@@ -1378,6 +1379,8 @@ with tab5:
                         render_kpi("分類合計", f"¥{_drill_df['amount_num'].sum():,.0f}")
                     with dc2:
                         render_kpi("メンバー数", f"{_drill_df['nickname'].nunique()} 名")
+                    _n_members = _drill_agg["メンバー"].nunique()
+                    _drill_height = max(500, _n_members * 20 + 80)
                     _drill_chart = alt.Chart(_drill_agg).mark_bar().encode(
                         x=alt.X("年月:O", title="年月", sort=_cost_ym_order,
                                 axis=alt.Axis(labelAngle=0, labelFontSize=11)),
@@ -1385,7 +1388,7 @@ with tab5:
                         color=alt.Color("メンバー:N",
                             legend=alt.Legend(orient="right", labelFontSize=10)),
                         tooltip=["年月:O", "メンバー:N", alt.Tooltip("金額:Q", format=",.0f")],
-                    ).properties(height=500)
+                    ).properties(height=_drill_height)
                     st.altair_chart(_drill_chart, use_container_width=True)
                     # メンバー別合計（この分類のみ）
                     _member_total = (
@@ -1398,7 +1401,6 @@ with tab5:
                     st.dataframe(
                         _member_total.style.format({"合計（円）": "¥{:,.0f}"}),
                         hide_index=True, use_container_width=True,
-                        height=35 * (len(_member_total) + 1) + 5,
                     )
                 else:
                     st.info("対象期間にデータがありません")
