@@ -152,11 +152,8 @@ CUSTOM_CSS = """
         overflow: hidden;
     }
 
-    /* Altairチャートのテーブル切り替えボタンを非表示（切り替え後に戻れなくなるため） */
-    [data-testid="stVegaLiteChart"] button[title="View as table"],
-    [data-testid="stVegaLiteChart"] button[title="View as chart"],
-    [data-testid="stVegaLiteChart"] button[aria-label="View as table"],
-    [data-testid="stVegaLiteChart"] button[aria-label="View as chart"] {
+    /* Altairチャートのツールバーを非表示（テーブル切り替えで戻れなくなるため） */
+    [data-testid="element-container"]:has([data-testid="stVegaLiteChart"]) [data-testid="stElementToolbar"] {
         display: none !important;
     }
 
