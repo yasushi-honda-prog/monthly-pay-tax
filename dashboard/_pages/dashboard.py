@@ -1291,7 +1291,7 @@ with tab5:
             agg = agg[agg["金額"] > 0]
 
             st.metric("総額", f"¥{df['amount_num'].sum():,.0f}")
-            st.caption(f"件数：{len(df):,} 件  ／  分類バーをクリックするとメンバー別にドリルダウンします")
+            st.caption(f"件数：{len(df):,} 件  ／  分類バーをダブルクリックするとメンバー別にドリルダウンします")
 
             if agg.empty:
                 st.info("対象期間の金額データがありません")
@@ -1371,6 +1371,7 @@ with tab5:
                         st.dataframe(
                             _wcat_total.style.format({"金額（円）": "¥{:,.0f}"}),
                             hide_index=True, use_container_width=True,
+                            height=35 * (len(_wcat_total) + 1) + 5,
                         )
                     dc1, dc2 = st.columns(2)
                     with dc1:
@@ -1397,6 +1398,7 @@ with tab5:
                     st.dataframe(
                         _member_total.style.format({"合計（円）": "¥{:,.0f}"}),
                         hide_index=True, use_container_width=True,
+                        height=35 * (len(_member_total) + 1) + 5,
                     )
                 else:
                     st.info("対象期間にデータがありません")
@@ -1409,7 +1411,11 @@ with tab5:
             pivot_c = pivot_c[sorted(pivot_c.columns, key=lambda c: _cost_ym_sort.get(c, 9999))]
             pivot_c["合計"] = pivot_c.sum(axis=1)
             pivot_c = pivot_c.sort_values("合計", ascending=False)
-            st.dataframe(pivot_c.style.format("¥{:,.0f}"), use_container_width=True)
+            st.dataframe(
+                pivot_c.style.format("¥{:,.0f}"),
+                use_container_width=True,
+                height=35 * (len(pivot_c) + 1) + 5,
+            )
 
             unmapped = (
                 df[df["cost_group"] == "(未分類)"]["work_category"]
