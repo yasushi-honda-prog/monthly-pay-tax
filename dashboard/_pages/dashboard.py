@@ -1344,12 +1344,12 @@ with tab5:
                 st.divider()
                 _hdr_col, _btn_col = st.columns([4, 1])
                 with _hdr_col:
-                    st.markdown(f"#### 内訳：{_selected_cost}")
+                    st.markdown(f"##### 内訳：{_selected_cost}")
                 with _btn_col:
                     if st.button("選択解除", key=f"clear_{chart_key}"):
                         st.session_state[_ver_key] += 1
                         st.rerun()
-                st.caption("ダブルクリックするとドリルダウンが解除されます")
+                st.caption("分類バーをダブルクリックするとドリルダウンが解除されます")
                 _drill_df = df[df["cost_group"] == _selected_cost].copy()
                 _drill_df["display_name"] = _drill_df["nickname"].map(lambda n: name_map.get(n, n))
                 _drill_agg = (
