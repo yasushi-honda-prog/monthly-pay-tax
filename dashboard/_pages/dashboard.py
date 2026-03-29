@@ -1330,6 +1330,10 @@ with tab5:
                 (bar + label).resolve_scale(color="shared") if _show_labels else bar
             ).properties(height=580)
             _event = st.altair_chart(_chart, use_container_width=True, on_select="rerun", key=_widget_key)
+            if st.button("チャートをリセット", key=f"reset_view_{chart_key}",
+                         help="テーブル表示になった場合はクリックするとチャートに戻ります"):
+                st.session_state[_ver_key] += 1
+                st.rerun()
 
             # ドリルダウン：分類クリック時にメンバー別内訳を表示
             _selected_cost = None
@@ -1374,6 +1378,7 @@ with tab5:
                             hide_index=True, use_container_width=True,
                             height=35 * (len(_wcat_total) + 1) + 5,
                         )
+                        st.caption("全画面表示中は Esc キーで元の画面に戻れます")
                     dc1, dc2 = st.columns(2)
                     with dc1:
                         render_kpi("分類合計", f"¥{_drill_df['amount_num'].sum():,.0f}")
@@ -1421,6 +1426,7 @@ with tab5:
                 use_container_width=True,
                 height=35 * (len(pivot_display) + 1) + 5,
             )
+            st.caption("全画面表示中は Esc キーで元の画面に戻れます")
 
             unmapped = (
                 df[df["cost_group"] == "(未分類)"]["work_category"]

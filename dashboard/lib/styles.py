@@ -153,7 +153,9 @@ CUSTOM_CSS = """
     }
 
     /* Altairチャートのツールバーを非表示（テーブル切り替えで戻れなくなるため） */
-    [data-testid="element-container"]:has([data-testid="stVegaLiteChart"]) [data-testid="stElementToolbar"] {
+    [data-testid="stElementToolbar"]:has(~ [data-testid="stVegaLiteChart"]),
+    [data-testid="stVegaLiteChart"] ~ [data-testid="stElementToolbar"],
+    [data-testid="stElementToolbar"] {
         display: none !important;
     }
 
