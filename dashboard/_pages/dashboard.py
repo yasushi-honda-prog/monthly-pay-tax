@@ -1386,7 +1386,7 @@ with tab5:
                                 axis=alt.Axis(labelAngle=0, labelFontSize=11)),
                         y=alt.Y("金額:Q", title="金額（円）", axis=alt.Axis(format=",.0f"), stack="zero"),
                         color=alt.Color("メンバー:N",
-                            legend=alt.Legend(orient="right", labelFontSize=10)),
+                            legend=alt.Legend(orient="right", labelFontSize=10, symbolLimit=0)),
                         tooltip=["年月:O", "メンバー:N", alt.Tooltip("金額:Q", format=",.0f")],
                     ).properties(height=_drill_height)
                     st.altair_chart(_drill_chart, use_container_width=True)
