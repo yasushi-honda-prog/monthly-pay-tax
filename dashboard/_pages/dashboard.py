@@ -1413,10 +1413,13 @@ with tab5:
             pivot_c = pivot_c[sorted(pivot_c.columns, key=lambda c: _cost_ym_sort.get(c, 9999))]
             pivot_c["合計"] = pivot_c.sum(axis=1)
             pivot_c = pivot_c.sort_values("合計", ascending=False)
+            pivot_display = pivot_c.reset_index()
+            _num_cols = [c for c in pivot_display.columns if c != "分類"]
             st.dataframe(
-                pivot_c.style.format("¥{:,.0f}"),
+                pivot_display.style.format({c: "¥{:,.0f}" for c in _num_cols}),
+                hide_index=True,
                 use_container_width=True,
-                height=35 * (len(pivot_c) + 1) + 5,
+                height=35 * (len(pivot_display) + 1) + 5,
             )
 
             unmapped = (
