@@ -141,9 +141,9 @@ CUSTOM_CSS = """
         gap: 0;
     }
     .stTabs [data-baseweb="tab"] {
-        padding: 0.6rem 1.5rem;
+        padding: 0.6rem 0.75rem;
         font-weight: 600;
-        font-size: 0.85rem;
+        font-size: 0.82rem;
     }
 
     /* データフレーム */
