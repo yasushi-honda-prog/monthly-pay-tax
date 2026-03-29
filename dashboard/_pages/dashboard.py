@@ -1291,7 +1291,7 @@ with tab5:
             agg = agg[agg["金額"] > 0]
 
             st.metric("総額", f"¥{df['amount_num'].sum():,.0f}")
-            st.caption(f"件数：{len(df):,} 件  ／  分類バーをダブルクリックするとメンバー別にドリルダウンします")
+            st.caption(f"件数：{len(df):,} 件  ／  分類バーをクリックするとメンバー別にドリルダウンします  ／  ダブルクリックするとドリルダウンが解除されます")
 
             if agg.empty:
                 st.info("対象期間の金額データがありません")
@@ -1319,7 +1319,7 @@ with tab5:
             totals = agg.groupby("年月")["金額"].sum().reset_index()
             totals.columns = ["年月", "合計"]
             totals["label"] = totals["合計"].apply(lambda x: f"¥{x:,.0f}")
-            label = alt.Chart(totals).mark_text(dy=-8, fontSize=11, color="#666666").encode(
+            label = alt.Chart(totals).mark_text(dy=-8, fontSize=11).encode(
                 x=alt.X("年月:O", sort=_cost_ym_order),
                 y=alt.Y("合計:Q", stack=False),
                 text=alt.Text("label:N"),
