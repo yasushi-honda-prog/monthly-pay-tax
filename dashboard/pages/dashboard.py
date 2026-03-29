@@ -979,8 +979,8 @@ with tab1:
                         y=alt.Y("金額:Q", title="金額", axis=alt.Axis(format=",.0f"), stack=False),
                         color=alt.Color("項目:N", title="項目"),
                         xOffset="項目:N",
-                    ).properties(width="container")
-                    st.altair_chart(chart, use_container_width=False)
+                    )
+                    st.altair_chart(chart, use_container_width=True)
                 else:
                     st.info("該当するデータがありません")
             else:
@@ -1101,8 +1101,8 @@ with tab2:
                 chart = alt.Chart(cat_df).mark_bar().encode(
                     x=alt.X("活動分類:N", sort="-y"),
                     y=alt.Y("金額:Q", axis=alt.Axis(format=",.0f"), stack=False),
-                ).properties(width="container")
-                st.altair_chart(chart, use_container_width=False)
+                )
+                st.altair_chart(chart, use_container_width=True)
             else:
                 st.info("該当するデータがありません")
 
@@ -1320,8 +1320,8 @@ with tab5:
             _show_labels = len(_cost_ym_order) <= 12
             _chart = (
                 (bar + label).resolve_scale(color="shared") if _show_labels else bar
-            ).properties(height=580, width="container")
-            st.altair_chart(_chart, use_container_width=False)
+            ).properties(height=580)
+            st.altair_chart(_chart, use_container_width=True)
 
             pivot_c = agg.pivot_table(
                 values="金額", index="分類", columns="年月",
