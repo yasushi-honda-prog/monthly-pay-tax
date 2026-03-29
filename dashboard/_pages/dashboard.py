@@ -1359,6 +1359,19 @@ with tab5:
                 _drill_agg.columns = ["年月", "メンバー", "金額"]
                 _drill_agg = _drill_agg[_drill_agg["金額"] > 0]
                 if not _drill_agg.empty:
+                    # 業務分類別内訳（タイトル直下）
+                    with st.expander("業務分類別内訳を表示"):
+                        _wcat_total = (
+                            _drill_df.groupby("work_category")["amount_num"]
+                            .sum()
+                            .sort_values(ascending=False)
+                            .reset_index()
+                        )
+                        _wcat_total.columns = ["業務分類", "金額（円）"]
+                        st.dataframe(
+                            _wcat_total.style.format({"金額（円）": "¥{:,.0f}"}),
+                            hide_index=True, use_container_width=True,
+                        )
                     dc1, dc2 = st.columns(2)
                     with dc1:
                         render_kpi("分類合計", f"¥{_drill_df['amount_num'].sum():,.0f}")
@@ -1385,19 +1398,6 @@ with tab5:
                         _member_total.style.format({"合計（円）": "¥{:,.0f}"}),
                         hide_index=True, use_container_width=True,
                     )
-                    # 業務分類別内訳（透明性確保）
-                    with st.expander("業務分類別内訳を表示"):
-                        _wcat_total = (
-                            _drill_df.groupby("work_category")["amount_num"]
-                            .sum()
-                            .sort_values(ascending=False)
-                            .reset_index()
-                        )
-                        _wcat_total.columns = ["業務分類", "金額（円）"]
-                        st.dataframe(
-                            _wcat_total.style.format({"金額（円）": "¥{:,.0f}"}),
-                            hide_index=True, use_container_width=True,
-                        )
                 else:
                     st.info("対象期間にデータがありません")
                 st.divider()

@@ -48,25 +48,25 @@ if role is None:
 
 # --- ページ定義 ---
 base_pages = [
-    st.Page("pages/dashboard.py", title="ダッシュボード", icon=":material/bar_chart:", default=True),
+    st.Page("_pages/dashboard.py", title="ダッシュボード", icon=":material/bar_chart:", default=True),
 ]
 
 user_pages = [
-    st.Page("pages/report_input.py", title="報告入力", icon=":material/edit:"),
+    st.Page("_pages/report_input.py", title="報告入力", icon=":material/edit:"),
 ]
 
 checker_pages = [
-    st.Page("pages/check_management.py", title="業務チェック", icon=":material/fact_check:"),
+    st.Page("_pages/check_management.py", title="業務チェック", icon=":material/fact_check:"),
 ]
 
 utility_pages = [
-    st.Page("pages/architecture.py", title="アーキテクチャ", icon=":material/account_tree:"),
-    st.Page("pages/help.py", title="ヘルプ", icon=":material/help_outline:"),
+    st.Page("_pages/architecture.py", title="アーキテクチャ", icon=":material/account_tree:"),
+    st.Page("_pages/help.py", title="ヘルプ", icon=":material/help_outline:"),
 ]
 
 admin_pages = [
-    st.Page("pages/user_management.py", title="ユーザー管理", icon=":material/manage_accounts:"),
-    st.Page("pages/admin_settings.py", title="管理設定", icon=":material/settings:"),
+    st.Page("_pages/user_management.py", title="ユーザー管理", icon=":material/manage_accounts:"),
+    st.Page("_pages/admin_settings.py", title="管理設定", icon=":material/settings:"),
 ]
 
 if role == "admin":
