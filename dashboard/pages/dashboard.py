@@ -1342,7 +1342,9 @@ with tab5:
 
             if _selected_cost:
                 st.divider()
-                _btn_col, _ = st.columns([1, 4])
+                _hdr_col, _btn_col = st.columns([4, 1])
+                with _hdr_col:
+                    st.markdown(f"#### 内訳：{_selected_cost}")
                 with _btn_col:
                     if st.button("選択解除", key=f"clear_{chart_key}"):
                         st.session_state[_ver_key] += 1
