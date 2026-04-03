@@ -45,6 +45,9 @@ _COST_GROUP_MAP: dict[str, str] = {
     "令和7年度行政事業（ケアプー：全日稼働）※日給制": "行政事業（行政事業：ケアプランデータ連携システムを広め隊＆神奈川県事業）",
     "令和7年度行政事業（ケアプー：半日稼働）※日給制": "行政事業（行政事業：ケアプランデータ連携システムを広め隊＆神奈川県事業）",
     "令和7年度行政事業（共通）": "行政事業（行政事業：ケアプランデータ連携システムを広め隊＆神奈川県事業）",
+    "令和8年度行政事業（共通）": "行政事業（行政事業：ケアプランデータ連携システムを広め隊＆神奈川県事業）",
+    "行政事業（ケアプー：全日稼働）※日給制": "行政事業（行政事業：ケアプランデータ連携システムを広め隊＆神奈川県事業）",
+    "行政事業（ケアプー：半日稼働）※日給制": "行政事業（行政事業：ケアプランデータ連携システムを広め隊＆神奈川県事業）",
     # スポンサー対応
     "スポンサー対応（PM業務）": "スポンサー対応（主にスマート介護士を推進し隊）",
     "スポンサー対応（一般業務）": "スポンサー対応（主にスマート介護士を推進し隊）",
@@ -277,16 +280,16 @@ with st.sidebar:
 
         # 表示範囲セレクタ（スライダーに表示する月数を絞る）
         _view_options = {"当期": "当期", "直近1年": 12, "直近2年": 24, "直近3年": 36, "全期間": None}  # noqa
-        _prev_view = st.session_state.get("_prev_range_view_scope", None)
+        _prev_view = st.session_state.get("_prev_range_view_scope_v2", None)
         _view_label = st.selectbox(
-            "表示範囲", list(_view_options.keys()), index=0, key="range_view_scope",
+            "表示範囲", list(_view_options.keys()), index=0, key="range_view_scope_v2",
             label_visibility="collapsed",
         )
         # 表示範囲が変わったらプルダウンの選択をリセット
         if _view_label != _prev_view:
             st.session_state.pop("dd_range_start", None)
             st.session_state.pop("dd_range_end", None)
-        st.session_state["_prev_range_view_scope"] = _view_label
+        st.session_state["_prev_range_view_scope_v2"] = _view_label
         _months_limit = _view_options[_view_label]
 
         def _ym_tuple(s):
@@ -746,7 +749,7 @@ with tab1:
         with k5:
             render_kpi("立替", f"¥{filtered['reimbursement'].sum():,.0f}")
 
-        mtab1, mtab2, mtab3, mtab4, mtab5 = st.tabs(["メンバー別 月次支払額", "メンバー別 月次活動時間", "メンバー別 報酬明細", "月次 報酬明細", "月次推移"])
+        mtab1, mtab2, mtab3, mtab4, mtab5 = st.tabs(["月次支払額", "月次活動時間", "報酬明細", "月次報酬明細", "月次推移"])
 
         # メンバー×月ピボット
         with mtab1:
@@ -1291,7 +1294,8 @@ with tab5:
             agg = agg[agg["金額"] > 0]
 
             st.metric("総額", f"¥{df['amount_num'].sum():,.0f}")
-            st.caption(f"件数：{len(df):,} 件  ／  分類バーをクリックするとメンバー別にドリルダウンします")
+            _member_count = df["nickname"].nunique()
+            st.caption(f"件数：{len(df):,} 件  ／  人数：{_member_count:,} 人  ／  分類バーをクリックするとメンバー別にドリルダウンします")
 
             if agg.empty:
                 st.info("対象期間の金額データがありません")
@@ -1445,9 +1449,9 @@ with tab5:
 
         with ctab1:
             st.subheader("業務委託費全体（分類別・月次推移）")
-            _render_cost_chart(_cf, x_title="人件費（全体）", chart_key="all")
+            _render_cost_chart(_cf, x_title="業務委託費（全体）", chart_key="all")
 
         with ctab2:
             st.subheader("非営利活動（分類別・月次推移）")
             _cf_np = _cf[~_cf["cost_group"].isin(_COST_GROUP_EXCLUDE_NONPROFIT)].copy()
-            _render_cost_chart(_cf_np, x_title="人件費（行政事業以外）", chart_key="np")
+            _render_cost_chart(_cf_np, x_title="業務委託費（行政事業以外）", chart_key="np")
