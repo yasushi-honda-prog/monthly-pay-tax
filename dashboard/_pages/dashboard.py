@@ -1298,13 +1298,9 @@ with tab5:
             agg = agg[agg["金額"] > 0]
 
             _member_count = df["nickname"].nunique()
-            _mc1, _mc2, _mc3 = st.columns(3)
-            with _mc1:
-                st.metric("総額", f"¥{df['amount_num'].sum():,.0f}")
-            with _mc2:
-                st.metric("件数", f"{len(df):,} 件")
-            with _mc3:
-                st.metric("人数", f"{_member_count:,} 人")
+            st.metric("総額", f"¥{df['amount_num'].sum():,.0f}")
+            st.metric("件数", f"{len(df):,} 件")
+            st.metric("人数", f"{_member_count:,} 人")
             st.caption("分類バーをクリック→メンバー別ドリルダウン／ダブルクリックで元に戻ります")
 
             if agg.empty:
