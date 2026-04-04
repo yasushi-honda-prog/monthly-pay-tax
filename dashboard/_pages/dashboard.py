@@ -1298,14 +1298,8 @@ with tab5:
             agg = agg[agg["金額"] > 0]
 
             _member_count = df["nickname"].nunique()
-            _mc1, _mc2, _mc3 = st.columns(3)
-            with _mc1:
-                st.metric("総額", f"¥{df['amount_num'].sum():,.0f}")
-            with _mc2:
-                st.metric("件数", f"{len(df):,} 件")
-            with _mc3:
-                st.metric("人数", f"{_member_count:,} 人")
-            st.caption("分類バーをクリック→メンバー別ドリルダウン／ダブルクリックで元に戻ります")
+            st.metric("総額", f"¥{df['amount_num'].sum():,.0f}")
+            st.caption(f"件数：{len(df):,} 件  ／  人数：{_member_count:,} 人  ／  分類バーをクリック→メンバー別ドリルダウン／ダブルクリックで元に戻ります")
 
             if agg.empty:
                 st.info("対象期間の金額データがありません")
@@ -1339,14 +1333,14 @@ with tab5:
             totals["label_cnt"] = totals["件数"].apply(lambda x: f"{x:,} 件")
             totals["label_ppl"] = totals["人数"].apply(lambda x: f"{x:,} 人")
             _lc = dict(x=alt.X("年月:O", sort=_cost_ym_order), y=alt.Y("合計:Q", stack=False))
-            label_amt = alt.Chart(totals).mark_text(dy=-8, fontSize=11).encode(**_lc, text=alt.Text("label_amt:N"))
-            label_cnt = alt.Chart(totals).mark_text(dy=6, fontSize=10, color="#666").encode(**_lc, text=alt.Text("label_cnt:N"))
-            label_ppl = alt.Chart(totals).mark_text(dy=20, fontSize=10, color="#666").encode(**_lc, text=alt.Text("label_ppl:N"))
+            label_amt = alt.Chart(totals).mark_text(dy=-34, fontSize=11).encode(**_lc, text=alt.Text("label_amt:N"))
+            label_cnt = alt.Chart(totals).mark_text(dy=-20, fontSize=10, color="#666").encode(**_lc, text=alt.Text("label_cnt:N"))
+            label_ppl = alt.Chart(totals).mark_text(dy=-6, fontSize=10, color="#666").encode(**_lc, text=alt.Text("label_ppl:N"))
 
             _show_labels = len(_cost_ym_order) <= 12
             _chart = (
                 (bar + label_amt + label_cnt + label_ppl).resolve_scale(color="shared") if _show_labels else bar
-            ).properties(height=580)
+            ).properties(height=620)
             _event = st.altair_chart(_chart, use_container_width=True, on_select="rerun", key=_widget_key)
             if st.button("チャートをリセット", key=f"reset_view_{chart_key}",
                          help="テーブル表示になった場合はクリックするとチャートに戻ります"):
