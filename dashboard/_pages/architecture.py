@@ -88,7 +88,7 @@ st.markdown("""
 | コンポーネント | 仕様 |
 |:---|:---|
 | Collector | Python 3.12 / Flask / gunicorn / 2GiB |
-| Dashboard | Python 3.12 / Streamlit / 512MiB |
+| Dashboard | Python 3.12 / Streamlit / 512MiB（5タブ: 月別報酬サマリー / スポンサー別業務委託費 / 業務報告一覧 / グループ別 / 業務委託費分析） |
 | Collector認証 | Workload Identity + IAM signBlob (キーレスDWD) |
 | Dashboard認証 | Streamlit OIDC (Google OAuth, tadakayo.jpドメイン) |
 | BQ取り込み | WRITE_TRUNCATE（毎回全データ置換）|
@@ -107,8 +107,8 @@ st.markdown("""
 render_mermaid("""
 graph TD
     MGR[管理表<br/>URLリスト + メンバーマスタ] -->|URL一覧| COL[Collector]
-    COL -->|各SSを巡回| G[gyomu_reports<br/>~17,000行]
-    COL -->|各SSを巡回| H[hojo_reports<br/>~1,100行]
+    COL -->|各SSを巡回| G[gyomu_reports<br/>~14,000行]
+    COL -->|各SSを巡回| H[hojo_reports<br/>~950行]
     MGR -->|A:K列| M[members<br/>192行 + groups列]
     ADK[Admin Directory API] -->|グループ所属| GM[groups_master<br/>69グループ]
     ADK -->|groups列更新| M
@@ -222,8 +222,32 @@ st.markdown("""
 """)
 
 
-# === 5. 認証フロー ===
-st.subheader("5. 認証フロー")
+# === 5. ダッシュボード ページ構成 ===
+st.subheader("5. ダッシュボード ページ構成")
+st.markdown("""
+マルチページ構成（`st.navigation`）。ロールによってアクセスできるページが異なります。
+ダッシュボードページは5タブで構成されています。
+""")
+
+render_mermaid("""
+graph TD
+    APP[pay-dashboard<br/>Streamlit App] --> P1[ダッシュボード<br/>viewer / checker / admin]
+    APP --> P2[業務チェック<br/>checker / admin]
+    APP --> P3[アーキテクチャ<br/>viewer / checker / admin]
+    APP --> P4[ヘルプ<br/>viewer / checker / admin]
+    APP --> P5[ユーザー管理<br/>admin のみ]
+    APP --> P6[管理設定<br/>admin のみ]
+
+    P1 --> T1[月別報酬サマリー<br/>月次支払額/活動時間/報酬明細/月次推移]
+    P1 --> T2[スポンサー別業務委託費<br/>メンバー別月次/活動分類別]
+    P1 --> T3[業務報告一覧<br/>全明細フィルタ/検索]
+    P1 --> T4[グループ別<br/>メンバー一覧/月別報酬/業務報告]
+    P1 --> T5[業務委託費分析<br/>分類別集計/非営利活動]
+""", height=520)
+
+
+# === 6. 認証フロー ===
+st.subheader("6. 認証フロー")
 
 render_mermaid("""
 graph TD
@@ -244,8 +268,8 @@ graph TD
 """, height=650)
 
 
-# === 6. セキュリティアーキテクチャ ===
-st.subheader("6. セキュリティアーキテクチャ")
+# === 7. セキュリティアーキテクチャ ===
+st.subheader("7. セキュリティアーキテクチャ")
 st.markdown("""
 本システムのセキュリティは4つのレイヤーで構成されています。
 """)
