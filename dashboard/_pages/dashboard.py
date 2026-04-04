@@ -1298,7 +1298,13 @@ with tab5:
             agg = agg[agg["金額"] > 0]
 
             _member_count = df["nickname"].nunique()
-            st.markdown(f"¥{df['amount_num'].sum():,.0f}  \n{len(df):,} 件  \n{_member_count:,} 人")
+            _mc1, _mc2, _mc3 = st.columns(3)
+            with _mc1:
+                st.metric("総額", f"¥{df['amount_num'].sum():,.0f}")
+            with _mc2:
+                st.metric("件数", f"{len(df):,} 件")
+            with _mc3:
+                st.metric("人数", f"{_member_count:,} 人")
             st.caption("分類バーをクリック→メンバー別ドリルダウン／ダブルクリックで元に戻ります")
 
             if agg.empty:
@@ -1326,16 +1332,20 @@ with tab5:
 
             totals = agg.groupby("年月")["金額"].sum().reset_index()
             totals.columns = ["年月", "合計"]
-            totals["label"] = totals["合計"].apply(lambda x: f"¥{x:,.0f}")
-            label = alt.Chart(totals).mark_text(dy=-8, fontSize=11).encode(
-                x=alt.X("年月:O", sort=_cost_ym_order),
-                y=alt.Y("合計:Q", stack=False),
-                text=alt.Text("label:N"),
-            )
+            totals_cnt = df.groupby("ym_label").agg(件数=("amount_num", "count"), 人数=("nickname", "nunique")).reset_index()
+            totals_cnt.columns = ["年月", "件数", "人数"]
+            totals = totals.merge(totals_cnt, on="年月", how="left")
+            totals["label_amt"] = totals["合計"].apply(lambda x: f"¥{x:,.0f}")
+            totals["label_cnt"] = totals["件数"].apply(lambda x: f"{x:,} 件")
+            totals["label_ppl"] = totals["人数"].apply(lambda x: f"{x:,} 人")
+            _lc = dict(x=alt.X("年月:O", sort=_cost_ym_order), y=alt.Y("合計:Q", stack=False))
+            label_amt = alt.Chart(totals).mark_text(dy=-8, fontSize=11).encode(**_lc, text=alt.Text("label_amt:N"))
+            label_cnt = alt.Chart(totals).mark_text(dy=6, fontSize=10, color="#666").encode(**_lc, text=alt.Text("label_cnt:N"))
+            label_ppl = alt.Chart(totals).mark_text(dy=20, fontSize=10, color="#666").encode(**_lc, text=alt.Text("label_ppl:N"))
 
             _show_labels = len(_cost_ym_order) <= 12
             _chart = (
-                (bar + label).resolve_scale(color="shared") if _show_labels else bar
+                (bar + label_amt + label_cnt + label_ppl).resolve_scale(color="shared") if _show_labels else bar
             ).properties(height=580)
             _event = st.altair_chart(_chart, use_container_width=True, on_select="rerun", key=_widget_key)
             if st.button("チャートをリセット", key=f"reset_view_{chart_key}",
