@@ -1286,11 +1286,15 @@ with tab5:
                 return
 
             agg = (
-                df.groupby(["ym_label", "cost_group"])["amount_num"]
-                .sum()
+                df.groupby(["ym_label", "cost_group"])
+                .agg(
+                    金額=("amount_num", "sum"),
+                    件数=("amount_num", "count"),
+                    人数=("nickname", "nunique"),
+                )
                 .reset_index()
             )
-            agg.columns = ["年月", "分類", "金額"]
+            agg.columns = ["年月", "分類", "金額", "件数", "人数"]
             agg = agg[agg["金額"] > 0]
 
             st.metric("総額", f"¥{df['amount_num'].sum():,.0f}")
@@ -1317,7 +1321,7 @@ with tab5:
                     legend=alt.Legend(orient="right", labelLimit=300, labelFontSize=10),
                 ),
                 opacity=alt.condition(_sel, alt.value(1.0), alt.value(0.35)),
-                tooltip=["年月:O", "分類:N", alt.Tooltip("金額:Q", format=",.0f")],
+                tooltip=["年月:O", "分類:N", alt.Tooltip("金額:Q", format=",.0f"), alt.Tooltip("件数:Q", format=","), alt.Tooltip("人数:Q", format=",")],
             ).add_params(_sel)
 
             totals = agg.groupby("年月")["金額"].sum().reset_index()
