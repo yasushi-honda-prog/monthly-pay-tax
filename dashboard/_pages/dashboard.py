@@ -1299,7 +1299,7 @@ with tab5:
 
             _member_count = df["nickname"].nunique()
             st.metric("総額", f"¥{df['amount_num'].sum():,.0f}")
-            st.caption(f"件数：{len(df):,} 件  ／  人数：{_member_count:,} 人  ／  分類バーをクリック→メンバー別ドリルダウン／ダブルクリックで元に戻ります")
+            st.caption(f"件数：{len(df):,} 件  ／  人数：{_member_count:,} 人  ／  分類バーをクリック→メンバー別ドリルダウン／ダブルクリックで元に戻ります  ／  棒グラフ上部にホバー→月の合計件数・人数を表示")
 
             if agg.empty:
                 st.info("対象期間の金額データがありません")
@@ -1326,16 +1326,33 @@ with tab5:
 
             totals = agg.groupby("年月")["金額"].sum().reset_index()
             totals.columns = ["年月", "合計"]
+            totals_cnt = df.groupby("ym_label").agg(件数=("amount_num", "count"), 人数=("nickname", "nunique")).reset_index()
+            totals_cnt.columns = ["年月", "件数合計", "人数合計"]
+            totals = totals.merge(totals_cnt, on="年月", how="left")
             totals["label"] = totals["合計"].apply(lambda x: f"¥{x:,.0f}")
-            label = alt.Chart(totals).mark_text(dy=-8, fontSize=11).encode(
+            totals["tooltip_amt"] = totals["合計"].apply(lambda x: f"¥{x:,.0f}")
+            totals["tooltip_cnt"] = totals["件数合計"].apply(lambda x: f"{x:,} 件")
+            totals["tooltip_ppl"] = totals["人数合計"].apply(lambda x: f"{x:,} 人")
+
+            label = alt.Chart(totals).mark_text(dy=-8, fontSize=11, color="#888").encode(
                 x=alt.X("年月:O", sort=_cost_ym_order),
                 y=alt.Y("合計:Q", stack=False),
                 text=alt.Text("label:N"),
             )
+            total_hover = alt.Chart(totals).mark_point(opacity=0, size=300).encode(
+                x=alt.X("年月:O", sort=_cost_ym_order),
+                y=alt.Y("合計:Q"),
+                tooltip=[
+                    alt.Tooltip("年月:O", title="年月"),
+                    alt.Tooltip("tooltip_amt:N", title="月合計"),
+                    alt.Tooltip("tooltip_cnt:N", title="件数合計"),
+                    alt.Tooltip("tooltip_ppl:N", title="人数合計"),
+                ],
+            )
 
             _show_labels = len(_cost_ym_order) <= 12
             _chart = (
-                (bar + label).resolve_scale(color="shared") if _show_labels else bar
+                (bar + label + total_hover).resolve_scale(color="shared") if _show_labels else (bar + total_hover).resolve_scale(color="shared")
             ).properties(height=580)
             _event = st.altair_chart(_chart, use_container_width=True, on_select="rerun", key=_widget_key)
             if st.button("チャートをリセット", key=f"reset_view_{chart_key}",
