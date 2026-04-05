@@ -1299,7 +1299,7 @@ with tab5:
 
             _member_count = df["nickname"].nunique()
             st.metric("総額", f"¥{df['amount_num'].sum():,.0f}")
-            st.caption(f"件数：{len(df):,} 件  ／  人数：{_member_count:,} 人  ／  分類バーをクリック→メンバー別ドリルダウン／ダブルクリックで元に戻ります  ／  棒グラフ上部にホバー→月の合計件数・人数を表示")
+            st.caption(f"件数：{len(df):,} 件  ／  人数：{_member_count:,} 人  ／  分類バーをクリック→メンバー別ドリルダウン／ダブルクリックで元に戻ります  ／  棒グラフ上部をホバー→月の合計件数・人数を表示")
 
             if agg.empty:
                 st.info("対象期間の金額データがありません")
