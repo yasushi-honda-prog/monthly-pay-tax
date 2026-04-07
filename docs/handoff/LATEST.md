@@ -1,8 +1,9 @@
 # ハンドオフメモ - monthly-pay-tax
 
-**更新日**: 2026-03-28
+**更新日**: 2026-04-07
 **フェーズ**: 6完了 + グループ機能 + グループ一括登録・自動同期 + UX改善 + 数値変換リファクタ + 報告入力機能（コミット済み・未デプロイ）
 **最新デプロイ**: Collector rev 00020-g6b + Dashboard rev 00166-k42（PR #47/#48/#49 + Infinite extent修正すべてデプロイ済み）
+**Cloud Run設定**: 2026-04-07 `--no-cpu-throttling --max-instances=3` 適用済み（ADR 0004）
 **テストスイート**: 218テスト全PASS（dashboard 198 + cloud-run 20）
 
 > テスト件数は `python3 -m pytest dashboard/tests/ -q` で確認（198件、2026-03-28時点）
@@ -12,6 +13,21 @@
 Cloud Run + BigQuery + Streamlitダッシュボード本番稼働中。
 **Googleグループ機能デプロイ済み** - Admin SDK経由でメンバーのグループ所属を収集。
 groups_master テーブル: 69グループ登録済み。members テーブル: 192件にgroups列付与済み。
+
+### 直近の変更（2026-04-07 コスト調査・Cloud Run設定変更）
+
+**Cloud Run CPU billing mode変更（ADR 0004）**
+
+- pay-dashboard のコスト増加（1月¥15 → 3月¥6,961）を調査
+- BQは月¥12（全体0.1%）で無罪。Cloud Run CPUが¥4,536（92%）が真犯人
+- 原因: 正規ユーザーがブラウザ開きっぱなし → Streamlit WebSocket常時接続 → vCPU秒積算
+- **対策**: `--no-cpu-throttling --max-instances=3` 適用（単価-25%、¥4,536 → 約¥3,400見込み）
+- 検証コマンド: `curl -I https://pay-dashboard-...` HTTP 200確認済み（94ms応答）
+- 3〜5日後にCloud Billing Reportsで日次コスト確認要
+
+**残課題**:
+- 請求書PDF確認（¥10,079 vs ¥4,903のズレ解明）
+- 予算アラート設定（月¥3,000閾値）
 
 ### 直近の変更（2026-03-28 PR #51 コミット済み・未デプロイ）
 
@@ -96,9 +112,22 @@ groups_master テーブル: 69グループ登録済み。members テーブル: 1
    - b786eed はコミット済みだが未デプロイ
    - dashboard ビルド・デプロイで反映可能（上記 #1 と同時にデプロイ可）
 
+### 監視・確認（進行中）
+
+3. **Cloud Run コスト削減効果測定（2026-04-10〜12頃）**
+   - 3〜5日後にCloud Billing Reportsで日次コスト確認
+   - 日次¥95前後に収まるか確認
+   - 不十分なら追加対策: Streamlit fragment idle timeout / Looker Studio分離
+
+4. **請求書PDF確認**（ADR 0004 残課題）
+   - ユーザー報告¥10,079 vs Reports ¥4,903 ズレの解明
+
+5. **予算アラート設定**（ADR 0004 残課題）
+   - 月¥3,000閾値で 50/90/100% 通知
+
 ### 検討中
 
-3. **`userロール` の運用方針確定**
+6. **`userロール` の運用方針確定**
    - 現在 `user` ロールは `viewer` と同等の閲覧権限 + 報告入力権限
    - BQテーブル作成後、実際のメンバーに付与してテスト
 
