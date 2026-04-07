@@ -1,11 +1,19 @@
 """Shared test fixtures"""
 
 import sys
+import types
 from pathlib import Path
 from unittest.mock import MagicMock
 
 # Add dashboard/ to sys.path for imports
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+_dashboard_dir = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(_dashboard_dir))
+
+# Register _pages/ as the 'pages' package (app uses _pages/, tests import as pages.*)
+_pages_pkg = types.ModuleType("pages")
+_pages_pkg.__path__ = [str(_dashboard_dir / "_pages")]
+_pages_pkg.__package__ = "pages"
+sys.modules["pages"] = _pages_pkg
 
 # Mock streamlit (register in sys.modules BEFORE any imports)
 # This ensures that lib/auth.py and other modules see the mock
