@@ -1,10 +1,75 @@
 # ハンドオフメモ - monthly-pay-tax
 
-**更新日**: 2026-04-08
-**フェーズ**: 6完了 + グループ機能 + グループ一括登録・自動同期 + UX改善 + 数値変換リファクタ + 報告入力機能（デプロイ済み）
+**更新日**: 2026-04-11
+**フェーズ**: 6完了 + グループ機能 + グループ一括登録・自動同期 + UX改善 + 数値変換リファクタ + 報告入力機能（デプロイ済み）＋ **WAM助成金対応 要件受領フェーズ（新規）**
 **最新デプロイ**: Collector rev 00020-g6b + Dashboard rev 00221-hjn（報告入力機能 + Tab1 活動時間ピボット）
 **Cloud Run設定**: 2026-04-07 `--no-cpu-throttling --max-instances=3` 適用済み（ADR 0004）
 **テストスイート**: 198テスト全PASS（dashboard 198）※conftest.py _pages→pagesエイリアス追加済み
+
+## 🆕 2026-04-11 WAM助成金事業 要件受領セッション
+
+### 概要
+
+WAM助成金事業（令和8年4月1日〜令和9年3月31日）の経理対応システム改修要件を受領。要件・背景・会議資料・立替金シート構造調査・Phase 0 質問リストを `docs/requirements/` に整理。**コード変更は一切なし、ドキュメントのみ**。
+
+### 追加されたファイル
+
+```
+docs/requirements/
+├── REQ_20260409_wam-grant-workflow.md          メイン要件 + Phase 1a/1b/2〜5 実装ロードマップ
+├── REF_20260408_wam-accounting-issues.md       ヒデスさんの経理課題文書（案1/2/★3）
+├── REF_20260409_wam-accounting-mtg.md          4/9 MTG メモ（WAM制度要注意ポイント）
+├── REF_20260411_reimbursement-sheet-discovery.md 🆕 立替金シート構造調査結果
+└── QUESTIONS_20260411_wam-phase0.md            🆕 Phase 0 質問リスト（Q-A〜Q-E、全18項目）
+```
+
+### 要件サマリー
+
+| # | 要件 | 優先度 |
+|---|------|-------|
+| ① | 領収書の自動生成・振込一括化（業務委託費＋旅費を合算した1枚PDF＋1振込） | Must |
+| ② | 振込データ抽出とCSV出力（GMOあおぞらネット銀行フォーマット、PayPayと別系統） | Must |
+| ③ | WAM月別報酬・源泉徴収確認ツール | Must |
+| ④ | 支払調書作成ツールへの連携 | Want |
+
+### 重要な技術的発見（Phase 1b 基盤調査）
+
+本セッションで **Playwright経由で Google Drive を調査し、立替金シート周りの完全な構造を把握**:
+
+1. **立替金等入力シートは既に202件配布済み**（作成者: 近藤ゆりさん／GASツール）
+   - フォルダID: `1jXs3cbO6gBvgDbotK0ODa9mL4x-iDooI`
+   - 配布リストID: `1EYh1MUqP7_i8Ox8Qqn7ZHKTh7MWBiIQCMa3n_4EchkY`
+   - タブ名: `入力シート`（全202件で統一）
+
+2. **ヘッダー構造が完全統一（12列）**: 年 / 月日 / **対象PJ** / 分類 / 支払用途 / 支払金額 / 仮払金額 / 利用区間（発/着）/ 訪問目的 / **請求書PDF保存先URL**
+
+3. **対象PJ プルダウンで WAM/非WAM の自動判別が可能**
+   - 現状の値: `ケアプーPJ` / `神奈川県PJ` / `経産省PJ` / `その他`
+   - 新値 `WAM-出張タダスクPJ` 等を追加するだけで判別成立
+
+4. **既存の pay-collector インフラから立替金シートに到達可能**
+   - 業務報告シートの `【月１入力】補助＆立替報告＋月締め` タブの **K3セル** に立替金シートURLが埋め込まれている（配布ツールが自動設置）
+   - セル位置はメンバー別（K3/L3/K6/K7/K8/K12/L4/L13）→ 配布リストがセル番地を管理
+
+5. **既存テーブル（gyomu_reports/hojo_reports）への影響なしで統合可能**
+   - 新規テーブル: `reimbursement_items`（明細レベル）+ `wam_target_projects`（WAM判定マスタ）
+   - 新規VIEW: `v_reimbursement_enriched` + `v_wam_monthly_summary`
+   - 既存の分析系・ダッシュボードは無変更
+
+### 次セッションの開始点
+
+**Phase 0（合意形成）未完** のため、次セッションは **コード実装には入らない**。以下のいずれかから再開:
+
+1. **E**: ゆりさん（近藤ゆり）向けSlackメッセージ下書き作成（`QUESTIONS_20260411` の Q-E群 + Q-B群を一気に解消）
+2. **F**: ミヤヤさん向けGoogle Docコメント返信下書き作成（`REQ_20260409` の相談事項4項目への技術回答）
+3. **一次評価レポート**: 現行 `gyomu_reports` / `hojo_reports` が要件③の月別確認ツールをどこまで実現可能か、30分でレポート作成
+
+**着手前に必読**:
+- `docs/requirements/REQ_20260409_wam-grant-workflow.md` セクション7 実装ロードマップ
+- `docs/requirements/REF_20260411_reimbursement-sheet-discovery.md` セクション4〜7
+- `docs/requirements/QUESTIONS_20260411_wam-phase0.md` 全体
+
+---
 
 > テスト件数は `python3 -m pytest dashboard/tests/ -q` で確認（198件、2026-03-28時点）
 
