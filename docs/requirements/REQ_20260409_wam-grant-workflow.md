@@ -5,8 +5,18 @@
 | 起票日 | 2026-04-09 |
 | 起票者 | WAM助成金事業事務局（ミヤヤさん） |
 | 相談先 | すごいシステムつくり隊（ヤススさん） |
-| ステータス | 要件受領（一次評価未実施） |
+| ステータス | 要件受領（一次評価済み、Phase 0 未着手） |
 | 原本 | [Google Doc](https://docs.google.com/document/d/1zg6ceu1ABP6TKxGiHbplBG--9db6FmVcmf3Wro3ekDc/edit) |
+
+## 関連GitHub Issues
+
+| Issue | 優先度 | 内容 |
+|-------|-------|------|
+| [#54](https://github.com/yasushi-honda-prog/monthly-pay-tax/issues/54) | **P0** | WAM Phase 0: ステークホルダー合意形成（18項目Q&A） |
+| [#55](https://github.com/yasushi-honda-prog/monthly-pay-tax/issues/55) | P1 | WAM要件① 領収書の自動生成と振込一括化 (Must) |
+| [#56](https://github.com/yasushi-honda-prog/monthly-pay-tax/issues/56) | P1 | WAM要件② 振込データ抽出とCSV出力（GMOあおぞら銀行）(Must) |
+| [#57](https://github.com/yasushi-honda-prog/monthly-pay-tax/issues/57) | P1 | WAM要件③ WAM月別報酬・源泉徴収確認ツール (Must) |
+| [#58](https://github.com/yasushi-honda-prog/monthly-pay-tax/issues/58) | P2 | WAM要件④ 支払調書作成ツールへの連携 (Want) |
 
 ## 参考資料
 

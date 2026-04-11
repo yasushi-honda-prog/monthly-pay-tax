@@ -56,18 +56,29 @@ docs/requirements/
    - 新規VIEW: `v_reimbursement_enriched` + `v_wam_monthly_summary`
    - 既存の分析系・ダッシュボードは無変更
 
+### GitHub Issues（追跡用）
+
+| Issue | 優先度 | 内容 | ブロック |
+|-------|-------|------|---------|
+| [#54](https://github.com/yasushi-honda-prog/monthly-pay-tax/issues/54) | **P0** | WAM Phase 0: ステークホルダー合意形成（18項目Q&A） | Blocks #55〜#58 |
+| [#55](https://github.com/yasushi-honda-prog/monthly-pay-tax/issues/55) | P1 | WAM要件① 領収書の自動生成と振込一括化 (Must) | Blocked by #54 |
+| [#56](https://github.com/yasushi-honda-prog/monthly-pay-tax/issues/56) | P1 | WAM要件② 振込データ抽出とCSV出力（GMOあおぞら） (Must) | Blocked by #54 |
+| [#57](https://github.com/yasushi-honda-prog/monthly-pay-tax/issues/57) | P1 | WAM要件③ WAM月別報酬・源泉徴収確認ツール (Must) | Blocked by #54 |
+| [#58](https://github.com/yasushi-honda-prog/monthly-pay-tax/issues/58) | P2 | WAM要件④ 支払調書作成ツールへの連携 (Want) | Blocked by #54 |
+
 ### 次セッションの開始点
 
-**Phase 0（合意形成）未完** のため、次セッションは **コード実装には入らない**。以下のいずれかから再開:
+**Phase 0（合意形成、#54）未完** のため、次セッションは **コード実装には入らない**。以下のいずれかから再開:
 
-1. **E**: ゆりさん（近藤ゆり）向けSlackメッセージ下書き作成（`QUESTIONS_20260411` の Q-E群 + Q-B群を一気に解消）
+1. **E**: ゆりさん（近藤ゆり）向けSlackメッセージ下書き作成（`QUESTIONS_20260411` の Q-E群 + Q-B群を一気に解消、Issue #54 のP0項目を進める）
 2. **F**: ミヤヤさん向けGoogle Docコメント返信下書き作成（`REQ_20260409` の相談事項4項目への技術回答）
-3. **一次評価レポート**: 現行 `gyomu_reports` / `hojo_reports` が要件③の月別確認ツールをどこまで実現可能か、30分でレポート作成
+3. **一次評価レポート**: 現行 `gyomu_reports` / `hojo_reports` が要件③（#57）の月別確認ツールをどこまで実現可能か、30分でレポート作成
 
 **着手前に必読**:
 - `docs/requirements/REQ_20260409_wam-grant-workflow.md` セクション7 実装ロードマップ
 - `docs/requirements/REF_20260411_reimbursement-sheet-discovery.md` セクション4〜7
 - `docs/requirements/QUESTIONS_20260411_wam-phase0.md` 全体
+- Issues #54〜#58 の Description
 
 ---
 
