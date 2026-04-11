@@ -5,6 +5,7 @@
 | 作成日 | 2026-04-11 |
 | 目的 | `REQ_20260409_wam-grant-workflow.md` Phase 0（合意形成）で解消すべき未確定事項の一覧 |
 | 想定回答期限 | 要: WAM対象期間（2026-04-01〜2027-03-31）の最初の振込タイミング前 |
+| 追跡Issue | [#54 WAM Phase 0: ステークホルダー合意形成](https://github.com/yasushi-honda-prog/monthly-pay-tax/issues/54) |
 | 関連資料 | [REQ_20260409](./REQ_20260409_wam-grant-workflow.md), [REF_20260408](./REF_20260408_wam-accounting-issues.md), [REF_20260409_mtg](./REF_20260409_wam-accounting-mtg.md), [REF_20260411_discovery](./REF_20260411_reimbursement-sheet-discovery.md) |
 
 ---
