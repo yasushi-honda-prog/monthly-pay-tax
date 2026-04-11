@@ -1,7 +1,7 @@
 # ハンドオフメモ - monthly-pay-tax
 
-**更新日**: 2026-04-11
-**フェーズ**: 6完了 + グループ機能 + グループ一括登録・自動同期 + UX改善 + 数値変換リファクタ + 報告入力機能（デプロイ済み）＋ **WAM助成金対応 要件受領フェーズ（新規）**
+**更新日**: 2026-04-11（ADR_0005 適用、GCP側処理完結原則に基づき Phase 0 を 18→14 項目に縮小）
+**フェーズ**: 6完了 + グループ機能 + グループ一括登録・自動同期 + UX改善 + 数値変換リファクタ + 報告入力機能（デプロイ済み）＋ **WAM助成金対応 要件受領フェーズ（新規）** + **GCP側処理完結原則採択（ADR_0005）**
 **最新デプロイ**: Collector rev 00020-g6b + Dashboard rev 00221-hjn（報告入力機能 + Tab1 活動時間ピボット）
 **Cloud Run設定**: 2026-04-07 `--no-cpu-throttling --max-instances=3` 適用済み（ADR 0004）
 **テストスイート**: 198テスト全PASS（dashboard 198）※conftest.py _pages→pagesエイリアス追加済み
@@ -30,7 +30,7 @@ docs/requirements/
 
 本セッション後半で、Phase 0 全18項目を解消するための下書きを3本すべて作成・マージ済み:
 
-| PR | 対象 | 項目数 | 項目一覧 |
+| PR | 対象 | 項目数（初版） | 項目一覧 |
 |----|-----|-------|---------|
 | [#60](https://github.com/yasushi-honda-prog/monthly-pay-tax/pull/60) | ゆりさん | 6項目 | Q-E1〜E4, Q-B3, Q-B4 |
 | [#61](https://github.com/yasushi-honda-prog/monthly-pay-tax/pull/61) | ミヤヤさん | 8項目 | REQ §4 相談①〜④ + Q-A1〜A4 |
@@ -48,6 +48,35 @@ docs/requirements/
 - 要件③: 既存 pay-dashboard への新ページ追加を推奨（独立ツール不要）
 - 要件④: Want扱いで後回し可（Phase 3）
 - 全体: 「入力1本・出力分離」ハイブリッド戦略、ブラスト半径ゼロ
+
+### 📝 2026-04-11 夜（2回目） ADR_0005 適用: GCP側処理完結原則（18→14項目に縮小）
+
+初版の下書きには「既存ツール・シートへの改修依頼」が含まれていた（ゆりさん配布ツールに列追加・プルダウン値追加・年度追加ツール改修など）。技術決裁者ヤススの判断により、**「処理・加工はすべてGCP取得側（pay-collector / BQ / pay-dashboard）で完結させ、既存ツール・シートには一切触らない」** 原則を採択。
+
+**新規追加**: [`docs/adr/0005-wam-gcp-side-processing-principle.md`](../adr/0005-wam-gcp-side-processing-principle.md)
+
+**質問リスト再分類（18項目）**:
+
+| 扱い | 項目数 | 項目 |
+|------|--------|------|
+| ❌ GCP側で自己解決（質問削除） | 5 | Q-A4（活動分類）, Q-B3（対象PJ）, Q-E1（URL列）, Q-E2（smart chip）, Q-E4（年度追加） |
+| ❌ 技術決裁済み（決定事項共有） | 3 | 相談①（PDF集約）, 相談②（振込新規モジュール）, 相談③（既存ダッシュボード拡張） |
+| ⭕ ビジネス/会計/運用確認（残す） | 14 | Q-A1/A2/A3/A5, Q-B1/B2/B4, Q-C1/C2/C3, Q-D1/D2, Q-E3, 相談④ |
+
+**下書き修正内容**:
+
+| ファイル | 変更 |
+|---------|-----|
+| `DRAFT_20260411_yuri-consultation.md` | 6項目 → **2項目**（Q-E3, Q-B4 のみ、改修依頼ゼロ、10分で回答可能） |
+| `DRAFT_20260411_miyaya-reply.md` | 8項目 → **4項目**（Q-A1〜A3 + 相談④、相談①②③は「技術決裁済み」として共有） |
+| `DRAFT_20260411_hiros-hides-mtg.md` | 変更なし（8項目すべて会計ルール・現物確認で GCP 吸収不可） |
+| `QUESTIONS_20260411_wam-phase0.md` | Q-A4/B3/E1/E2/E4 に `✅ GCP側で吸収` マーク追加、優先度マトリクス更新 |
+
+**効果**:
+- ゆりさんの作業負荷: 30分 → **10分**
+- ミヤヤさんの決裁項目: 8 → **4**
+- 既存運用・既存ツールへの改修依頼: **ゼロ**
+- ADR として原則を記録し、今後の Phase 1a/1b 設計時にも適用
 
 ### 要件サマリー
 
@@ -94,27 +123,30 @@ docs/requirements/
 
 ### 次セッションの開始点
 
-**Phase 0 の下書きは完成（18/18）**。次のステップは **「ユーザー作業: 実送信・回答取得」** → **「回答を Q&A 文書に記録」** の流れ。
+**Phase 0 の下書きは ADR_0005 適用後の最新版（13項目）**。次のステップは **「ユーザー作業: 実送信・回答取得」** → **「回答を Q&A 文書に記録」** の流れ。
 
 #### 🔴 ユーザー作業待ち（ヤススさん側）
 次セッションで AI ができるのは、ユーザーが下書きを送信・MTGを実施した後の以下:
-1. ゆりさんからの回答を `QUESTIONS_20260411` の Q-E/Q-B群に追記
-2. ミヤヤさんからの回答を Q-A群に追記
-3. ヒロス/ヒデスMTG決定事項を Q-A5, Q-B1/B2, Q-C, Q-D 群に追記
+1. ゆりさんからの回答（2項目）を `QUESTIONS_20260411` の Q-E3, Q-B4 に追記
+2. ミヤヤさんからの回答（4項目）を Q-A1〜A3 + 相談④ に追記
+3. ヒロス/ヒデスMTG決定事項（7〜8項目）を Q-A5, Q-B1/B2, Q-C1〜C3, Q-D1/D2 に追記
 4. Phase 0 完了宣言 → Issue #54 クローズ
 5. Phase 1a/1b 実装 Issue (#55〜#57) のブロッカー解除コメント
 
 #### 🟢 回答取得前でも可能な作業
-Phase 0 回答取得を待たずに着手可能なタスク:
-- **B**: 要件③実現可能性の一次評価レポート（30分、既存 v_monthly_compensation での実現度評価、選択肢(a) 独立ツール vs (b) 既存ページ拡張 の定量比較）
-- **C**: ADR_0005 下書き作成（WAM統合アーキテクチャ: 入力1本・出力分離ハイブリッド戦略の設計決定記録）
-- **D**: Phase 1a/1b 実装 Issue (#55〜#57) の技術設計セクション追記（BQ スキーマ、VIEW 定義、データフロー）
+Phase 0 回答取得を待たずに着手可能なタスク（ADR_0005 の原則に従って設計）:
+- **B**: 要件③実現可能性の一次評価レポート（30分、既存 v_monthly_compensation での実現度評価、pay-dashboard 新ページ追加方式の工数見積もり）
+- **C**: Phase 1a/1b 実装 Issue (#55〜#57) の技術設計セクション追記（BQ スキーマ、VIEW 定義、WAM判定ルール、データフロー）
+- **D**: WAM判定ルール（対象PJ「その他」+ 説明欄テキスト分類）の試作（ルールベース or LLM分類のPoC）
 
 **着手前に必読**:
-- `docs/requirements/DRAFT_20260411_yuri-consultation.md` / `_miyaya-reply.md` / `_hiros-hides-mtg.md`
+- **`docs/adr/0005-wam-gcp-side-processing-principle.md`**（GCP側処理完結原則、設計判断の根拠）
+- `docs/requirements/DRAFT_20260411_yuri-consultation.md`（2項目版）
+- `docs/requirements/DRAFT_20260411_miyaya-reply.md`（4項目版 + 技術決裁済み3項目）
+- `docs/requirements/DRAFT_20260411_hiros-hides-mtg.md`（8項目、変更なし）
 - `docs/requirements/REQ_20260409_wam-grant-workflow.md` セクション7 実装ロードマップ
 - `docs/requirements/REF_20260411_reimbursement-sheet-discovery.md` セクション4〜7
-- `docs/requirements/QUESTIONS_20260411_wam-phase0.md` 全体
+- `docs/requirements/QUESTIONS_20260411_wam-phase0.md` 全体（ADR_0005 マーク入り）
 - Issues #54〜#58 の Description + Issue #54 の進捗コメント履歴
 
 ---
