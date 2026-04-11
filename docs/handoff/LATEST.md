@@ -19,9 +19,35 @@ docs/requirements/
 ├── REQ_20260409_wam-grant-workflow.md          メイン要件 + Phase 1a/1b/2〜5 実装ロードマップ
 ├── REF_20260408_wam-accounting-issues.md       ヒデスさんの経理課題文書（案1/2/★3）
 ├── REF_20260409_wam-accounting-mtg.md          4/9 MTG メモ（WAM制度要注意ポイント）
-├── REF_20260411_reimbursement-sheet-discovery.md 🆕 立替金シート構造調査結果
-└── QUESTIONS_20260411_wam-phase0.md            🆕 Phase 0 質問リスト（Q-A〜Q-E、全18項目）
+├── REF_20260411_reimbursement-sheet-discovery.md 立替金シート構造調査結果
+├── QUESTIONS_20260411_wam-phase0.md            Phase 0 質問リスト（Q-A〜Q-E、全18項目）
+├── DRAFT_20260411_yuri-consultation.md         🆕 ゆりさん向け相談下書き（PR #60）
+├── DRAFT_20260411_miyaya-reply.md              🆕 ミヤヤさん向け返信下書き（PR #61）
+└── DRAFT_20260411_hiros-hides-mtg.md           🆕 ヒロス/ヒデスMTG質問リスト（PR #62）
 ```
+
+### 🎉 Phase 0 下書き完成: 18/18項目（100%達成、2026-04-11夜）
+
+本セッション後半で、Phase 0 全18項目を解消するための下書きを3本すべて作成・マージ済み:
+
+| PR | 対象 | 項目数 | 項目一覧 |
+|----|-----|-------|---------|
+| [#60](https://github.com/yasushi-honda-prog/monthly-pay-tax/pull/60) | ゆりさん | 6項目 | Q-E1〜E4, Q-B3, Q-B4 |
+| [#61](https://github.com/yasushi-honda-prog/monthly-pay-tax/pull/61) | ミヤヤさん | 8項目 | REQ §4 相談①〜④ + Q-A1〜A4 |
+| [#62](https://github.com/yasushi-honda-prog/monthly-pay-tax/pull/62) | ヒロス/ヒデスMTG（45分）| 8項目 | Q-A5, Q-B1/B2, Q-C1〜C3, Q-D1/D2 |
+
+**各下書きの特徴**:
+- 選択肢式（回答者の負荷最小化、30分で回答可能な想定）
+- 技術調査済みを明示（Playwright調査結果を尊重ベースで記載）
+- 推奨案を先出し（議論効率化）
+- 回答記録用テンプレート付き（受領後すぐに整理可）
+
+**技術回答サマリー（ミヤヤ下書き PR #61 より）**:
+- 要件①: 既存PDFの集約を推奨（新規生成不要）
+- 要件②: 新規振込ツール作成を推奨（GMOあおぞら用、既存PayPayと並列モジュール）
+- 要件③: 既存 pay-dashboard への新ページ追加を推奨（独立ツール不要）
+- 要件④: Want扱いで後回し可（Phase 3）
+- 全体: 「入力1本・出力分離」ハイブリッド戦略、ブラスト半径ゼロ
 
 ### 要件サマリー
 
@@ -68,17 +94,28 @@ docs/requirements/
 
 ### 次セッションの開始点
 
-**Phase 0（合意形成、#54）未完** のため、次セッションは **コード実装には入らない**。以下のいずれかから再開:
+**Phase 0 の下書きは完成（18/18）**。次のステップは **「ユーザー作業: 実送信・回答取得」** → **「回答を Q&A 文書に記録」** の流れ。
 
-1. **E**: ゆりさん（近藤ゆり）向けSlackメッセージ下書き作成（`QUESTIONS_20260411` の Q-E群 + Q-B群を一気に解消、Issue #54 のP0項目を進める）
-2. **F**: ミヤヤさん向けGoogle Docコメント返信下書き作成（`REQ_20260409` の相談事項4項目への技術回答）
-3. **一次評価レポート**: 現行 `gyomu_reports` / `hojo_reports` が要件③（#57）の月別確認ツールをどこまで実現可能か、30分でレポート作成
+#### 🔴 ユーザー作業待ち（ヤススさん側）
+次セッションで AI ができるのは、ユーザーが下書きを送信・MTGを実施した後の以下:
+1. ゆりさんからの回答を `QUESTIONS_20260411` の Q-E/Q-B群に追記
+2. ミヤヤさんからの回答を Q-A群に追記
+3. ヒロス/ヒデスMTG決定事項を Q-A5, Q-B1/B2, Q-C, Q-D 群に追記
+4. Phase 0 完了宣言 → Issue #54 クローズ
+5. Phase 1a/1b 実装 Issue (#55〜#57) のブロッカー解除コメント
+
+#### 🟢 回答取得前でも可能な作業
+Phase 0 回答取得を待たずに着手可能なタスク:
+- **B**: 要件③実現可能性の一次評価レポート（30分、既存 v_monthly_compensation での実現度評価、選択肢(a) 独立ツール vs (b) 既存ページ拡張 の定量比較）
+- **C**: ADR_0005 下書き作成（WAM統合アーキテクチャ: 入力1本・出力分離ハイブリッド戦略の設計決定記録）
+- **D**: Phase 1a/1b 実装 Issue (#55〜#57) の技術設計セクション追記（BQ スキーマ、VIEW 定義、データフロー）
 
 **着手前に必読**:
+- `docs/requirements/DRAFT_20260411_yuri-consultation.md` / `_miyaya-reply.md` / `_hiros-hides-mtg.md`
 - `docs/requirements/REQ_20260409_wam-grant-workflow.md` セクション7 実装ロードマップ
 - `docs/requirements/REF_20260411_reimbursement-sheet-discovery.md` セクション4〜7
 - `docs/requirements/QUESTIONS_20260411_wam-phase0.md` 全体
-- Issues #54〜#58 の Description
+- Issues #54〜#58 の Description + Issue #54 の進捗コメント履歴
 
 ---
 
