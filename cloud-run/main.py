@@ -74,6 +74,21 @@ def run_consolidation():
         except Exception as sync_err:
             logger.warning("dashboard_usersグループ同期スキップ: %s", sync_err, exc_info=True)
 
+        # Step 6: 立替金シート収集（失敗しても本体は成功扱い）
+        try:
+            logger.info("--- 立替金シート収集開始 ---")
+            reimbursement_data = sheets_collector.run_reimbursement_collection()
+            reimbursement_results = bq_loader.load_all(reimbursement_data)
+            results.update(reimbursement_results)
+            logger.info(
+                "--- 立替金シート収集完了 (reimbursement_items: %d) ---",
+                reimbursement_results.get(bq_loader.config.BQ_TABLE_REIMBURSEMENT, 0),
+            )
+        except Exception as reimb_err:
+            logger.warning(
+                "立替金シート収集スキップ（本体処理は完了）: %s", reimb_err, exc_info=True
+            )
+
         elapsed = round(time.time() - start, 1)
         summary = {
             "status": "success",

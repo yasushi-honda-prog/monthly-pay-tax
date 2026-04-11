@@ -361,3 +361,45 @@ WHERE t.qualification_adjusted > 0
    OR t.dx_subsidy > 0
    OR t.reimbursement > 0
    OR t.work_hours > 0;
+
+
+-- =============================================================================
+-- v_reimbursement_enriched: 立替金シート明細 + メンバー情報 + WAM判定
+-- Phase 1b: WAM助成金対応
+-- =============================================================================
+CREATE OR REPLACE VIEW `monthly-pay-tax.pay_reports.v_reimbursement_enriched` AS
+SELECT
+  r.source_url,
+  r.nickname,
+  r.year,
+  r.date,
+  r.target_project,
+  r.category,
+  r.payment_purpose,
+  r.payment_amount,
+  r.advance_amount,
+  r.from_station,
+  r.to_station,
+  r.visit_purpose,
+  r.receipt_url,
+  m.member_id,
+  m.full_name,
+  m.report_url,
+  CASE
+    WHEN w.wam_flag = 'WAM' THEN TRUE
+    ELSE FALSE
+  END AS is_wam,
+  SAFE_CAST(REGEXP_EXTRACT(r.year, r'(\d{4})') AS INT64) AS normalized_year,
+  SAFE_CAST(REGEXP_EXTRACT(r.date, r'^(\d{1,2})月') AS INT64) AS month,
+  SAFE_CAST(
+    REGEXP_REPLACE(r.payment_amount, r'[^0-9.\-]', '') AS FLOAT64
+  ) AS payment_amount_numeric,
+  SAFE_CAST(
+    REGEXP_REPLACE(r.advance_amount, r'[^0-9.\-]', '') AS FLOAT64
+  ) AS advance_amount_numeric,
+  r.ingested_at
+FROM `monthly-pay-tax.pay_reports.reimbursement_items` r
+LEFT JOIN `monthly-pay-tax.pay_reports.members` m
+  ON r.nickname = m.nickname
+LEFT JOIN `monthly-pay-tax.pay_reports.wam_target_projects` w
+  ON r.target_project = w.target_project;

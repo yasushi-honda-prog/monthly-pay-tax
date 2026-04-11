@@ -22,17 +22,19 @@ SCOPES = ["https://www.googleapis.com/auth/spreadsheets.readonly"]
 ADMIN_SCOPES = ["https://www.googleapis.com/auth/admin.directory.group.readonly"]
 
 
-def _get_dwd_credentials():
+def _get_dwd_credentials(scopes=None):
     """DWD認証情報を取得
 
     ローカル: SA_KEY_PATHからキーファイル読み込み
     Cloud Run: IAM signBlob API経由でキーレスDWD（Workload Identity）
     """
+    if scopes is None:
+        scopes = SCOPES
     sa_email = config.SA_EMAIL
 
     if config.SA_KEY_PATH:
         return service_account.Credentials.from_service_account_file(
-            config.SA_KEY_PATH, scopes=SCOPES, subject=config.DELEGATE_USER_EMAIL
+            config.SA_KEY_PATH, scopes=scopes, subject=config.DELEGATE_USER_EMAIL
         )
 
     # Cloud Run: IAM signBlob APIでキーレスDWD
@@ -52,7 +54,7 @@ def _get_dwd_credentials():
         signer=signer,
         service_account_email=sa_email,
         token_uri="https://oauth2.googleapis.com/token",
-        scopes=SCOPES,
+        scopes=scopes,
         subject=config.DELEGATE_USER_EMAIL,
     )
 
@@ -396,3 +398,143 @@ def update_member_groups_from_bq() -> tuple[list[list], list[list]]:
         len(groups_master),
     )
     return updated, groups_master
+
+
+# --- 立替金シート収集 (Phase 1b) ---
+
+DRIVE_SCOPES = [
+    "https://www.googleapis.com/auth/spreadsheets.readonly",
+    "https://www.googleapis.com/auth/drive.readonly",
+]
+
+
+def _build_drive_service(timeout=60):
+    """DWD認証でDrive APIサービスを構築"""
+    credentials = _get_dwd_credentials(scopes=DRIVE_SCOPES)
+    http = httplib2.Http(timeout=timeout)
+    authorized_http = google_auth_httplib2.AuthorizedHttp(credentials, http=http)
+    return build("drive", "v3", http=authorized_http, cache_discovery=False)
+
+
+def extract_nickname(filename: str):
+    """ファイル名から【ニックネーム】を正規表現で抽出"""
+    match = re.search(config.REIMBURSEMENT_NICKNAME_REGEX, filename)
+    return match.group(1) if match else None
+
+
+def list_reimbursement_sheets(drive_service) -> list[dict]:
+    """Drive APIでフォルダ内の立替金シート一覧を取得
+
+    Returns:
+        [{"id": spreadsheet_id, "name": filename, "nickname": extracted}, ...]
+    """
+    sheets = []
+    page_token = None
+    query = (
+        f"'{config.REIMBURSEMENT_FOLDER_ID}' in parents"
+        " and mimeType='application/vnd.google-apps.spreadsheet'"
+        " and trashed=false"
+    )
+
+    while True:
+        try:
+            request = drive_service.files().list(
+                q=query,
+                fields="nextPageToken, files(id, name)",
+                pageSize=100,
+                pageToken=page_token,
+            )
+            result = _execute_with_throttle(request, context="list_reimbursement_sheets")
+        except Exception as e:
+            logger.error("立替金シートフォルダの一覧取得エラー: %s", e)
+            return sheets
+
+        for f in result.get("files", []):
+            nickname = extract_nickname(f["name"])
+            if nickname:
+                sheets.append({
+                    "id": f["id"],
+                    "name": f["name"],
+                    "nickname": nickname,
+                })
+            else:
+                logger.warning("ニックネーム抽出不可: %s", f["name"])
+
+        page_token = result.get("nextPageToken")
+        if not page_token:
+            break
+
+    logger.info("立替金シート: %d 件を検出", len(sheets))
+    return sheets
+
+
+def get_reimbursement_sheet_data(service, spreadsheet_id: str) -> list[list]:
+    """立替金シートの入力シートタブからデータを取得
+
+    A列~L列のSTART_ROW行以降を取得。
+    マーカー列が "例" の行、全空行をフィルタリング。
+    """
+    range_notation = (
+        f"'{config.REIMBURSEMENT_TAB_NAME}'"
+        f"!A{config.REIMBURSEMENT_DATA_START_ROW}:L"
+    )
+    try:
+        request = service.spreadsheets().values().get(
+            spreadsheetId=spreadsheet_id,
+            range=range_notation,
+        )
+        result = _execute_with_throttle(
+            request, context=f"reimbursement({spreadsheet_id[:8]})"
+        )
+    except Exception:
+        logger.warning("立替金シート '%s' が読み取れません", spreadsheet_id)
+        return []
+
+    values = result.get("values", [])
+    filtered = []
+    for row in values:
+        if not row:
+            continue
+        data_cols = row[1:] if len(row) > 1 else []
+        if not any(cell.strip() for cell in data_cols if cell):
+            continue
+        if row[0] and row[0].strip() == "例":
+            continue
+        filtered.append(row)
+    return filtered
+
+
+def collect_reimbursement_data(sheets_service, drive_service) -> list[list]:
+    """全立替金シートからデータを収集
+
+    各行に [source_url, nickname] をプリペンドして返す。
+    """
+    sheet_list = list_reimbursement_sheets(drive_service)
+    all_rows: list[list] = []
+
+    for i, sheet_info in enumerate(sheet_list):
+        progress = f"({i + 1}/{len(sheet_list)})"
+        source_url = f"https://docs.google.com/spreadsheets/d/{sheet_info['id']}/edit"
+        nickname = sheet_info["nickname"]
+
+        data = get_reimbursement_sheet_data(sheets_service, sheet_info["id"])
+        if data:
+            rows_with_meta = [[source_url, nickname] + row for row in data]
+            all_rows.extend(rows_with_meta)
+            logger.info(
+                "  [立替金 %s] %s: %d行 (合計: %d行)",
+                progress, nickname, len(data), len(all_rows),
+            )
+        else:
+            logger.info("  [立替金 %s] %s: 0行", progress, nickname)
+
+    return all_rows
+
+
+def run_reimbursement_collection() -> dict[str, list[list]]:
+    """立替金シート収集のエントリポイント"""
+    sheets_service = _build_sheets_service()
+    drive_service = _build_drive_service()
+    data = collect_reimbursement_data(sheets_service, drive_service)
+    logger.info("立替金シート収集完了: %d行", len(data))
+    return {config.BQ_TABLE_REIMBURSEMENT: data}
