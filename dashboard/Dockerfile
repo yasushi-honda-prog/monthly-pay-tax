@@ -8,10 +8,11 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # 日本語フォント（支払明細書PDF生成用）
+# fonts-ipafont-gothic: 単体TTFファイル（TTC由来のグリフ文字化けを回避）
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends fonts-noto-cjk && \
+    apt-get install -y --no-install-recommends fonts-ipafont-gothic && \
     rm -rf /var/lib/apt/lists/* && \
-    ls /usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc > /dev/null
+    ls /usr/share/fonts/opentype/ipafont-gothic/ipag.ttf > /dev/null
 
 # Google翻訳を無効化: StreamlitのHTMLテンプレートにtranslate="no"を埋め込む
 RUN sed -i 's|<html|<html translate="no" lang="ja"|' \
