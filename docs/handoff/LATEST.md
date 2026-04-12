@@ -165,11 +165,11 @@ docs/requirements/
    - SQL: infra/bigquery/schema.sql に定義済み
 3. **BQ Console**: `v_reimbursement_enriched` VIEW CREATE 実行
    - SQL: infra/bigquery/views.sql（QUALIFY 重複防止対応済み）
-   - **注意**: H:I マージセル問題のため、VIEW の列マッピング調整が必要（advance_amount → from_station）
+   - ✅ H:I マージセル対応済み（advance_amount 列削除、from_station/col_i_merged に修正、#70）
 
 #### 🟢 次ステップ（プロトタイプ駆動）
 
-1. **VIEW の列マッピング修正**（`v_reimbursement_enriched` の advance_amount/from_station 列対応）
+1. ~~VIEW の列マッピング修正~~ → ✅ #70 で対応完了
 2. デプロイ → 実データ収集 → BQ で件数・nickname 一致率を確認
 3. pay-dashboard に WAM 月別確認ページ（`pages/wam_monthly.py`）追加
 4. 動くプロトタイプをステークホルダーに見せて判断を進める

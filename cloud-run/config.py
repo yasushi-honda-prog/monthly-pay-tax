@@ -97,8 +97,9 @@ TABLE_COLUMNS = {
         "source_url", "nickname",
         "marker", "year", "date",
         "target_project", "category", "payment_purpose",
-        "payment_amount", "advance_amount",
-        "from_station", "to_station",
+        "payment_amount", "from_station",   # H: マージセル先頭（利用区間・発）
+        "col_i_merged",                     # I: 常に空（H:Iマージセル後半）
+        "to_station",
         "visit_purpose", "receipt_url",
     ],
     BQ_TABLE_WAM_PROJECTS: [

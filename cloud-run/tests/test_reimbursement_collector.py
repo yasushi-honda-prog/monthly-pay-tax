@@ -305,9 +305,9 @@ class TestRunReimbursementCollection:
                 "旅費交通費",
                 "新幹線代",
                 "¥21,510",
-                "¥10,000",
-                "東京",
-                "大阪",
+                "東京",          # from_station (H: マージセル先頭)
+                "",              # col_i_merged (I: 常に空)
+                "大阪",          # to_station
                 "訪問",
                 "https://example.com/receipt.pdf",
             ]

@@ -165,8 +165,8 @@ CREATE TABLE pay_reports.reimbursement_items (
   category STRING,             -- 分類（旅費交通費/個人立替費）
   purpose STRING,              -- 支払用途
   amount STRING,               -- 支払金額（通貨書式文字列、VIEWで数値化）
-  advance_amount STRING,       -- 仮払金額
-  from_station STRING,         -- 利用区間（発）
+  from_station STRING,         -- 利用区間（発）: H:Iマージセル先頭（H列）
+  col_i_merged STRING,         -- 常に空: H:Iマージセル後半（I列）
   to_station STRING,           -- 利用区間（着）
   visit_purpose STRING,        -- 訪問目的
   receipt_url STRING,          -- 請求書のPDF保存先URL
