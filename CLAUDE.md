@@ -123,7 +123,7 @@ BQ接続が必要なためローカル実行での完全な動作確認は困難
 - `check_logs`: source_url, year, month, status, checker_email, memo, action_log, updated_at（業務チェック管理）
 - `groups_master`: group_email, group_name, ingested_at（Googleグループマスタ: 69グループ）
 - `reimbursement_items`: source_url, nickname, marker, year, date, target_project, category, payment_purpose, payment_amount, advance_amount, from_station, to_station, visit_purpose, receipt_url（立替金シート明細: 2,250行）
-- `wam_target_projects`: target_project, wam_flag, note（WAM対象PJマスタ）
+- `wam_target_projects`: target_project, wam_flag, note（WAM対象PJマスタ、4PJ登録済み・全wam_flag='N'暫定、Phase 0回答後にY更新）
 
 `source_url`（gyomu/hojo）= `report_url`（members）= `source_url`（check_logs）で結合。
 
