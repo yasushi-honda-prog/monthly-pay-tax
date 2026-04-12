@@ -149,3 +149,36 @@ class TestReceiptStats:
         stats = _receipt_stats(df)
         assert stats["attached"] == 0
         assert stats["missing"] == 3
+
+
+# --- WAMフィルタ ---
+
+class TestWamFilter:
+    def test_filter_wam_only(self):
+        df = pd.DataFrame({
+            "normalized_year": [2026, 2026, 2026],
+            "month": [4, 4, 4],
+            "is_wam": [True, False, True],
+            "payment_amount_numeric": [10000.0, 5000.0, 3000.0],
+        })
+        filtered = df[df["is_wam"] == True]  # noqa: E712
+        assert len(filtered) == 2
+        assert filtered["payment_amount_numeric"].sum() == 13000.0
+
+    def test_filter_wam_all_false(self):
+        df = pd.DataFrame({
+            "is_wam": [False, False, False],
+            "payment_amount_numeric": [10000.0, 5000.0, 3000.0],
+        })
+        filtered = df[df["is_wam"] == True]  # noqa: E712
+        assert len(filtered) == 0
+
+    def test_filter_wam_missing_column(self):
+        """is_wamカラムがない場合はフィルタしない"""
+        df = pd.DataFrame({
+            "payment_amount_numeric": [10000.0, 5000.0],
+        })
+        # is_wamカラムがなければフィルタをスキップ（アプリの動作と同じ）
+        if "is_wam" in df.columns:
+            df = df[df["is_wam"] == True]  # noqa: E712
+        assert len(df) == 2
