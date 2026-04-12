@@ -65,6 +65,7 @@ utility_pages = [
 ]
 
 admin_pages = [
+    st.Page("_pages/wam_monthly.py", title="WAM立替金確認", icon=":material/receipt_long:"),
     st.Page("_pages/user_management.py", title="ユーザー管理", icon=":material/manage_accounts:"),
     st.Page("_pages/admin_settings.py", title="管理設定", icon=":material/settings:"),
 ]
