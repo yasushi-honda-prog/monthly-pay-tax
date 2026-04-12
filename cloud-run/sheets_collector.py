@@ -3,6 +3,7 @@
 GASのconsolidateReports/getSheetData_/findLastRow_をPythonに移植。
 Domain-Wide Delegation認証でSheets API v4を使用。
 """
+from __future__ import annotations
 
 import logging
 import re
@@ -468,14 +469,44 @@ def list_reimbursement_sheets(drive_service) -> list[dict]:
     return sheets
 
 
+def _find_input_tab_name(service, spreadsheet_id: str) -> str | None:
+    """スプレッドシートのタブ一覧から '入力シート' を含むタブ名を検索
+
+    タブ名にはシートごとに異なる数字プレフィックス（0/1/2等）が付くため、
+    サフィックスマッチで検索する。
+    """
+    try:
+        request = service.spreadsheets().get(
+            spreadsheetId=spreadsheet_id,
+            fields="sheets.properties.title",
+        )
+        result = _execute_with_throttle(
+            request, context=f"tab_lookup({spreadsheet_id[:8]})"
+        )
+    except Exception:
+        logger.warning("タブ一覧取得エラー: '%s'", spreadsheet_id)
+        return None
+
+    for sheet in result.get("sheets", []):
+        title = sheet.get("properties", {}).get("title", "")
+        if title.endswith(config.REIMBURSEMENT_TAB_SUFFIX):
+            return title
+    return None
+
+
 def get_reimbursement_sheet_data(service, spreadsheet_id: str) -> list[list]:
     """立替金シートの入力シートタブからデータを取得
 
     A列~L列のSTART_ROW行以降を取得。
     マーカー列が "例" の行、全空行をフィルタリング。
     """
+    tab_name = _find_input_tab_name(service, spreadsheet_id)
+    if not tab_name:
+        logger.warning("入力シートタブが見つかりません: '%s'", spreadsheet_id)
+        return []
+
     range_notation = (
-        f"'{config.REIMBURSEMENT_TAB_NAME}'"
+        f"'{tab_name}'"
         f"!A{config.REIMBURSEMENT_DATA_START_ROW}:L"
     )
     try:

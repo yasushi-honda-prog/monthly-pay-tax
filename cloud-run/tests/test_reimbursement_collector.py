@@ -17,6 +17,7 @@ from sheets_collector import (
     get_reimbursement_sheet_data,
     collect_reimbursement_data,
     run_reimbursement_collection,
+    _find_input_tab_name,
 )
 
 
@@ -109,13 +110,80 @@ class TestListReimbursementSheets:
         assert result == []
 
 
+class TestFindInputTabName:
+    """タブ名動的検索のテスト"""
+
+    @patch("sheets_collector.time.sleep")
+    def test_finds_tab_with_prefix_0(self, mock_sleep):
+        mock_service = MagicMock()
+        mock_service.spreadsheets().get().execute.return_value = {
+            "sheets": [
+                {"properties": {"title": "0入力シート"}},
+                {"properties": {"title": "0リスト用"}},
+            ],
+        }
+
+        assert _find_input_tab_name(mock_service, "test_id") == "0入力シート"
+
+    @patch("sheets_collector.time.sleep")
+    def test_finds_tab_with_prefix_2(self, mock_sleep):
+        mock_service = MagicMock()
+        mock_service.spreadsheets().get().execute.return_value = {
+            "sheets": [
+                {"properties": {"title": "2入力シート"}},
+                {"properties": {"title": "0リスト用"}},
+            ],
+        }
+
+        assert _find_input_tab_name(mock_service, "test_id") == "2入力シート"
+
+    @patch("sheets_collector.time.sleep")
+    def test_returns_none_when_no_match(self, mock_sleep):
+        mock_service = MagicMock()
+        mock_service.spreadsheets().get().execute.return_value = {
+            "sheets": [
+                {"properties": {"title": "リスト用"}},
+            ],
+        }
+
+        assert _find_input_tab_name(mock_service, "test_id") is None
+
+    @patch("sheets_collector.time.sleep")
+    def test_returns_none_on_api_error(self, mock_sleep):
+        mock_service = MagicMock()
+        resp = httplib2.Response({"status": 403})
+        mock_service.spreadsheets().get().execute.side_effect = HttpError(resp, b"Forbidden")
+
+        assert _find_input_tab_name(mock_service, "test_id") is None
+
+
+def _mock_service_with_tab(tab_name="0入力シート"):
+    """タブ名検索 + values取得の両方をモックしたサービスを作成"""
+    mock_service = MagicMock()
+    mock_spreadsheets = MagicMock()
+    mock_service.spreadsheets.return_value = mock_spreadsheets
+
+    # spreadsheets().get() → タブ名一覧
+    mock_meta = MagicMock()
+    mock_meta.execute.return_value = {
+        "sheets": [{"properties": {"title": tab_name}}],
+    }
+    mock_spreadsheets.get.return_value = mock_meta
+
+    # spreadsheets().values().get() → データ取得
+    mock_values = MagicMock()
+    mock_spreadsheets.values.return_value = mock_values
+
+    return mock_service, mock_values
+
+
 class TestGetReimbursementSheetData:
     """立替金シートデータ取得のテスト"""
 
     @patch("sheets_collector.time.sleep")
     def test_filters_example_rows(self, mock_sleep):
-        mock_service = MagicMock()
-        mock_service.spreadsheets().values().get().execute.return_value = {
+        mock_service, mock_values = _mock_service_with_tab()
+        mock_values.get().execute.return_value = {
             "values": [
                 ["例", "2026年", "3月20日", "ケアプーPJ", "旅費交通費", "新幹線代", "¥21,510", "", "東京", "大阪", "訪問", "url"],
                 ["", "2026年", "4月1日", "経産省PJ", "個人立替費", "文具", "¥500", "", "", "", "事務", "url2"],
@@ -130,8 +198,8 @@ class TestGetReimbursementSheetData:
 
     @patch("sheets_collector.time.sleep")
     def test_filters_empty_rows(self, mock_sleep):
-        mock_service = MagicMock()
-        mock_service.spreadsheets().values().get().execute.return_value = {
+        mock_service, mock_values = _mock_service_with_tab()
+        mock_values.get().execute.return_value = {
             "values": [
                 ["", "2026年", "3月20日", "ケアプーPJ", "旅費交通費", "テスト", "¥1,000"],
                 [],
@@ -145,8 +213,8 @@ class TestGetReimbursementSheetData:
 
     @patch("sheets_collector.time.sleep")
     def test_keeps_valid_rows(self, mock_sleep):
-        mock_service = MagicMock()
-        mock_service.spreadsheets().values().get().execute.return_value = {
+        mock_service, mock_values = _mock_service_with_tab()
+        mock_values.get().execute.return_value = {
             "values": [
                 ["", "2026年", "3月20日", "WAM-出張タダスクPJ", "旅費交通費", "新幹線代", "¥21,510", "", "東京", "仙台", "訪問", "pdf_url"],
                 ["", "2026年", "4月5日", "その他", "個人立替費", "文具", "¥300", "", "", "", "事務", ""],
@@ -158,10 +226,21 @@ class TestGetReimbursementSheetData:
         assert len(result) == 2
 
     @patch("sheets_collector.time.sleep")
-    def test_returns_empty_on_error(self, mock_sleep):
-        mock_service = MagicMock()
+    def test_returns_empty_on_values_error(self, mock_sleep):
+        mock_service, mock_values = _mock_service_with_tab()
         resp = httplib2.Response({"status": 404})
-        mock_service.spreadsheets().values().get().execute.side_effect = HttpError(resp, b"Not Found")
+        mock_values.get().execute.side_effect = HttpError(resp, b"Not Found")
+
+        result = get_reimbursement_sheet_data(mock_service, "test_id")
+
+        assert result == []
+
+    @patch("sheets_collector.time.sleep")
+    def test_returns_empty_when_tab_not_found(self, mock_sleep):
+        mock_service = MagicMock()
+        mock_service.spreadsheets().get().execute.return_value = {
+            "sheets": [{"properties": {"title": "リスト用"}}],
+        }
 
         result = get_reimbursement_sheet_data(mock_service, "test_id")
 
