@@ -256,3 +256,50 @@ class TestSummarizeCompensation:
         summary = _summarize_compensation(filtered)
         payments = summary["支払額"].tolist()
         assert payments == sorted(payments, reverse=True)
+
+
+# --- 振込CSV生成 ---
+
+def _generate_transfer_csv(df: pd.DataFrame) -> bytes:
+    if df.empty:
+        return b""
+    target = df[df["payment"].notna() & (df["payment"] > 0)].copy()
+    if target.empty:
+        return b""
+    rows = []
+    for _, r in target.iterrows():
+        amount = int(r["payment"])
+        name = str(r.get("full_name", r.get("nickname", "")))
+        rows.append(f",,1,,{name},{amount},,")
+    return "\n".join(rows).encode("shift_jis", errors="replace")
+
+
+class TestGenerateTransferCsv:
+    def test_basic_csv(self, comp_df):
+        filtered = _filter_comp_by_year_month(comp_df, 2026, 4)
+        csv_bytes = _generate_transfer_csv(filtered)
+        csv_text = csv_bytes.decode("shift_jis")
+        lines = csv_text.strip().split("\n")
+        assert len(lines) == 2  # 太郎 + 花子
+        # 各行が8カラム（カンマ7個）
+        for line in lines:
+            assert line.count(",") == 7
+        # 金額が含まれている
+        assert "99790" in csv_text
+        assert "49895" in csv_text
+
+    def test_empty_df(self):
+        empty = pd.DataFrame(columns=["payment", "full_name", "nickname"])
+        assert _generate_transfer_csv(empty) == b""
+
+    def test_zero_payment_excluded(self):
+        df = pd.DataFrame({
+            "payment": [0.0, 50000.0, None],
+            "full_name": ["A", "B", "C"],
+            "nickname": ["a", "b", "c"],
+        })
+        csv_bytes = _generate_transfer_csv(df)
+        csv_text = csv_bytes.decode("shift_jis")
+        lines = csv_text.strip().split("\n")
+        assert len(lines) == 1  # Bのみ
+        assert "50000" in csv_text

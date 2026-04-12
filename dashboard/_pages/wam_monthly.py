@@ -102,6 +102,26 @@ def _summarize_compensation(df: pd.DataFrame) -> pd.DataFrame:
     return summary.sort_values("支払額", ascending=False, na_position="last")
 
 
+def _generate_transfer_csv(df: pd.DataFrame) -> bytes:
+    """GMOあおぞらネット銀行 総合振込CSVを生成（Shift_JIS、ヘッダーなし）
+
+    フォーマット: 銀行番号,支店番号,預金種目,口座番号,受取人名,振込金額,EDI情報,識別表示
+    口座情報はプレースホルダー（口座マスタ未整備のため経理が手動補完）
+    """
+    if df.empty:
+        return b""
+    # payment > 0 のメンバーのみ
+    target = df[df["payment"].notna() & (df["payment"] > 0)].copy()
+    if target.empty:
+        return b""
+    rows = []
+    for _, r in target.iterrows():
+        amount = int(r["payment"])
+        name = str(r.get("full_name", r.get("nickname", "")))
+        rows.append(f",,1,,{name},{amount},,")
+    return "\n".join(rows).encode("shift_jis", errors="replace")
+
+
 # --- サイドバー ---
 with st.sidebar:
     selected_year, selected_month = render_sidebar_year_month(
@@ -280,12 +300,24 @@ with tab4:
         st.dataframe(comp_display, use_container_width=True, hide_index=True)
         st.caption(f"{len(comp_summary):,} 名表示")
 
-        # CSVダウンロード
+        # CSVダウンロード（報酬明細）
         comp_csv = comp_summary.to_csv(index=False)
-        st.download_button(
-            "CSVダウンロード",
-            comp_csv,
-            file_name=f"wam_compensation_{selected_year}_{selected_month:02d}.csv",
-            mime="text/csv",
-            key="wam_comp_csv_download",
-        )
+        dl_col1, dl_col2 = st.columns(2)
+        with dl_col1:
+            st.download_button(
+                "報酬明細CSV",
+                comp_csv,
+                file_name=f"wam_compensation_{selected_year}_{selected_month:02d}.csv",
+                mime="text/csv",
+                key="wam_comp_csv_download",
+            )
+        with dl_col2:
+            transfer_csv = _generate_transfer_csv(df_comp)
+            st.download_button(
+                "振込CSV（GMOあおぞら形式）",
+                transfer_csv,
+                file_name=f"wam_transfer_{selected_year}_{selected_month:02d}.csv",
+                mime="text/csv",
+                key="wam_transfer_csv_download",
+            )
+        st.caption("※ 振込CSVの口座情報（銀行番号・支店番号・口座番号）は未入力です。ダウンロード後に手動で補完してください。")
