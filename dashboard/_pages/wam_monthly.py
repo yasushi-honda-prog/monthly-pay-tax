@@ -5,12 +5,15 @@ PJ別サマリー・メンバー別明細・領収書添付状況を表示する
 v_monthly_compensation VIEW から報酬・源泉徴収データを表示する。
 """
 
+import io
+
 import pandas as pd
 import streamlit as st
 
 from lib.auth import require_admin
 from lib.bq_client import load_data
 from lib.constants import MONTHLY_COMPENSATION_VIEW, REIMBURSEMENT_VIEW
+from lib.receipt_pdf import generate_all_statements_zip, generate_payment_statement
 from lib.ui_helpers import fill_empty_nickname, render_kpi, render_sidebar_year_month
 
 # --- 認証チェック ---
@@ -150,7 +153,8 @@ try:
     ).fillna(0)
     df_comp = _filter_comp_by_year_month(df_comp_all, selected_year, selected_month)
     comp_loaded = True
-except Exception:
+except Exception as e:
+    st.warning(f"報酬データの取得に失敗しました: {e}")
     df_comp = pd.DataFrame()
     comp_loaded = False
 
@@ -188,7 +192,7 @@ with cols[3]:
     render_kpi("領収書添付率", f"{stats['rate']:.0f}%")
 
 # --- タブ ---
-tab1, tab2, tab3, tab4 = st.tabs(["PJ別サマリー", "メンバー別明細", "領収書添付状況", "月別報酬・振込確認"])
+tab1, tab2, tab3, tab4, tab5 = st.tabs(["PJ別サマリー", "メンバー別明細", "領収書添付状況", "月別報酬・振込確認", "支払明細書"])
 
 with tab1:
     st.subheader("対象PJ別 立替金サマリー")
@@ -321,3 +325,112 @@ with tab4:
                 key="wam_transfer_csv_download",
             )
         st.caption("※ 振込CSVの口座情報（銀行番号・支店番号・口座番号）は未入力です。ダウンロード後に手動で補完してください。")
+
+@st.cache_data(show_spinner="PDF生成中...")
+def _cached_generate_statement(member_name, full_name, year, month, comp_tuple, reimb_csv):
+    """キャッシュ付きPDF生成（Streamlit再レンダリング時の再生成を防止）"""
+    comp = dict(zip(
+        ["qualification_adjusted_compensation", "withholding_tax", "dx_subsidy", "reimbursement", "payment"],
+        comp_tuple,
+    ))
+    reimb_df = pd.read_csv(io.StringIO(reimb_csv)) if reimb_csv else pd.DataFrame()
+    return generate_payment_statement(member_name, full_name, year, month, comp, reimb_df)
+
+
+@st.cache_data(show_spinner="ZIP生成中...")
+def _cached_generate_zip(comp_csv, reimb_csv, year, month):
+    """キャッシュ付きZIP生成"""
+    comp_df = pd.read_csv(io.StringIO(comp_csv))
+    reimb_df = pd.read_csv(io.StringIO(reimb_csv)) if reimb_csv else pd.DataFrame()
+    return generate_all_statements_zip(comp_df, reimb_df, year, month)
+
+
+with tab5:
+    st.subheader("支払明細書")
+    if not comp_loaded or df_comp.empty:
+        st.info("報酬データがありません（支払明細書の生成には報酬データが必要です）")
+    else:
+        # メンバー選択
+        comp_members = sorted(df_comp["nickname"].dropna().unique().tolist())
+        selected_stmt_member = st.selectbox(
+            "メンバー選択", ["全メンバー"] + comp_members, key="wam_stmt_member",
+        )
+
+        if selected_stmt_member == "全メンバー":
+            # 全メンバーサマリー
+            st.caption(f"{len(comp_members):,} 名分の支払明細書を一括生成します")
+            try:
+                zip_bytes = _cached_generate_zip(
+                    comp_csv=df_comp.to_csv(index=False),
+                    reimb_csv=df.to_csv(index=False) if not df.empty else "",
+                    year=selected_year,
+                    month=selected_month,
+                )
+                st.download_button(
+                    "全メンバー一括ダウンロード (ZIP)",
+                    zip_bytes,
+                    file_name=f"payment_statements_{selected_year}_{selected_month:02d}.zip",
+                    mime="application/zip",
+                    key="wam_stmt_zip_download",
+                )
+            except Exception as e:
+                st.error(f"ZIP生成に失敗しました: {e}")
+        else:
+            # 個別メンバー
+            member_comp = df_comp[df_comp["nickname"] == selected_stmt_member].iloc[0]
+            member_reimb = df[df["nickname"] == selected_stmt_member] if not df.empty else pd.DataFrame()
+
+            comp_data = {
+                "qualification_adjusted_compensation": float(member_comp.get("qualification_adjusted_compensation", 0) or 0),
+                "withholding_tax": float(member_comp.get("withholding_tax", 0) or 0),
+                "dx_subsidy": float(member_comp.get("dx_subsidy", 0) or 0),
+                "reimbursement": float(member_comp.get("reimbursement", 0) or 0),
+                "payment": float(member_comp.get("payment", 0) or 0),
+            }
+
+            # プレビュー
+            cols5 = st.columns(3)
+            with cols5[0]:
+                subtotal_a = (
+                    comp_data["qualification_adjusted_compensation"]
+                    + comp_data["withholding_tax"]
+                    + comp_data["dx_subsidy"]
+                )
+                render_kpi("業務委託費 (A)", f"¥{subtotal_a:,.0f}")
+            with cols5[1]:
+                subtotal_b = member_reimb["payment_amount_numeric"].sum() if not member_reimb.empty else 0
+                render_kpi("立替経費 (B)", f"¥{subtotal_b:,.0f}")
+            with cols5[2]:
+                render_kpi("合計 (A+B)", f"¥{subtotal_a + subtotal_b:,.0f}")
+
+            # PDF生成・ダウンロード（キャッシュ済み）
+            full_name = str(member_comp.get("full_name", selected_stmt_member))
+            comp_tuple = tuple(comp_data[k] for k in [
+                "qualification_adjusted_compensation", "withholding_tax",
+                "dx_subsidy", "reimbursement", "payment",
+            ])
+            reimb_csv = member_reimb.to_csv(index=False) if not member_reimb.empty else ""
+            try:
+                pdf_bytes = _cached_generate_statement(
+                    selected_stmt_member, full_name,
+                    selected_year, selected_month,
+                    comp_tuple, reimb_csv,
+                )
+                st.download_button(
+                    "支払明細書PDFダウンロード",
+                    pdf_bytes,
+                    file_name=f"payment_statement_{selected_stmt_member}_{selected_year}_{selected_month:02d}.pdf",
+                    mime="application/pdf",
+                    key="wam_stmt_pdf_download",
+                )
+            except Exception as e:
+                st.error(f"PDF生成に失敗しました: {e}")
+
+            # 領収書URL一覧
+            if not member_reimb.empty and "receipt_url" in member_reimb.columns:
+                urls = member_reimb["receipt_url"].dropna()
+                urls = urls[urls.str.strip() != ""]
+                if not urls.empty:
+                    with st.expander(f"添付書類一覧（{len(urls)}件）"):
+                        for i, url in enumerate(urls, 1):
+                            st.markdown(f"{i}. {url}")
