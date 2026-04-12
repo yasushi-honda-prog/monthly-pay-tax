@@ -12,7 +12,7 @@ import streamlit as st
 
 from lib.auth import require_admin
 from lib.bq_client import load_data
-from lib.constants import MONTHLY_COMPENSATION_VIEW, REIMBURSEMENT_VIEW
+from lib.constants import MEMBER_MASTER_TABLE, MONTHLY_COMPENSATION_VIEW, REIMBURSEMENT_VIEW
 from lib.receipt_pdf import generate_all_statements_zip, generate_payment_statement
 from lib.ui_helpers import fill_empty_nickname, render_kpi, render_sidebar_year_month
 
@@ -105,11 +105,32 @@ def _summarize_compensation(df: pd.DataFrame) -> pd.DataFrame:
     return summary.sort_values("支払額", ascending=False, na_position="last")
 
 
-def _generate_transfer_csv(df: pd.DataFrame) -> bytes:
+def _load_bank_accounts() -> pd.DataFrame:
+    """member_masterから report_url → 口座情報のマッピングを取得
+
+    report_url_1 → bank1_*, report_url_2 → bank2_* の1:1対応をUNIONで正規化。
+    """
+    query = f"""
+    SELECT report_url_1 AS report_url,
+           bank1_code AS bank_code, bank1_branch_code AS branch_code,
+           bank1_deposit_type AS deposit_type, bank1_account_number AS account_number,
+           bank1_holder_name AS holder_name
+    FROM `{MEMBER_MASTER_TABLE}` WHERE report_url_1 IS NOT NULL AND report_url_1 != ''
+    UNION ALL
+    SELECT report_url_2 AS report_url,
+           bank2_code AS bank_code, bank2_branch_code AS branch_code,
+           bank2_deposit_type AS deposit_type, bank2_account_number AS account_number,
+           bank2_holder_name AS holder_name
+    FROM `{MEMBER_MASTER_TABLE}` WHERE report_url_2 IS NOT NULL AND report_url_2 != ''
+    """
+    return load_data(query)
+
+
+def _generate_transfer_csv(df: pd.DataFrame, df_bank: pd.DataFrame) -> bytes:
     """GMOあおぞらネット銀行 総合振込CSVを生成（Shift_JIS、ヘッダーなし）
 
     フォーマット: 銀行番号,支店番号,預金種目,口座番号,受取人名,振込金額,EDI情報,識別表示
-    口座情報はプレースホルダー（口座マスタ未整備のため経理が手動補完）
+    口座情報は member_master から自動取得（マッチしない場合は空欄）。
     """
     if df.empty:
         return b""
@@ -117,12 +138,35 @@ def _generate_transfer_csv(df: pd.DataFrame) -> bytes:
     target = df[df["payment"].notna() & (df["payment"] > 0)].copy()
     if target.empty:
         return b""
+
+    # 口座データをreport_urlで結合
+    if not df_bank.empty:
+        target = target.merge(df_bank, on="report_url", how="left")
+
     rows = []
     for _, r in target.iterrows():
         amount = int(r["payment"])
-        name = str(r.get("full_name", r.get("nickname", "")))
-        rows.append(f",,1,,{name},{amount},,")
+        bank_code = _safe_str(r.get("bank_code"))
+        branch_code = _safe_str(r.get("branch_code"))
+        deposit_type = _deposit_type_code(_safe_str(r.get("deposit_type")))
+        account_number = _safe_str(r.get("account_number"))
+        holder_name = _safe_str(r.get("holder_name")) or _safe_str(r.get("full_name")) or _safe_str(r.get("nickname"))
+        rows.append(f"{bank_code},{branch_code},{deposit_type},{account_number},{holder_name},{amount},,")
     return "\n".join(rows).encode("shift_jis", errors="replace")
+
+
+def _safe_str(val) -> str:
+    """NaN/None を空文字に変換"""
+    if val is None or (isinstance(val, float) and pd.isna(val)):
+        return ""
+    s = str(val).strip()
+    return "" if s == "nan" else s
+
+
+def _deposit_type_code(deposit_type: str) -> str:
+    """預金種目の文字列を数値コードに変換（GMOあおぞら形式）"""
+    mapping = {"普通": "1", "当座": "2", "貯蓄": "4"}
+    return mapping.get(deposit_type.strip(), "1") if deposit_type.strip() else "1"
 
 
 # --- サイドバー ---
@@ -316,7 +360,11 @@ with tab4:
                 key="wam_comp_csv_download",
             )
         with dl_col2:
-            transfer_csv = _generate_transfer_csv(df_comp)
+            try:
+                df_bank = _load_bank_accounts()
+            except Exception:
+                df_bank = pd.DataFrame()
+            transfer_csv = _generate_transfer_csv(df_comp, df_bank)
             st.download_button(
                 "振込CSV（GMOあおぞら形式）",
                 transfer_csv,
@@ -324,7 +372,10 @@ with tab4:
                 mime="text/csv",
                 key="wam_transfer_csv_download",
             )
-        st.caption("※ 振込CSVの口座情報（銀行番号・支店番号・口座番号）は未入力です。ダウンロード後に手動で補完してください。")
+        if df_bank.empty:
+            st.caption("※ 口座情報を取得できませんでした。ダウンロード後に手動で補完してください。")
+        else:
+            st.caption("※ 口座情報は member_master から自動入力済みです。マッチしないメンバーは空欄のため手動補完してください。")
 
 @st.cache_data(show_spinner="PDF生成中...")
 def _cached_generate_statement(member_name, full_name, year, month, comp_tuple, reimb_csv):
