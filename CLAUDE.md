@@ -55,7 +55,7 @@ SA鍵ファイルは使わない（ローカル開発時のみ `SA_KEY_PATH` 環
 ## テスト
 
 ```bash
-# Dashboard テスト（189テスト）— プロジェクトルートから実行可能
+# Dashboard テスト（210テスト）— プロジェクトルートから実行可能
 python3 -m pytest dashboard/tests/ -q
 
 # Cloud Run テスト（42テスト）— プロジェクトルートから実行可能
@@ -155,6 +155,7 @@ GASバインドSSのスプレッドシート関数パイプラインをSQLで再
 | 業務チェック | `pages/check_management.py` | checker/admin |
 | アーキテクチャ | `pages/architecture.py` | viewer/checker/admin |
 | ヘルプ | `pages/help.py` | viewer/checker/admin |
+| WAM立替金確認（3タブ） | `pages/wam_monthly.py` | adminのみ |
 | ユーザー管理 | `pages/user_management.py` | adminのみ |
 | 管理設定 | `pages/admin_settings.py` | adminのみ |
 
