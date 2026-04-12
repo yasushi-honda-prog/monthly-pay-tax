@@ -144,6 +144,47 @@ CREATE TABLE IF NOT EXISTS `monthly-pay-tax.pay_reports.reimbursement_items` (
   ingested_at TIMESTAMP NOT NULL
 );
 
+-- タダメンMマスタ（タダメンMシートから全有用データを収集）
+CREATE TABLE IF NOT EXISTS `monthly-pay-tax.pay_reports.member_master` (
+  member_id STRING,
+  last_name STRING,
+  first_name STRING,
+  last_name_kana STRING,
+  first_name_kana STRING,
+  nickname STRING,
+  email STRING,
+  postal_code STRING,
+  prefecture STRING,
+  address STRING,
+  gws_account STRING,
+  report_url_1 STRING,
+  report_url_2 STRING,
+  shipping_postal_code STRING,
+  shipping_address STRING,
+  qualification_allowance STRING,
+  position_rate STRING,
+  corporate_sheet STRING,
+  donation_sheet STRING,
+  qualification_sheet STRING,
+  bank1_type STRING,
+  bank1_name STRING,
+  bank1_code STRING,
+  bank1_branch_name STRING,
+  bank1_branch_code STRING,
+  bank1_account_number STRING,
+  bank1_deposit_type STRING,
+  bank1_holder_name STRING,
+  bank2_type STRING,
+  bank2_name STRING,
+  bank2_code STRING,
+  bank2_branch_name STRING,
+  bank2_branch_code STRING,
+  bank2_account_number STRING,
+  bank2_deposit_type STRING,
+  bank2_holder_name STRING,
+  ingested_at TIMESTAMP NOT NULL
+);
+
 -- WAM対象PJマスタ（WAM判定ルール）
 CREATE TABLE IF NOT EXISTS `monthly-pay-tax.pay_reports.wam_target_projects` (
   target_project STRING NOT NULL,

@@ -89,6 +89,24 @@ def run_consolidation():
                 "立替金シート収集スキップ（本体処理は完了）: %s", reimb_err, exc_info=True
             )
 
+        # Step 7: タダメンMマスタ全量取得（失敗しても本体は成功扱い）
+        try:
+            logger.info("--- タダメンMマスタ収集開始 ---")
+            service = sheets_collector._build_sheets_service()
+            member_master_data = sheets_collector.collect_member_master(service)
+            member_master_count = bq_loader.load_to_bigquery(
+                bq_loader.config.BQ_TABLE_MEMBER_MASTER, member_master_data
+            )
+            results[bq_loader.config.BQ_TABLE_MEMBER_MASTER] = member_master_count
+            logger.info(
+                "--- タダメンMマスタ収集完了 (member_master: %d) ---",
+                member_master_count,
+            )
+        except Exception as mm_err:
+            logger.warning(
+                "タダメンMマスタ収集スキップ（本体処理は完了）: %s", mm_err, exc_info=True
+            )
+
         elapsed = round(time.time() - start, 1)
         summary = {
             "status": "success",
