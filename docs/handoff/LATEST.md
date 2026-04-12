@@ -1,12 +1,60 @@
 # ハンドオフメモ - monthly-pay-tax
 
-**更新日**: 2026-04-12（WAM Must要件 3/3 完了: #55 #56 #57）
-**フェーズ**: 6完了 + グループ機能 + グループ一括登録・自動同期 + UX改善 + 数値変換リファクタ + 報告入力機能（デプロイ済み）＋ **WAM助成金対応 Phase 1b 完了 + Must要件 全完了**
-**最新デプロイ**: Collector rev 00023-w7s（立替金シート収集対応）+ Dashboard rev 00226-fbg（支払明細書PDF追加）
+**更新日**: 2026-04-12（PDF文字化け修正 + member_master基盤追加）
+**フェーズ**: WAM助成金対応 Must要件 全完了 + **member_master基盤構築**
+**最新デプロイ**: Collector rev 00024-hgj（member_master収集追加）+ Dashboard rev 00227-h6b（PDF日本語フォント修正）
 **Cloud Run設定**: 2026-04-07 `--no-cpu-throttling --max-instances=3` 適用済み（ADR 0004）
-**テストスイート**: Dashboard 235 + Cloud Run 42 = **277テスト全PASS**
+**テストスイート**: Dashboard 235 + Cloud Run 52 = **287テスト全PASS**
 
-## 🆕 2026-04-11 WAM助成金事業 要件受領セッション
+## 🆕 2026-04-12 PDF文字化け修正 + member_master基盤構築
+
+### PR #90: PDF日本語フォント修正
+
+支払明細書PDF（Tab 5）の目視確認で**日本語が完全に文字化け**していることを発見。
+原因: `NotoSansCJK-Regular.ttc`（TTC）でfpdf2がindex 0（簡体字）のグリフを使用。
+修正: 単体TTFの`fonts-ipafont-gothic`に変更 → 日本語レンダリング正常化。
+
+### PR #91: member_masterテーブル追加
+
+タダメンMシート（「タダメンM」タブ）から36列×240件の全有用データをBQに格納。
+振込CSV口座自動化(#92)・支払調書(#58)の基盤データ。
+
+**収集対象**: 姓名・フリガナ(4列)、nickname、email、住所(3列)、送付先住所(2列)、
+GWSアカウント、報告シートURL(2列)、手当・シート番号(5列)、口座①(8列)、口座②(8列)
+
+**データ検証結果**:
+| 指標 | 値 |
+|------|-----|
+| 総行数 | 240 |
+| 口座①あり | 162 |
+| 口座②あり | 10 |
+| URL_1/URL_2 | 186 / 16 |
+
+**重要な構造**: report_url_1 → bank1_*、report_url_2 → bank2_* が1:1対応。
+報告シート①の振込先は口座①、報告シート②の振込先は口座②。
+
+**セキュリティ**: 口座・住所等のセンシティブ列はダッシュボードUIに一切表示しない。
+バックエンド処理（振込CSV生成等）でのみ利用。
+
+### GitHub Issues（本セッションで作成）
+
+| Issue | 優先度 | 内容 | 状態 |
+|-------|-------|------|------|
+| [#92](https://github.com/yasushi-honda-prog/monthly-pay-tax/issues/92) | P2 | 振込CSV口座自動化（member_masterからJOIN） | 着手可能 |
+| [#93](https://github.com/yasushi-honda-prog/monthly-pay-tax/issues/93) | P2 | app_gyomu/hojo_reports テーブル作成 | 着手可能 |
+| [#94](https://github.com/yasushi-honda-prog/monthly-pay-tax/issues/94) | P2 | Cloud Run コスト監視（ADR 0004効果測定） | 着手可能 |
+
+### 🔴 次セッションの開始点
+
+1. **#92 振込CSV口座自動化** — member_masterのbank1/bank2をJOINして振込CSVの口座プレースホルダーを実データに置換
+2. **wam_target_projects wam_flag更新** — Phase 0回答後に対象PJを `'Y'` に UPDATE
+3. **#58 支払調書連携 (Want, P2)** — member_masterの姓名・住所・フリガナが基盤として利用可能に
+4. **#93 app_gyomu/hojo_reports テーブル作成** — 報告入力機能の保存先
+5. **#94 コスト監視** — ADR 0004効果測定
+
+---
+
+## 2026-04-11 WAM助成金事業 要件受領セッション
 
 ### 概要
 
