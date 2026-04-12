@@ -13,12 +13,7 @@ import pytest
 # --- テスト対象の関数を直接定義（モジュールレベルSt実行回避） ---
 
 def _filter_by_year_month(df: pd.DataFrame, year: int, month: int) -> pd.DataFrame:
-    mask = pd.Series(True, index=df.index)
-    if "normalized_year" in df.columns:
-        mask &= df["normalized_year"] == year
-    if "month" in df.columns:
-        mask &= df["month"] == month
-    return df[mask]
+    return df[(df["normalized_year"] == year) & (df["month"] == month)]
 
 
 def _summarize_by_project(df: pd.DataFrame) -> pd.DataFrame:
@@ -34,12 +29,15 @@ def _summarize_by_project(df: pd.DataFrame) -> pd.DataFrame:
     return summary.sort_values("支払金額合計", ascending=False)
 
 
+def _is_receipt_attached(series: pd.Series) -> pd.Series:
+    return series.notna() & (series.str.strip() != "")
+
+
 def _receipt_stats(df: pd.DataFrame) -> dict:
     total = len(df)
     if total == 0:
         return {"total": 0, "attached": 0, "missing": 0, "rate": 0.0}
-    attached = df["receipt_url"].notna() & (df["receipt_url"].str.strip() != "")
-    n_attached = int(attached.sum())
+    n_attached = int(_is_receipt_attached(df["receipt_url"]).sum())
     return {
         "total": total,
         "attached": n_attached,

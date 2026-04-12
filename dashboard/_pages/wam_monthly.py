@@ -22,20 +22,14 @@ st.caption("立替金シートデータの確認・分析（ドラフト）")
 
 
 # --- データ取得 ---
-@st.cache_data(ttl=21600)
 def _load_reimbursement():
     query = f"SELECT * FROM `{REIMBURSEMENT_VIEW}`"
-    return load_data(query)
+    return load_data(query)  # load_data側で@st.cache_data(ttl=21600)済み
 
 
 def _filter_by_year_month(df: pd.DataFrame, year: int, month: int) -> pd.DataFrame:
     """年月でフィルタ"""
-    mask = pd.Series(True, index=df.index)
-    if "normalized_year" in df.columns:
-        mask &= df["normalized_year"] == year
-    if "month" in df.columns:
-        mask &= df["month"] == month
-    return df[mask]
+    return df[(df["normalized_year"] == year) & (df["month"] == month)]
 
 
 def _summarize_by_project(df: pd.DataFrame) -> pd.DataFrame:
@@ -52,13 +46,17 @@ def _summarize_by_project(df: pd.DataFrame) -> pd.DataFrame:
     return summary.sort_values("支払金額合計", ascending=False)
 
 
+def _is_receipt_attached(series: pd.Series) -> pd.Series:
+    """receipt_url の添付判定（True=添付済み）"""
+    return series.notna() & (series.str.strip() != "")
+
+
 def _receipt_stats(df: pd.DataFrame) -> dict:
     """領収書添付状況の統計を返す"""
     total = len(df)
     if total == 0:
         return {"total": 0, "attached": 0, "missing": 0, "rate": 0.0}
-    attached = df["receipt_url"].notna() & (df["receipt_url"].str.strip() != "")
-    n_attached = int(attached.sum())
+    n_attached = int(_is_receipt_attached(df["receipt_url"]).sum())
     return {
         "total": total,
         "attached": n_attached,
@@ -133,14 +131,14 @@ with tab2:
         df_detail = df if selected_member == "すべて" else df[df["nickname"] == selected_member]
 
         display_cols = [
-            "nickname", "date", "target_project", "category",
+            "nickname", "date", "target_project", "is_wam", "category",
             "payment_purpose", "payment_amount", "advance_amount",
             "from_station", "to_station", "visit_purpose",
         ]
         existing_cols = [c for c in display_cols if c in df_detail.columns]
         col_labels = {
             "nickname": "メンバー", "date": "月日", "target_project": "対象PJ",
-            "category": "分類", "payment_purpose": "支払用途",
+            "is_wam": "WAM対象", "category": "分類", "payment_purpose": "支払用途",
             "payment_amount": "支払金額", "advance_amount": "仮払金額",
             "from_station": "発", "to_station": "着", "visit_purpose": "訪問目的",
         }
@@ -169,7 +167,7 @@ with tab3:
         receipt_by_member = df.groupby("nickname").apply(
             lambda g: pd.Series({
                 "総件数": len(g),
-                "添付済み": int((g["receipt_url"].notna() & (g["receipt_url"].str.strip() != "")).sum()),
+                "添付済み": int(_is_receipt_attached(g["receipt_url"]).sum()),
             })
         ).reset_index()
         receipt_by_member["未添付"] = receipt_by_member["総件数"] - receipt_by_member["添付済み"]
