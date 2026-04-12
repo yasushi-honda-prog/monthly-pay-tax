@@ -93,6 +93,13 @@ with st.sidebar:
 if selected_project != "すべて":
     df = df[df["target_project"] == selected_project]
 
+# --- サイドバー: WAM対象フィルタ ---
+with st.sidebar:
+    wam_only = st.checkbox("WAM対象のみ表示", key="wam_only")
+
+if wam_only and "is_wam" in df.columns:
+    df = df[df["is_wam"] == True]  # noqa: E712
+
 # --- KPI ---
 cols = st.columns(4)
 with cols[0]:
@@ -148,6 +155,16 @@ with tab2:
             hide_index=True,
         )
         st.caption(f"{len(df_detail):,} 件表示")
+
+        # CSVダウンロード
+        csv_data = df_detail[existing_cols].rename(columns=col_labels).to_csv(index=False)
+        st.download_button(
+            "CSVダウンロード",
+            csv_data,
+            file_name=f"wam_reimbursement_{selected_year}_{selected_month:02d}.csv",
+            mime="text/csv",
+            key="wam_csv_download",
+        )
 
 with tab3:
     st.subheader("領収書添付状況")
