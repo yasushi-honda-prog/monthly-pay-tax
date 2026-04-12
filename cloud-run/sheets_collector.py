@@ -444,6 +444,8 @@ def list_reimbursement_sheets(drive_service) -> list[dict]:
                 fields="nextPageToken, files(id, name)",
                 pageSize=100,
                 pageToken=page_token,
+                supportsAllDrives=True,
+                includeItemsFromAllDrives=True,
             )
             result = _execute_with_throttle(request, context="list_reimbursement_sheets")
         except Exception as e:
