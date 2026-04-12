@@ -1,0 +1,184 @@
+"""WAM立替金確認ページ（admin限定・ドラフト提案用）
+
+v_reimbursement_enriched VIEW から立替金データを取得し、
+PJ別サマリー・メンバー別明細・領収書添付状況を表示する。
+"""
+
+import pandas as pd
+import streamlit as st
+
+from lib.auth import require_admin
+from lib.bq_client import load_data
+from lib.constants import REIMBURSEMENT_VIEW
+from lib.ui_helpers import fill_empty_nickname, render_kpi, render_sidebar_year_month
+
+# --- 認証チェック ---
+email = st.session_state.get("user_email", "")
+role = st.session_state.get("user_role", "")
+require_admin(email, role)
+
+st.header("WAM 立替金確認")
+st.caption("立替金シートデータの確認・分析（ドラフト）")
+
+
+# --- データ取得 ---
+@st.cache_data(ttl=21600)
+def _load_reimbursement():
+    query = f"SELECT * FROM `{REIMBURSEMENT_VIEW}`"
+    return load_data(query)
+
+
+def _filter_by_year_month(df: pd.DataFrame, year: int, month: int) -> pd.DataFrame:
+    """年月でフィルタ"""
+    mask = pd.Series(True, index=df.index)
+    if "normalized_year" in df.columns:
+        mask &= df["normalized_year"] == year
+    if "month" in df.columns:
+        mask &= df["month"] == month
+    return df[mask]
+
+
+def _summarize_by_project(df: pd.DataFrame) -> pd.DataFrame:
+    """対象PJ別の立替金サマリーを作成"""
+    if df.empty:
+        return pd.DataFrame(columns=["対象PJ", "件数", "支払金額合計", "仮払金額合計"])
+    summary = df.groupby("target_project", dropna=False).agg(
+        件数=("payment_amount_numeric", "size"),
+        支払金額合計=("payment_amount_numeric", "sum"),
+        仮払金額合計=("advance_amount_numeric", "sum"),
+    ).reset_index()
+    summary.rename(columns={"target_project": "対象PJ"}, inplace=True)
+    summary["対象PJ"] = summary["対象PJ"].fillna("(未設定)")
+    return summary.sort_values("支払金額合計", ascending=False)
+
+
+def _receipt_stats(df: pd.DataFrame) -> dict:
+    """領収書添付状況の統計を返す"""
+    total = len(df)
+    if total == 0:
+        return {"total": 0, "attached": 0, "missing": 0, "rate": 0.0}
+    attached = df["receipt_url"].notna() & (df["receipt_url"].str.strip() != "")
+    n_attached = int(attached.sum())
+    return {
+        "total": total,
+        "attached": n_attached,
+        "missing": total - n_attached,
+        "rate": n_attached / total * 100,
+    }
+
+
+# --- サイドバー ---
+with st.sidebar:
+    selected_year, selected_month = render_sidebar_year_month(
+        year_key="wam_year", month_key="wam_month",
+    )
+
+# --- データ読み込み & フィルタ ---
+try:
+    df_all = _load_reimbursement()
+except Exception as e:
+    st.error(f"データ取得エラー: {e}")
+    st.stop()
+
+df_all = fill_empty_nickname(df_all)
+df = _filter_by_year_month(df_all, selected_year, selected_month)
+
+# --- サイドバー: 対象PJフィルタ ---
+with st.sidebar:
+    all_projects = sorted(df_all["target_project"].dropna().unique().tolist())
+    selected_project = st.selectbox(
+        "対象PJ",
+        ["すべて"] + all_projects,
+        key="wam_project",
+    )
+
+if selected_project != "すべて":
+    df = df[df["target_project"] == selected_project]
+
+# --- KPI ---
+cols = st.columns(4)
+with cols[0]:
+    render_kpi("対象月データ件数", f"{len(df):,}")
+with cols[1]:
+    total_payment = df["payment_amount_numeric"].sum() if not df.empty else 0
+    render_kpi("支払金額合計", f"¥{total_payment:,.0f}")
+with cols[2]:
+    total_advance = df["advance_amount_numeric"].sum() if not df.empty else 0
+    render_kpi("仮払金額合計", f"¥{total_advance:,.0f}")
+with cols[3]:
+    stats = _receipt_stats(df)
+    render_kpi("領収書添付率", f"{stats['rate']:.0f}%")
+
+# --- タブ ---
+tab1, tab2, tab3 = st.tabs(["PJ別サマリー", "メンバー別明細", "領収書添付状況"])
+
+with tab1:
+    st.subheader("対象PJ別 立替金サマリー")
+    summary = _summarize_by_project(df)
+    if summary.empty:
+        st.info("該当データがありません")
+    else:
+        summary_display = summary.copy()
+        summary_display["支払金額合計"] = summary_display["支払金額合計"].apply(lambda x: f"¥{x:,.0f}")
+        summary_display["仮払金額合計"] = summary_display["仮払金額合計"].apply(lambda x: f"¥{x:,.0f}")
+        st.dataframe(summary_display, use_container_width=True, hide_index=True)
+
+with tab2:
+    st.subheader("メンバー別明細")
+    if df.empty:
+        st.info("該当データがありません")
+    else:
+        members = sorted(df["nickname"].unique().tolist())
+        selected_member = st.selectbox("メンバー", ["すべて"] + members, key="wam_member")
+        df_detail = df if selected_member == "すべて" else df[df["nickname"] == selected_member]
+
+        display_cols = [
+            "nickname", "date", "target_project", "category",
+            "payment_purpose", "payment_amount", "advance_amount",
+            "from_station", "to_station", "visit_purpose",
+        ]
+        existing_cols = [c for c in display_cols if c in df_detail.columns]
+        col_labels = {
+            "nickname": "メンバー", "date": "月日", "target_project": "対象PJ",
+            "category": "分類", "payment_purpose": "支払用途",
+            "payment_amount": "支払金額", "advance_amount": "仮払金額",
+            "from_station": "発", "to_station": "着", "visit_purpose": "訪問目的",
+        }
+        st.dataframe(
+            df_detail[existing_cols].rename(columns=col_labels),
+            use_container_width=True,
+            hide_index=True,
+        )
+        st.caption(f"{len(df_detail):,} 件表示")
+
+with tab3:
+    st.subheader("領収書添付状況")
+    if df.empty:
+        st.info("該当データがありません")
+    else:
+        stats = _receipt_stats(df)
+        cols3 = st.columns(3)
+        with cols3[0]:
+            render_kpi("総件数", f"{stats['total']:,}")
+        with cols3[1]:
+            render_kpi("添付済み", f"{stats['attached']:,}")
+        with cols3[2]:
+            render_kpi("未添付", f"{stats['missing']:,}")
+
+        # メンバー別の添付状況
+        receipt_by_member = df.groupby("nickname").apply(
+            lambda g: pd.Series({
+                "総件数": len(g),
+                "添付済み": int((g["receipt_url"].notna() & (g["receipt_url"].str.strip() != "")).sum()),
+            })
+        ).reset_index()
+        receipt_by_member["未添付"] = receipt_by_member["総件数"] - receipt_by_member["添付済み"]
+        receipt_by_member["添付率"] = (
+            receipt_by_member["添付済み"] / receipt_by_member["総件数"] * 100
+        ).round(1).astype(str) + "%"
+        receipt_by_member.rename(columns={"nickname": "メンバー"}, inplace=True)
+        st.dataframe(
+            receipt_by_member.sort_values("未添付", ascending=False),
+            use_container_width=True,
+            hide_index=True,
+        )
