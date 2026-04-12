@@ -92,7 +92,7 @@ st.markdown("""
 | コンポーネント | 仕様 |
 |:---|:---|
 | Collector | Python 3.12 / Flask / gunicorn / 2GiB（Step 1-7: SS巡回 → BQ投入 → グループ → 同期 → 立替金 → タダメンM） |
-| Dashboard | Python 3.12 / Streamlit / 512MiB（7ページ: ダッシュボード5タブ / 報告入力 / 業務チェック / WAM立替金確認6タブ / アーキテクチャ / ヘルプ / ユーザー管理 / 管理設定） |
+| Dashboard | Python 3.12 / Streamlit / 512MiB（8ページ: ダッシュボード5タブ / 報告入力 / 業務チェック / WAM立替金確認6タブ / アーキテクチャ / ヘルプ / ユーザー管理 / 管理設定） |
 | Collector認証 | Workload Identity + IAM signBlob (キーレスDWD) |
 | Dashboard認証 | Streamlit OIDC (Google OAuth, tadakayo.jpドメイン) |
 | BQ取り込み | WRITE_TRUNCATE（毎回全データ置換）|
@@ -309,7 +309,7 @@ graph TD
     P7 --> W2[メンバー別明細]
     P7 --> W3[領収書添付状況]
     P7 --> W4[月別報酬・振込確認]
-    P7 --> W5[支払明細書PDF]
+    P7 --> W5[支払明細書]
     P7 --> W6[年間支払調書データ]
 """, height=700)
 
