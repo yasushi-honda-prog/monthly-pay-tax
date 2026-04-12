@@ -13,6 +13,7 @@ import pandas as pd
 import pytest
 
 from lib.receipt_pdf import (
+    _fmt_yen,
     generate_all_statements_zip,
     generate_payment_statement,
 )
@@ -71,6 +72,22 @@ def reimb_df_multi():
         "payment_amount_numeric": [10000.0, 5000.0, 3000.0],
         "receipt_url": ["https://drive.google.com/1", "", "https://drive.google.com/3"],
     })
+
+
+# --- _fmt_yen ---
+
+class TestFmtYen:
+    def test_positive(self):
+        assert _fmt_yen(10000.0) == "¥10,000"
+
+    def test_negative(self):
+        assert _fmt_yen(-10210.0) == "-¥10,210"
+
+    def test_zero(self):
+        assert _fmt_yen(0.0) == "¥0"
+
+    def test_large(self):
+        assert _fmt_yen(1234567.0) == "¥1,234,567"
 
 
 # --- generate_payment_statement ---

@@ -5,6 +5,8 @@ PJ別サマリー・メンバー別明細・領収書添付状況を表示する
 v_monthly_compensation VIEW から報酬・源泉徴収データを表示する。
 """
 
+import io
+
 import pandas as pd
 import streamlit as st
 
@@ -151,7 +153,8 @@ try:
     ).fillna(0)
     df_comp = _filter_comp_by_year_month(df_comp_all, selected_year, selected_month)
     comp_loaded = True
-except Exception:
+except Exception as e:
+    st.warning(f"報酬データの取得に失敗しました: {e}")
     df_comp = pd.DataFrame()
     comp_loaded = False
 
@@ -323,6 +326,25 @@ with tab4:
             )
         st.caption("※ 振込CSVの口座情報（銀行番号・支店番号・口座番号）は未入力です。ダウンロード後に手動で補完してください。")
 
+@st.cache_data(show_spinner="PDF生成中...")
+def _cached_generate_statement(member_name, full_name, year, month, comp_tuple, reimb_csv):
+    """キャッシュ付きPDF生成（Streamlit再レンダリング時の再生成を防止）"""
+    comp = dict(zip(
+        ["qualification_adjusted_compensation", "withholding_tax", "dx_subsidy", "reimbursement", "payment"],
+        comp_tuple,
+    ))
+    reimb_df = pd.read_csv(io.StringIO(reimb_csv)) if reimb_csv else pd.DataFrame()
+    return generate_payment_statement(member_name, full_name, year, month, comp, reimb_df)
+
+
+@st.cache_data(show_spinner="ZIP生成中...")
+def _cached_generate_zip(comp_csv, reimb_csv, year, month):
+    """キャッシュ付きZIP生成"""
+    comp_df = pd.read_csv(io.StringIO(comp_csv))
+    reimb_df = pd.read_csv(io.StringIO(reimb_csv)) if reimb_csv else pd.DataFrame()
+    return generate_all_statements_zip(comp_df, reimb_df, year, month)
+
+
 with tab5:
     st.subheader("支払明細書")
     if not comp_loaded or df_comp.empty:
@@ -337,19 +359,22 @@ with tab5:
         if selected_stmt_member == "全メンバー":
             # 全メンバーサマリー
             st.caption(f"{len(comp_members):,} 名分の支払明細書を一括生成します")
-            zip_bytes = generate_all_statements_zip(
-                members_comp=df_comp,
-                reimbursement_df=df,
-                year=selected_year,
-                month=selected_month,
-            )
-            st.download_button(
-                "全メンバー一括ダウンロード (ZIP)",
-                zip_bytes,
-                file_name=f"payment_statements_{selected_year}_{selected_month:02d}.zip",
-                mime="application/zip",
-                key="wam_stmt_zip_download",
-            )
+            try:
+                zip_bytes = _cached_generate_zip(
+                    comp_csv=df_comp.to_csv(index=False),
+                    reimb_csv=df.to_csv(index=False) if not df.empty else "",
+                    year=selected_year,
+                    month=selected_month,
+                )
+                st.download_button(
+                    "全メンバー一括ダウンロード (ZIP)",
+                    zip_bytes,
+                    file_name=f"payment_statements_{selected_year}_{selected_month:02d}.zip",
+                    mime="application/zip",
+                    key="wam_stmt_zip_download",
+                )
+            except Exception as e:
+                st.error(f"ZIP生成に失敗しました: {e}")
         else:
             # 個別メンバー
             member_comp = df_comp[df_comp["nickname"] == selected_stmt_member].iloc[0]
@@ -378,23 +403,28 @@ with tab5:
             with cols5[2]:
                 render_kpi("合計 (A+B)", f"¥{subtotal_a + subtotal_b:,.0f}")
 
-            # PDF生成・ダウンロード
+            # PDF生成・ダウンロード（キャッシュ済み）
             full_name = str(member_comp.get("full_name", selected_stmt_member))
-            pdf_bytes = generate_payment_statement(
-                member_name=selected_stmt_member,
-                full_name=full_name,
-                year=selected_year,
-                month=selected_month,
-                compensation=comp_data,
-                reimbursement_items=member_reimb,
-            )
-            st.download_button(
-                "支払明細書PDFダウンロード",
-                pdf_bytes,
-                file_name=f"payment_statement_{selected_stmt_member}_{selected_year}_{selected_month:02d}.pdf",
-                mime="application/pdf",
-                key="wam_stmt_pdf_download",
-            )
+            comp_tuple = tuple(comp_data[k] for k in [
+                "qualification_adjusted_compensation", "withholding_tax",
+                "dx_subsidy", "reimbursement", "payment",
+            ])
+            reimb_csv = member_reimb.to_csv(index=False) if not member_reimb.empty else ""
+            try:
+                pdf_bytes = _cached_generate_statement(
+                    selected_stmt_member, full_name,
+                    selected_year, selected_month,
+                    comp_tuple, reimb_csv,
+                )
+                st.download_button(
+                    "支払明細書PDFダウンロード",
+                    pdf_bytes,
+                    file_name=f"payment_statement_{selected_stmt_member}_{selected_year}_{selected_month:02d}.pdf",
+                    mime="application/pdf",
+                    key="wam_stmt_pdf_download",
+                )
+            except Exception as e:
+                st.error(f"PDF生成に失敗しました: {e}")
 
             # 領収書URL一覧
             if not member_reimb.empty and "receipt_url" in member_reimb.columns:

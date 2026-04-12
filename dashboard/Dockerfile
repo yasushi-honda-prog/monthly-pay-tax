@@ -10,7 +10,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 # 日本語フォント（支払明細書PDF生成用）
 RUN apt-get update && \
     apt-get install -y --no-install-recommends fonts-noto-cjk && \
-    rm -rf /var/lib/apt/lists/*
+    rm -rf /var/lib/apt/lists/* && \
+    ls /usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc > /dev/null
 
 # Google翻訳を無効化: StreamlitのHTMLテンプレートにtranslate="no"を埋め込む
 RUN sed -i 's|<html|<html translate="no" lang="ja"|' \
