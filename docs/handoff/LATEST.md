@@ -1,42 +1,39 @@
 # ハンドオフメモ - monthly-pay-tax
 
-**更新日**: 2026-04-13（振込CSV口座自動化 + 年間支払調書データ + 個人情報非表示修正）
+**更新日**: 2026-04-13（ドキュメントページ全面更新 — architecture.py / help.py / CLAUDE.md 最新化）
 **フェーズ**: WAM助成金対応 **技術側完了** — 残りはステークホルダー回答待ちのみ
 **最新デプロイ**: Collector rev 00024-hgj + Dashboard rev **00230-n6j**
 **Cloud Run設定**: 2026-04-07 `--no-cpu-throttling --max-instances=3` 適用済み（ADR 0004）
 **テストスイート**: Dashboard 252 + Cloud Run 52 = **304テスト全PASS**
 
-## 🆕 2026-04-13 振込CSV口座自動化 + 年間支払調書データ
+## 🆕 2026-04-13 ドキュメントページ全面更新
 
-### PR #96: 振込CSV口座自動化 (Closes #92)
+### ドキュメント最新化（未コミット → PR予定）
 
-member_masterテーブルのbank1/bank2情報をreport_urlで結合し、
-振込CSV(GMOあおぞら形式)の銀行番号・支店番号・口座番号・名義を自動入力。
+architecture.py / help.py / CLAUDE.md を現在のシステム状態に完全同期。
 
-**実装**:
-- `_load_bank_accounts()`: report_url_1→bank1_*, report_url_2→bank2_* のUNIONクエリ
-- `_generate_transfer_csv()`: 口座データをLEFT JOINしてCSV出力
-- `_safe_str()`: NaN/None対策、`_deposit_type_code()`: 預金種目→数値コード変換
-- マッチしないメンバーは空欄フォールバック（手動補完可能）
+**architecture.py の主な修正**:
+- 全体構成図: Step 6（立替金シート）, Step 7（タダメンM）追加
+- データフロー図: reimbursement_items, member_master, wam_target_projects, v_reimbursement_enriched 追加
+- BQスキーマ: 「7テーブル + 3 VIEW」→「10テーブル + 4 VIEW」、ER図に3テーブル追加
+- v_reimbursement_enriched VIEW の新セクション追加
+- ページ構成図: 「報告入力」「WAM立替金確認(6タブ)」追加
+- 認証フロー・セキュリティ: ロール名 viewer → user 修正
 
-### PR #97: 年間支払調書データ Tab追加 (#58 部分実装)
+**help.py の主な修正**:
+- ページ一覧: 「報告入力」「WAM立替金確認」カード追加（6→8枚）
+- ダッシュボード「4タブ」→「5タブ」
+- タブ内フィルター: 「業務委託費分析」説明追加
+- FAQ: ロール名 viewer → user 修正
 
-WAM立替金ページに Tab 6「年間支払調書データ」を追加。
+**CLAUDE.md の主な修正**:
+- アーキテクチャ図に Step 6-7 追加
+- ディレクトリ構成: pages/ → _pages/、全ページ反映、lib/receipt_pdf.py 追加
+- ページ構成テーブル: 5タブ/6タブ反映、ロール名修正
 
-**実装**:
-- `_load_member_info()`: member_masterから氏名・住所をreport_urlでマッピング
-- `_build_annual_withholding_data()`: v_monthly_compensationを年間集計→member_master JOIN
-- `_generate_withholding_csv()`: UTF-8 BOM付きCSV（Excel対応）
-- KPI: 対象者数 / 年間報酬合計 / 年間源泉徴収合計 / 年間支払額合計
+### 前回セッション（PR #96-#100）
 
-### PR #99: Tab 6 個人情報非表示修正
-
-**方針**: member_master由来の個人情報（氏名・住所・フリガナ）はダッシュボードUIに一切表示しない。
-- UIテーブル: nickname + 金額列のみ
-- CSVダウンロード: 氏名・住所を含める（経理の支払調書作成用途）
-- 口座情報: CSVファイル内のみ（振込CSV）
-
-### PR #98: CLAUDE.md テスト件数更新 252テスト
+振込CSV口座自動化 + 年間支払調書データ + 個人情報非表示修正（詳細は git log 参照）
 
 ---
 
