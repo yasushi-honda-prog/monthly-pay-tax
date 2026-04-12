@@ -11,6 +11,8 @@ BQ_TABLE_GYOMU = "gyomu_reports"
 BQ_TABLE_HOJO = "hojo_reports"
 BQ_TABLE_MEMBERS = "members"
 BQ_TABLE_GROUPS_MASTER = "groups_master"
+BQ_TABLE_REIMBURSEMENT = "reimbursement_items"
+BQ_TABLE_WAM_PROJECTS = "wam_target_projects"
 
 # 管理表スプレッドシート
 MASTER_SPREADSHEET_ID = "1fBNfkFBARSpT-OpLOytbAfoa0Xo5LTWv7irimssxcUU"
@@ -30,6 +32,12 @@ MEMBER_START_ROW = 2  # 1行目はヘッダー
 SKIP_URLS = [
     "https://docs.google.com/spreadsheets/d/17PMx-smOoj2ZzsG7A6A4FGXEfxXiZGkukERXJc1Cbi0/edit",
 ]
+
+# 立替金シート
+REIMBURSEMENT_FOLDER_ID = "1jXs3cbO6gBvgDbotK0ODa9mL4x-iDooI"
+REIMBURSEMENT_TAB_NAME = "入力シート"
+REIMBURSEMENT_DATA_START_ROW = 2
+REIMBURSEMENT_NICKNAME_REGEX = r"【(.+?)】"
 
 # Sheets API レート制限対策
 SHEETS_API_NUM_RETRIES = 5
@@ -84,5 +92,16 @@ TABLE_COLUMNS = {
     ],
     BQ_TABLE_GROUPS_MASTER: [
         "group_email", "group_name",
+    ],
+    BQ_TABLE_REIMBURSEMENT: [
+        "source_url", "nickname",
+        "marker", "year", "date",
+        "target_project", "category", "payment_purpose",
+        "payment_amount", "advance_amount",
+        "from_station", "to_station",
+        "visit_purpose", "receipt_url",
+    ],
+    BQ_TABLE_WAM_PROJECTS: [
+        "target_project", "wam_flag", "note",
     ],
 }

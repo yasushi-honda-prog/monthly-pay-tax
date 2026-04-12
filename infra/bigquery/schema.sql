@@ -125,6 +125,33 @@ CREATE TABLE IF NOT EXISTS `monthly-pay-tax.pay_reports.app_hojo_reports` (
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP()
 );
 
+-- 立替金シート明細（Phase 1b: WAM助成金対応）
+CREATE TABLE IF NOT EXISTS `monthly-pay-tax.pay_reports.reimbursement_items` (
+  source_url STRING NOT NULL,
+  nickname STRING,
+  marker STRING,
+  year STRING,
+  date STRING,
+  target_project STRING,
+  category STRING,
+  payment_purpose STRING,
+  payment_amount STRING,
+  advance_amount STRING,
+  from_station STRING,
+  to_station STRING,
+  visit_purpose STRING,
+  receipt_url STRING,
+  ingested_at TIMESTAMP NOT NULL
+);
+
+-- WAM対象PJマスタ（WAM判定ルール）
+CREATE TABLE IF NOT EXISTS `monthly-pay-tax.pay_reports.wam_target_projects` (
+  target_project STRING NOT NULL,
+  wam_flag STRING NOT NULL,
+  note STRING,
+  ingested_at TIMESTAMP NOT NULL
+);
+
 -- シード: 初期管理者
 -- INSERT INTO `monthly-pay-tax.pay_reports.dashboard_users`
 --   (email, role, display_name, added_by, created_at, updated_at)
