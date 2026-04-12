@@ -260,46 +260,155 @@ class TestSummarizeCompensation:
 
 # --- 振込CSV生成 ---
 
-def _generate_transfer_csv(df: pd.DataFrame) -> bytes:
+def _safe_str(val) -> str:
+    if val is None or (isinstance(val, float) and pd.isna(val)):
+        return ""
+    s = str(val).strip()
+    return "" if s == "nan" else s
+
+
+def _deposit_type_code(deposit_type: str) -> str:
+    mapping = {"普通": "1", "当座": "2", "貯蓄": "4"}
+    return mapping.get(deposit_type.strip(), "1") if deposit_type.strip() else "1"
+
+
+def _generate_transfer_csv(df: pd.DataFrame, df_bank: pd.DataFrame) -> bytes:
     if df.empty:
         return b""
     target = df[df["payment"].notna() & (df["payment"] > 0)].copy()
     if target.empty:
         return b""
+    if not df_bank.empty:
+        target = target.merge(df_bank, on="report_url", how="left")
     rows = []
     for _, r in target.iterrows():
         amount = int(r["payment"])
-        name = str(r.get("full_name", r.get("nickname", "")))
-        rows.append(f",,1,,{name},{amount},,")
+        bank_code = _safe_str(r.get("bank_code"))
+        branch_code = _safe_str(r.get("branch_code"))
+        deposit_type = _deposit_type_code(_safe_str(r.get("deposit_type")))
+        account_number = _safe_str(r.get("account_number"))
+        holder_name = _safe_str(r.get("holder_name")) or _safe_str(r.get("full_name")) or _safe_str(r.get("nickname"))
+        rows.append(f"{bank_code},{branch_code},{deposit_type},{account_number},{holder_name},{amount},,")
     return "\n".join(rows).encode("shift_jis", errors="replace")
 
 
+@pytest.fixture
+def bank_df():
+    """口座情報のDataFrame"""
+    return pd.DataFrame({
+        "report_url": ["url_taro", "url_hanako"],
+        "bank_code": ["0310", "0033"],
+        "branch_code": ["101", "001"],
+        "deposit_type": ["普通", "普通"],
+        "account_number": ["1234567", "7654321"],
+        "holder_name": ["タナカ タロウ", "ハナコ"],
+    })
+
+
+@pytest.fixture
+def comp_df_with_url():
+    """report_url付きの報酬DataFrame"""
+    return pd.DataFrame({
+        "year": [2026, 2026],
+        "month": [4, 4],
+        "nickname": ["太郎", "花子"],
+        "full_name": ["田中太郎", "鈴木花子"],
+        "report_url": ["url_taro", "url_hanako"],
+        "qualification_adjusted_compensation": [100000.0, 50000.0],
+        "withholding_tax": [-10210.0, -5105.0],
+        "dx_subsidy": [0.0, 5000.0],
+        "reimbursement": [10000.0, 0.0],
+        "payment": [99790.0, 49895.0],
+    })
+
+
 class TestGenerateTransferCsv:
-    def test_basic_csv(self, comp_df):
+    def test_basic_csv_without_bank(self, comp_df):
+        """口座データなしでも動作すること（フォールバック）"""
+        comp_df["report_url"] = ["url1", "url2", "url3", "url4"]
         filtered = _filter_comp_by_year_month(comp_df, 2026, 4)
-        csv_bytes = _generate_transfer_csv(filtered)
+        csv_bytes = _generate_transfer_csv(filtered, pd.DataFrame())
         csv_text = csv_bytes.decode("shift_jis")
         lines = csv_text.strip().split("\n")
-        assert len(lines) == 2  # 太郎 + 花子
-        # 各行が8カラム（カンマ7個）
+        assert len(lines) == 2
         for line in lines:
             assert line.count(",") == 7
-        # 金額が含まれている
         assert "99790" in csv_text
         assert "49895" in csv_text
 
     def test_empty_df(self):
-        empty = pd.DataFrame(columns=["payment", "full_name", "nickname"])
-        assert _generate_transfer_csv(empty) == b""
+        empty = pd.DataFrame(columns=["payment", "full_name", "nickname", "report_url"])
+        assert _generate_transfer_csv(empty, pd.DataFrame()) == b""
 
     def test_zero_payment_excluded(self):
         df = pd.DataFrame({
             "payment": [0.0, 50000.0, None],
             "full_name": ["A", "B", "C"],
             "nickname": ["a", "b", "c"],
+            "report_url": ["u1", "u2", "u3"],
         })
-        csv_bytes = _generate_transfer_csv(df)
+        csv_bytes = _generate_transfer_csv(df, pd.DataFrame())
         csv_text = csv_bytes.decode("shift_jis")
         lines = csv_text.strip().split("\n")
-        assert len(lines) == 1  # Bのみ
+        assert len(lines) == 1
         assert "50000" in csv_text
+
+    def test_bank_data_merged(self, comp_df_with_url, bank_df):
+        """口座データがCSVに反映されること"""
+        csv_bytes = _generate_transfer_csv(comp_df_with_url, bank_df)
+        csv_text = csv_bytes.decode("shift_jis")
+        lines = csv_text.strip().split("\n")
+        assert len(lines) == 2
+        # 太郎: 0310,101,1(普通),1234567,タナカ タロウ,99790,,
+        taro_line = [l for l in lines if "99790" in l][0]
+        fields = taro_line.split(",")
+        assert fields[0] == "0310"       # bank_code
+        assert fields[1] == "101"        # branch_code
+        assert fields[2] == "1"          # deposit_type (普通→1)
+        assert fields[3] == "1234567"    # account_number
+        assert fields[4] == "タナカ タロウ"  # holder_name
+
+    def test_unmatched_member_gets_empty_bank(self, bank_df):
+        """口座マスタにないメンバーは口座欄が空になること"""
+        df = pd.DataFrame({
+            "payment": [30000.0],
+            "full_name": ["新人"],
+            "nickname": ["しんじん"],
+            "report_url": ["url_unknown"],
+        })
+        csv_bytes = _generate_transfer_csv(df, bank_df)
+        csv_text = csv_bytes.decode("shift_jis")
+        line = csv_text.strip()
+        fields = line.split(",")
+        assert fields[0] == ""           # bank_code 空
+        assert fields[1] == ""           # branch_code 空
+        assert fields[3] == ""           # account_number 空
+        assert fields[4] == "新人"       # full_name フォールバック
+        assert fields[5] == "30000"
+
+    def test_holder_name_preferred_over_full_name(self, comp_df_with_url, bank_df):
+        """holder_nameがある場合はfull_nameよりholder_nameを使うこと"""
+        csv_bytes = _generate_transfer_csv(comp_df_with_url, bank_df)
+        csv_text = csv_bytes.decode("shift_jis")
+        assert "タナカ タロウ" in csv_text
+        assert "田中太郎" not in csv_text  # full_nameは使われない
+
+
+class TestDepositTypeCode:
+    def test_futsu(self):
+        assert _deposit_type_code("普通") == "1"
+
+    def test_toza(self):
+        assert _deposit_type_code("当座") == "2"
+
+    def test_chochiku(self):
+        assert _deposit_type_code("貯蓄") == "4"
+
+    def test_empty(self):
+        assert _deposit_type_code("") == "1"
+
+    def test_unknown_defaults_to_1(self):
+        assert _deposit_type_code("その他") == "1"
+
+    def test_with_whitespace(self):
+        assert _deposit_type_code("  普通  ") == "1"
