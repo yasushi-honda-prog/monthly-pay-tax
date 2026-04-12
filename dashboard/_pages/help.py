@@ -162,6 +162,8 @@ HELP_CSS = """
 .pg > div:nth-child(4) { animation-delay: 0.32s; }
 .pg > div:nth-child(5) { animation-delay: 0.40s; }
 .pg > div:nth-child(6) { animation-delay: 0.48s; }
+.pg > div:nth-child(7) { animation-delay: 0.56s; }
+.pg > div:nth-child(8) { animation-delay: 0.64s; }
 .pc {
     border-radius: 13px;
     padding: 1.2rem;
@@ -409,7 +411,13 @@ st.markdown("""
     <div class="pc b">
         <div class="pc-icon">📊</div>
         <h3>ダッシュボード</h3>
-        <p>月別報酬サマリー、スポンサー別業務委託費、業務報告一覧、グループ別の4タブで全体を把握</p>
+        <p>月別報酬サマリー、スポンサー別業務委託費、業務報告一覧、グループ別、業務委託費分析の5タブで全体を把握</p>
+        <span class="badge ba">全ユーザー</span>
+    </div>
+    <div class="pc b">
+        <div class="pc-icon">📝</div>
+        <h3>報告入力</h3>
+        <p>業務報告（日次）・補助報告（月次）をダッシュボードから直接入力</p>
         <span class="badge ba">全ユーザー</span>
     </div>
     <div class="pc g">
@@ -429,6 +437,12 @@ st.markdown("""
         <h3>ヘルプ</h3>
         <p>このページ。操作ガイド・用語集・よくある質問</p>
         <span class="badge ba">全ユーザー</span>
+    </div>
+    <div class="pc pr">
+        <div class="pc-icon">💰</div>
+        <h3>WAM立替金確認</h3>
+        <p>立替金シートデータ・月別報酬の確認、振込CSV・支払明細書PDF・年間支払調書の出力</p>
+        <span class="badge bp">admin のみ</span>
     </div>
     <div class="pc pr">
         <div class="pc-icon">👥</div>
@@ -479,6 +493,7 @@ st.markdown("""
             <li>スポンサー別: スポンサー名</li>
             <li>業務報告一覧: 活動分類・業務分類</li>
             <li>グループ別: グループ名・業務分類</li>
+            <li>業務委託費分析: 業務委託費全体/非営利活動</li>
             <li>各タブ独立で動作</li>
         </ul>
     </div>
@@ -649,9 +664,9 @@ with st.expander("アクセス権限を追加してほしい"):
     **admin（管理者）** に依頼してください。
     管理者は「ユーザー管理」ページからメールアドレスを登録できます。
 
-    - **viewer**: ダッシュボード閲覧のみ
-    - **checker**: ダッシュボード閲覧 + 業務チェック管理
-    - **admin**: 全機能（ユーザー管理・管理設定を含む）
+    - **user**: ダッシュボード閲覧 + 報告入力
+    - **checker**: 上記 + 業務チェック管理
+    - **admin**: 全機能（WAM立替金確認・ユーザー管理・管理設定を含む）
 
     対象は **tadakayo.jpドメイン** のGWSアカウントのみです。
     """)

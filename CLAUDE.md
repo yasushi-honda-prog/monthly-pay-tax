@@ -19,6 +19,10 @@ Cloud Scheduler (0 6 * * * JST, OIDC認証)
       → BigQuery pay_reports.members.groups (UPDATE)
     Step 5: dashboard_usersグループ同期
       → BigQuery pay_reports.dashboard_users (MERGE/DELETE: source_group由来ユーザーの追加・削除)
+    Step 6: 立替金シート収集
+      → BigQuery pay_reports.reimbursement_items (WRITE_TRUNCATE)
+    Step 7: タダメンMマスタ全量取得
+      → BigQuery pay_reports.member_master (WRITE_TRUNCATE, 36列×240件, センシティブデータ含む)
 ```
 
 認証はWorkload Identity + IAM signBlob APIによるキーレスDomain-Wide Delegation。
@@ -27,27 +31,30 @@ SA鍵ファイルは使わない（ローカル開発時のみ `SA_KEY_PATH` 環
 ## ディレクトリ構成
 
 - `cloud-run/` - Cloud Runアプリケーション（本体）
-  - `main.py` - Flaskエントリポイント（`POST /` でバッチ実行、`GET /health`）
-  - `sheets_collector.py` - Sheets API経由のデータ収集（DWD認証含む）
+  - `main.py` - Flaskエントリポイント（`POST /` バッチ実行 Step1-7、`POST /update-groups`、`GET /health`）
+  - `sheets_collector.py` - Sheets API経由のデータ収集（DWD認証含む、立替金シート・タダメンMマスタ収集）
   - `bq_loader.py` - BigQueryへのデータロード（pandas DataFrame経由）
   - `config.py` - GCPプロジェクトID、BQテーブル名、マスタスプレッドシートID等の設定値
-  - `tests/` - ユニットテスト（42テスト: Sheets APIスロットリング、グループ一覧、dashboard_users同期、立替金シート収集）
+  - `tests/` - ユニットテスト（52テスト: Sheets APIスロットリング、グループ一覧、dashboard_users同期、立替金シート収集、タダメンM収集）
 - `dashboard/` - Streamlitダッシュボード（マルチページ構成）
   - `app.py` - エントリポイント（認証 + st.navigation ルーター）
-  - `pages/dashboard.py` - 4タブ（月別報酬サマリー/スポンサー別業務委託費/業務報告一覧/グループ別）
-  - `pages/check_management.py` - 業務チェック管理表（checker/admin専用、BQ DML）
-  - `pages/architecture.py` - Mermaidアーキテクチャ図
-  - `pages/user_management.py` - ユーザー管理（admin専用、BQ DML）
-  - `pages/admin_settings.py` - 管理設定（admin専用）
-  - `pages/help.py` - ヘルプ/マニュアル
+  - `_pages/dashboard.py` - 5タブ（月別報酬サマリー/スポンサー別業務委託費/業務報告一覧/グループ別/業務委託費分析）
+  - `_pages/report_input.py` - 報告入力（業務報告・補助報告のアプリ入力プロトタイプ）
+  - `_pages/check_management.py` - 業務チェック管理表（checker/admin専用、BQ DML）
+  - `_pages/wam_monthly.py` - WAM立替金確認（admin専用、6タブ: PJ別サマリー/メンバー別明細/領収書添付状況/月別報酬・振込確認/支払明細書PDF/年間支払調書データ）
+  - `_pages/architecture.py` - Mermaidアーキテクチャ図
+  - `_pages/user_management.py` - ユーザー管理（admin専用、BQ DML）
+  - `_pages/admin_settings.py` - 管理設定（admin専用）
+  - `_pages/help.py` - ヘルプ/マニュアル
   - `lib/auth.py` - Streamlit OIDC認証 + BQホワイトリスト照合
   - `lib/bq_client.py` - 共有BQクライアント
+  - `lib/receipt_pdf.py` - 支払明細書PDF生成
   - `lib/styles.py` - 共有CSS
   - `lib/constants.py` - 定数
   - `lib/ui_helpers.py` - 共通UIユーティリティ（KPI表示・数値変換・年月セレクタ）
 - `コード.js` - 旧GASコード（参照用、稼働していない）
 - `infra/bigquery/schema.sql` - BQテーブルスキーマ定義（dashboard_users, check_logs含む）
-  - `infra/bigquery/views.sql` - BQ VIEW定義（v_gyomu_enriched, v_hojo_enriched, v_monthly_compensation）
+  - `infra/bigquery/views.sql` - BQ VIEW定義（v_gyomu_enriched, v_hojo_enriched, v_monthly_compensation, v_reimbursement_enriched）
 - `infra/ar-cleanup-policy.json` - Artifact Registryクリーンアップポリシー
 - `docs/adr/` - Architecture Decision Records
 - `docs/handoff/LATEST.md` - ハンドオフドキュメント
@@ -152,13 +159,14 @@ GASバインドSSのスプレッドシート関数パイプラインをSQLで再
 
 | ページ | ファイル | アクセス権 |
 |--------|---------|-----------|
-| ダッシュボード（4タブ） | `pages/dashboard.py` | viewer/checker/admin |
-| 業務チェック | `pages/check_management.py` | checker/admin |
-| アーキテクチャ | `pages/architecture.py` | viewer/checker/admin |
-| ヘルプ | `pages/help.py` | viewer/checker/admin |
-| WAM立替金確認（3タブ） | `pages/wam_monthly.py` | adminのみ |
-| ユーザー管理 | `pages/user_management.py` | adminのみ |
-| 管理設定 | `pages/admin_settings.py` | adminのみ |
+| ダッシュボード（5タブ） | `_pages/dashboard.py` | user/checker/admin |
+| 報告入力 | `_pages/report_input.py` | user/checker/admin |
+| 業務チェック | `_pages/check_management.py` | checker/admin |
+| アーキテクチャ | `_pages/architecture.py` | user/checker/admin |
+| ヘルプ | `_pages/help.py` | user/checker/admin |
+| WAM立替金確認（6タブ） | `_pages/wam_monthly.py` | adminのみ |
+| ユーザー管理 | `_pages/user_management.py` | adminのみ |
+| 管理設定 | `_pages/admin_settings.py` | adminのみ |
 
 ### 認証フロー
 
