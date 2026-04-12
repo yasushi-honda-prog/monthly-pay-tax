@@ -570,12 +570,8 @@ with tab6:
             with cols6[3]:
                 render_kpi("年間支払額合計", f"¥{df_annual['年間支払額'].sum():,.0f}")
 
-            # テーブル表示（口座情報は含めない）
-            display_cols = ["nickname", "full_name"]
-            if "last_name" in df_annual.columns:
-                display_cols += ["last_name", "first_name", "last_name_kana", "first_name_kana"]
-            if "postal_code" in df_annual.columns:
-                display_cols += ["postal_code", "prefecture", "address"]
+            # テーブル表示（個人情報は非表示 — 氏名・住所はCSVのみ）
+            display_cols = ["nickname"]
             display_cols += ["年間報酬", "年間源泉徴収", "年間DX補助", "年間立替", "年間支払額"]
             df_display = df_annual[[c for c in display_cols if c in df_annual.columns]].copy()
 
