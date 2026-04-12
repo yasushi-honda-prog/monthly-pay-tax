@@ -368,8 +368,8 @@ WHERE t.qualification_adjusted > 0
 -- Phase 1b: WAM助成金対応
 -- 注: members.nickname は一意キー（タダメン M の各行が 1 つのニックネームを持つ）
 --     想定外に重複する場合は QUALIFY で最初の 1 件に限定
--- 注: H:Iマージセル対応 — raw テーブルの from_station (H列) に利用区間（発）が入り、
---     col_i_merged (I列) は常に空。VIEW では col_i_merged を除外。
+-- 注: H列=仮払金額(advance_amount)、I列=利用区間・発(from_station) — 相互排他
+--     旅費交通費行: H空・I駅名 / 仮払行: H金額・I空 / 個人立替: 両空
 -- =============================================================================
 CREATE OR REPLACE VIEW `monthly-pay-tax.pay_reports.v_reimbursement_enriched` AS
 WITH enriched AS (
@@ -382,8 +382,8 @@ WITH enriched AS (
     r.category,
     r.payment_purpose,
     r.payment_amount,
-    r.from_station,                      -- H列: マージセル先頭（利用区間・発）
-    -- col_i_merged は常に空のため除外
+    r.advance_amount,
+    r.from_station,
     r.to_station,
     r.visit_purpose,
     r.receipt_url,
@@ -399,6 +399,9 @@ WITH enriched AS (
     SAFE_CAST(
       REGEXP_REPLACE(r.payment_amount, r'[^0-9.\-]', '') AS FLOAT64
     ) AS payment_amount_numeric,
+    SAFE_CAST(
+      REGEXP_REPLACE(r.advance_amount, r'[^0-9.\-]', '') AS FLOAT64
+    ) AS advance_amount_numeric,
     r.ingested_at,
     ROW_NUMBER() OVER (PARTITION BY r.source_url ORDER BY m.member_id) AS member_seq
   FROM `monthly-pay-tax.pay_reports.reimbursement_items` r

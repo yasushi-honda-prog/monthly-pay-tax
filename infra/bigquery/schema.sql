@@ -136,8 +136,8 @@ CREATE TABLE IF NOT EXISTS `monthly-pay-tax.pay_reports.reimbursement_items` (
   category STRING,
   payment_purpose STRING,
   payment_amount STRING,
-  from_station STRING,                   -- 利用区間（発）: H:Iマージセル先頭（H列）
-  col_i_merged STRING,                   -- 常に空: H:Iマージセル後半（I列）
+  advance_amount STRING,                  -- 仮払金額
+  from_station STRING,                   -- 利用区間（発）
   to_station STRING,
   visit_purpose STRING,
   receipt_url STRING,
