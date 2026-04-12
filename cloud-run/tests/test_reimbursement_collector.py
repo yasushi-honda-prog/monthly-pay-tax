@@ -16,6 +16,7 @@ from sheets_collector import (
     list_reimbursement_sheets,
     get_reimbursement_sheet_data,
     collect_reimbursement_data,
+    run_reimbursement_collection,
 )
 
 
@@ -203,3 +204,51 @@ class TestCollectReimbursementData:
 
         assert len(result) == 1
         assert result[0][1] == "A"
+
+
+class TestRunReimbursementCollection:
+    """run_reimbursement_collection エントリポイントのテスト"""
+
+    @patch("sheets_collector._build_drive_service")
+    @patch("sheets_collector._build_sheets_service")
+    @patch("sheets_collector.collect_reimbursement_data")
+    def test_returns_correct_table_structure(self, mock_collect, mock_sheets, mock_drive):
+        mock_sheets.return_value = MagicMock()
+        mock_drive.return_value = MagicMock()
+        mock_collect.return_value = [
+            [
+                "https://docs.google.com/spreadsheets/d/test1/edit",
+                "KOU",
+                "",
+                "2026年",
+                "3月20日",
+                "ケアプーPJ",
+                "旅費交通費",
+                "新幹線代",
+                "¥21,510",
+                "¥10,000",
+                "東京",
+                "大阪",
+                "訪問",
+                "https://example.com/receipt.pdf",
+            ]
+        ]
+
+        result = run_reimbursement_collection()
+
+        assert config.BQ_TABLE_REIMBURSEMENT in result
+        assert len(result[config.BQ_TABLE_REIMBURSEMENT]) == 1
+        assert result[config.BQ_TABLE_REIMBURSEMENT][0][1] == "KOU"
+
+    @patch("sheets_collector._build_drive_service")
+    @patch("sheets_collector._build_sheets_service")
+    @patch("sheets_collector.collect_reimbursement_data")
+    def test_handles_no_data_gracefully(self, mock_collect, mock_sheets, mock_drive):
+        mock_sheets.return_value = MagicMock()
+        mock_drive.return_value = MagicMock()
+        mock_collect.return_value = []
+
+        result = run_reimbursement_collection()
+
+        assert config.BQ_TABLE_REIMBURSEMENT in result
+        assert len(result[config.BQ_TABLE_REIMBURSEMENT]) == 0
