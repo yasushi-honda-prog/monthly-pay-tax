@@ -1,7 +1,7 @@
 # ハンドオフメモ - monthly-pay-tax
 
-**更新日**: 2026-04-12（Phase 1b フロントエンド: WAM立替金確認ページ追加 + Dashboard デプロイ）
-**フェーズ**: 6完了 + グループ機能 + グループ一括登録・自動同期 + UX改善 + 数値変換リファクタ + 報告入力機能（デプロイ済み）＋ **WAM助成金対応 Phase 1b バックエンド＆フロントエンド完了**
+**更新日**: 2026-04-12（ブラウザ動作確認 + wam_target_projects シードデータ投入）
+**フェーズ**: 6完了 + グループ機能 + グループ一括登録・自動同期 + UX改善 + 数値変換リファクタ + 報告入力機能（デプロイ済み）＋ **WAM助成金対応 Phase 1b 完了（バックエンド＆フロントエンド＆ブラウザ検証＆シードデータ）**
 **最新デプロイ**: Collector rev 00023-w7s（立替金シート収集対応）+ Dashboard rev 00222-fb2（WAM確認ページ追加）
 **Cloud Run設定**: 2026-04-07 `--no-cpu-throttling --max-instances=3` 適用済み（ADR 0004）
 **テストスイート**: Dashboard 210 + Cloud Run 42 = **252テスト全PASS**
@@ -189,12 +189,47 @@ docs/requirements/
 
 テスト: 12テスト新規（Dashboard 210 + Cloud Run 42 = 252テスト全PASS）
 
+#### ✅ wam_target_projects シードデータ投入 + ブラウザ動作確認（2026-04-12 午後）
+
+**wam_target_projects シードデータ**（4件投入）:
+
+| target_project | wam_flag | note |
+|----------------|----------|------|
+| ケアプーPJ | N | Phase 0回答後にWAM判定を更新 |
+| 神奈川県PJ | N | Phase 0回答後にWAM判定を更新 |
+| 経産省PJ | N | Phase 0回答後にWAM判定を更新 |
+| その他 | N | Phase 0回答後にWAM判定を更新 |
+
+**PM判断**: Phase 0回答前だが、全PJを `wam_flag='N'` で登録。回答後に対象PJのみ `'Y'` に UPDATE するだけで済む。空テーブルのままよりデータフロー検証・デモ価値が高い。
+
+**ブラウザ動作確認結果**（Playwright MCP、管理者アカウント yasushi-honda@tadakayo.jp）:
+
+| テスト項目 | 結果 |
+|-----------|------|
+| ページアクセス（admin権限） | OK |
+| Tab 1: PJ別サマリー | OK |
+| Tab 2: メンバー別明細（WAM対象列表示） | OK |
+| Tab 3: 領収書添付状況 | OK |
+| 年度フィルタ切替（2024/2025/2026） | OK |
+| 月フィルタ切替 | OK |
+| 対象PJフィルタ（ケアプーPJ等） | OK |
+| データ0件時の空表示 | OK（「該当データがありません」） |
+| VIEW is_wam 判定（シードデータ反映） | OK（全行false） |
+| コンソールエラー | なし（Streamlit内部404のみ、影響なし） |
+
+**Phase 0回答後のWAM判定更新手順**:
+```sql
+-- WAM対象PJが判明したら1行UPDATEするだけ
+UPDATE `monthly-pay-tax.pay_reports.wam_target_projects`
+SET wam_flag = 'Y', note = 'WAM助成金対象', ingested_at = CURRENT_TIMESTAMP()
+WHERE target_project = 'ケアプーPJ'  -- 実際の対象PJに変更
+```
+
 #### 🔴 次セッションの開始点
 
-1. **wam_target_projects マスタのシードデータ投入** — 現在空テーブルのため `is_wam` が全行 FALSE
-2. **WAM確認ページのブラウザ動作確認** — 管理者アカウントでログインし実データ表示を検証
-3. **Phase 0 回答の受領・反映** — ステークホルダー回答に基づく要件確定
-4. **Issue #55-58 着手** — Phase 0 (#54) 回答がブロッカー
+1. **Phase 0 回答の受領・反映** — ステークホルダー回答に基づく要件確定 + wam_target_projects の wam_flag 更新
+2. **Issue #55-58 着手** — Phase 0 (#54) 回答がブロッカー
+3. **（任意）WAM確認ページの追加機能検討** — is_wam フィルタ有効化、CSV出力など
 
 #### 📋 下書き送信（並行作業、ユーザー側）
 
