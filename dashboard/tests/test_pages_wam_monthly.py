@@ -182,3 +182,77 @@ class TestWamFilter:
         if "is_wam" in df.columns:
             df = df[df["is_wam"] == True]  # noqa: E712
         assert len(df) == 2
+
+
+# --- 報酬データ関連 ---
+
+def _filter_comp_by_year_month(df: pd.DataFrame, year: int, month: int) -> pd.DataFrame:
+    return df[(df["year"] == year) & (df["month"] == month)]
+
+
+def _summarize_compensation(df: pd.DataFrame) -> pd.DataFrame:
+    if df.empty:
+        return pd.DataFrame(columns=[
+            "メンバー", "報酬", "源泉徴収", "DX補助", "立替", "支払額",
+        ])
+    summary = df[["nickname", "qualification_adjusted_compensation",
+                   "withholding_tax", "dx_subsidy", "reimbursement", "payment"]].copy()
+    summary = summary.rename(columns={
+        "nickname": "メンバー",
+        "qualification_adjusted_compensation": "報酬",
+        "withholding_tax": "源泉徴収",
+        "dx_subsidy": "DX補助",
+        "reimbursement": "立替",
+        "payment": "支払額",
+    })
+    return summary.sort_values("支払額", ascending=False, na_position="last")
+
+
+@pytest.fixture
+def comp_df():
+    return pd.DataFrame({
+        "year": [2026, 2026, 2026, 2025],
+        "month": [4, 4, 3, 4],
+        "nickname": ["太郎", "花子", "太郎", "次郎"],
+        "qualification_adjusted_compensation": [100000.0, 50000.0, 80000.0, 30000.0],
+        "withholding_tax": [-10210.0, -5105.0, -8168.0, -3063.0],
+        "dx_subsidy": [0.0, 5000.0, 0.0, 0.0],
+        "reimbursement": [10000.0, 0.0, 5000.0, 3000.0],
+        "payment": [99790.0, 49895.0, 76832.0, 29937.0],
+    })
+
+
+class TestFilterCompByYearMonth:
+    def test_filters_correctly(self, comp_df):
+        result = _filter_comp_by_year_month(comp_df, 2026, 4)
+        assert len(result) == 2
+        assert set(result["nickname"]) == {"太郎", "花子"}
+
+    def test_no_match(self, comp_df):
+        result = _filter_comp_by_year_month(comp_df, 2024, 1)
+        assert len(result) == 0
+
+
+class TestSummarizeCompensation:
+    def test_basic_summary(self, comp_df):
+        filtered = _filter_comp_by_year_month(comp_df, 2026, 4)
+        summary = _summarize_compensation(filtered)
+        assert len(summary) == 2
+        assert "メンバー" in summary.columns
+        assert "報酬" in summary.columns
+        assert "支払額" in summary.columns
+
+    def test_empty_df(self):
+        empty = pd.DataFrame(columns=[
+            "nickname", "qualification_adjusted_compensation",
+            "withholding_tax", "dx_subsidy", "reimbursement", "payment",
+        ])
+        summary = _summarize_compensation(empty)
+        assert len(summary) == 0
+        assert "メンバー" in summary.columns
+
+    def test_sorted_by_payment_desc(self, comp_df):
+        filtered = _filter_comp_by_year_month(comp_df, 2026, 4)
+        summary = _summarize_compensation(filtered)
+        payments = summary["支払額"].tolist()
+        assert payments == sorted(payments, reverse=True)
