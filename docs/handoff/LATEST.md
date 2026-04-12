@@ -1,10 +1,10 @@
 # ハンドオフメモ - monthly-pay-tax
 
-**更新日**: 2026-04-11（ADR_0005 適用、GCP側処理完結原則に基づき Phase 0 を 18→14 項目に縮小）
-**フェーズ**: 6完了 + グループ機能 + グループ一括登録・自動同期 + UX改善 + 数値変換リファクタ + 報告入力機能（デプロイ済み）＋ **WAM助成金対応 要件受領フェーズ（新規）** + **GCP側処理完結原則採択（ADR_0005）**
+**更新日**: 2026-04-12（立替金シート実データ調査 → タブ名・ヘッダー位置・列構造修正）
+**フェーズ**: 6完了 + グループ機能 + グループ一括登録・自動同期 + UX改善 + 数値変換リファクタ + 報告入力機能（デプロイ済み）＋ **WAM助成金対応 Phase 1b バックエンド基盤**
 **最新デプロイ**: Collector rev 00020-g6b + Dashboard rev 00221-hjn（報告入力機能 + Tab1 活動時間ピボット）
 **Cloud Run設定**: 2026-04-07 `--no-cpu-throttling --max-instances=3` 適用済み（ADR 0004）
-**テストスイート**: 198テスト全PASS（dashboard 198）※conftest.py _pages→pagesエイリアス追加済み
+**テストスイート**: Dashboard 198 + Cloud Run 42 = **240テスト全PASS**
 
 ## 🆕 2026-04-11 WAM助成金事業 要件受領セッション
 
@@ -145,42 +145,34 @@ docs/requirements/
 
 ### 次セッションの開始点
 
-#### 🔴 最優先: PR #65 のマージ準備
+#### ✅ PR #65 マージ完了 + 実データ調査に基づく修正完了
 
-1. **Playwright で立替金シートの実データ確認**（Playwright MCP 再起動が必要）
-   - 任意の立替金シートの「入力シート」タブを開く
-   - ヘッダー行が何行目か確認 → `config.REIMBURSEMENT_DATA_START_ROW` を確定
-   - 現在の仮値: 2（1行目ヘッダー → 2行目からデータ）
-2. PR #65 コードレビュー指摘対応:
-   - VIEW の nickname JOIN 重複リスク → コメントまたは QUALIFY で対応
-   - 未使用定数 `REIMBURSEMENT_DATA_RANGE` の削除
-   - `run_reimbursement_collection()` のテスト追加（1件）
-3. PR #65 マージ
+**PR #65 マージ**（498d314）後、Playwright で立替金シート10件の実データ調査を実施。
+3つの重要な事実を発見し、コード修正済み（4afa41a）:
 
-#### ✅ PR #65 マージ完了（2026-04-12 早朝）
+| 発見事項 | 旧値 | 修正後 |
+|---------|------|--------|
+| タブ名 | `入力シート`（完全一致） | `{0\|1\|2}入力シート`（サフィックスマッチ） |
+| データ開始行 | Row 2 | Row 4（Row 3=ヘッダー、Row 4-5=例データ→フィルタ除外） |
+| H:I列 | 仮払金額(H) + 利用区間発(I) | マージセル（仮払金額列なし、VIEWで吸収） |
 
-**Code Review 3件の指摘をすべて対応してマージ**:
-- Issue 1: VIEW の nickname JOIN 重複防止 → QUALIFY + ROW_NUMBER() で一意化
-- Issue 2: 未使用定数 REIMBURSEMENT_DATA_RANGE を削除
-- Issue 3: run_reimbursement_collection() エントリポイント テスト 2 件追加
+**テスト**: 42 PASS（既存20 + 立替金収集22）
 
-**マージコミット**: 498d314（2 commits squashed）
-**テスト**: 37 PASS（既存 20 + 立替金収集 17）
-**ブランチ**: feat/reimbursement-collection-pipeline → main へ MERGE 完了
-
-#### 🟡 デプロイ前提条件（手動作業、ユーザー側実行 or 次セッション）
+#### 🟡 デプロイ前提条件（手動作業、ユーザー側）
 
 1. **Google Admin Console**: `pay-collector@monthly-pay-tax.iam.gserviceaccount.com` に `drive.readonly` DWD スコープ追加
 2. **BQ Console**: `reimbursement_items` / `wam_target_projects` テーブル CREATE 実行
-   - SQL: infra/bigquery/schema.sql に定義済み（デプロイ用 CREATE TABLE IF NOT EXISTS 文）
+   - SQL: infra/bigquery/schema.sql に定義済み
 3. **BQ Console**: `v_reimbursement_enriched` VIEW CREATE 実行
-   - SQL: infra/bigquery/views.sql の最終セクション（最新版で QUALIFY 重複防止対応済み）
+   - SQL: infra/bigquery/views.sql（QUALIFY 重複防止対応済み）
+   - **注意**: H:I マージセル問題のため、VIEW の列マッピング調整が必要（advance_amount → from_station）
 
-#### 🟢 マージ後の次ステップ（プロトタイプ駆動）
+#### 🟢 次ステップ（プロトタイプ駆動）
 
-- デプロイ → 実データ収集 → BQ で件数・nickname 一致率を確認
-- 確認後、pay-dashboard に WAM 月別確認ページ（`pages/wam_monthly.py`）を追加
-- 動くプロトタイプをステークホルダーに見せて判断を進める
+1. **VIEW の列マッピング修正**（`v_reimbursement_enriched` の advance_amount/from_station 列対応）
+2. デプロイ → 実データ収集 → BQ で件数・nickname 一致率を確認
+3. pay-dashboard に WAM 月別確認ページ（`pages/wam_monthly.py`）追加
+4. 動くプロトタイプをステークホルダーに見せて判断を進める
 
 #### 📋 下書き送信（並行作業、ユーザー側）
 
@@ -190,18 +182,10 @@ ADR_0005 適用後の下書き3本（PR #60-62 初版 → PR #64 で改訂済み
 - ヒロス/ヒデスMTG: 8項目（変更なし）
 
 #### 🟢 回答取得前でも可能な作業
-Phase 0 回答取得を待たずに着手可能なタスク（ADR_0005 の原則に従って設計）:
-- **B**: 要件③実現可能性の一次評価レポート（30分、既存 v_monthly_compensation での実現度評価、pay-dashboard 新ページ追加方式の工数見積もり）
-- **C**: Phase 1a/1b 実装 Issue (#55〜#57) の技術設計セクション追記（BQ スキーマ、VIEW 定義、WAM判定ルール、データフロー）
-- **D**: WAM判定ルール（対象PJ「その他」+ 説明欄テキスト分類）の試作（ルールベース or LLM分類のPoC）
 
-**着手前に必読**:
-- **PR #65 のブランチ `feat/reimbursement-collection-pipeline`**: 実装コード全体
-- **`docs/adr/0005-wam-gcp-side-processing-principle.md`**（GCP側処理完結原則、設計判断の根拠）
-- `docs/requirements/REF_20260411_reimbursement-sheet-discovery.md` セクション2.2（ヘッダー構造）, セクション4（データフロー）
-- `docs/requirements/REQ_20260409_wam-grant-workflow.md` セクション7 実装ロードマップ
-- Issues #54〜#58 の Description + Issue #54 の進捗コメント履歴（最新コメントに方針転換記録あり）
-- プラン: `~/.claude/plans/curried-leaping-sutherland.md`（実装設計書）
+- 要件③実現可能性の一次評価レポート（既存 v_monthly_compensation での実現度評価）
+- Phase 1a/1b 実装 Issue (#55〜#57) の技術設計セクション追記
+- WAM判定ルールの試作（対象PJ + テキスト分類PoC）
 
 ---
 

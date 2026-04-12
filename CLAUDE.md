@@ -58,7 +58,7 @@ SA鍵ファイルは使わない（ローカル開発時のみ `SA_KEY_PATH` 環
 # Dashboard テスト（189テスト）— プロジェクトルートから実行可能
 python3 -m pytest dashboard/tests/ -q
 
-# Cloud Run テスト（20テスト）— プロジェクトルートから実行可能
+# Cloud Run テスト（42テスト）— プロジェクトルートから実行可能
 python3 -m pytest cloud-run/tests/ -q
 
 # 全テスト一括

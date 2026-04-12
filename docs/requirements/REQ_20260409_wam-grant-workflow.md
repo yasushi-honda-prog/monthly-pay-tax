@@ -5,7 +5,7 @@
 | 起票日 | 2026-04-09 |
 | 起票者 | WAM助成金事業事務局（ミヤヤさん） |
 | 相談先 | すごいシステムつくり隊（ヤススさん） |
-| ステータス | 要件受領（一次評価済み、Phase 0 未着手） |
+| ステータス | Phase 1b バックエンド基盤実装済み（実データ調査完了、デプロイ前提条件待ち） |
 | 原本 | [Google Doc](https://docs.google.com/document/d/1zg6ceu1ABP6TKxGiHbplBG--9db6FmVcmf3Wro3ekDc/edit) |
 
 ## 関連GitHub Issues
