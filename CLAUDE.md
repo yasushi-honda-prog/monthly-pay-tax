@@ -58,7 +58,7 @@ SA鍵ファイルは使わない（ローカル開発時のみ `SA_KEY_PATH` 環
 # Dashboard テスト（235テスト）— プロジェクトルートから実行可能
 python3 -m pytest dashboard/tests/ -q
 
-# Cloud Run テスト（42テスト）— プロジェクトルートから実行可能
+# Cloud Run テスト（52テスト）— プロジェクトルートから実行可能
 python3 -m pytest cloud-run/tests/ -q
 
 # 全テスト一括
@@ -107,7 +107,7 @@ BQ接続が必要なためローカル実行での完全な動作確認は困難
 | SA | `pay-collector@monthly-pay-tax.iam.gserviceaccount.com` |
 | Cloud Run URL | `https://pay-collector-209715990891.asia-northeast1.run.app` |
 | BQデータセット | `pay_reports` |
-| BQテーブル | `gyomu_reports`, `hojo_reports`, `members`, `withholding_targets`, `dashboard_users`, `check_logs`, `groups_master`, `reimbursement_items`, `wam_target_projects` |
+| BQテーブル | `gyomu_reports`, `hojo_reports`, `members`, `withholding_targets`, `dashboard_users`, `check_logs`, `groups_master`, `reimbursement_items`, `wam_target_projects`, `member_master` |
 | BQ VIEWs | `v_gyomu_enriched`, `v_hojo_enriched`, `v_monthly_compensation`, `v_reimbursement_enriched` |
 | AR | `cloud-run-images`（最新2イメージ保持） |
 
@@ -124,6 +124,7 @@ BQ接続が必要なためローカル実行での完全な動作確認は困難
 - `groups_master`: group_email, group_name, ingested_at（Googleグループマスタ: 69グループ）
 - `reimbursement_items`: source_url, nickname, marker, year, date, target_project, category, payment_purpose, payment_amount, advance_amount, from_station, to_station, visit_purpose, receipt_url（立替金シート明細: 2,250行）
 - `wam_target_projects`: target_project, wam_flag, note（WAM対象PJマスタ、4PJ登録済み・全wam_flag='N'暫定、Phase 0回答後にY更新）
+- `member_master`: member_id, last_name, first_name, last_name_kana, first_name_kana, nickname, email, postal_code, prefecture, address, gws_account, report_url_1, report_url_2, shipping_postal_code, shipping_address, qualification_allowance, position_rate, corporate_sheet, donation_sheet, qualification_sheet, bank1_*(8列), bank2_*(8列)（タダメンMタブ全量、36列×240件、センシティブデータ含む→UI非表示）
 
 `source_url`（gyomu/hojo）= `report_url`（members）= `source_url`（check_logs）で結合。
 
