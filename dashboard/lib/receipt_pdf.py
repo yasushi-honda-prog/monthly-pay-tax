@@ -18,8 +18,8 @@ logger = logging.getLogger(__name__)
 
 # --- フォント探索 ---
 _FONT_SEARCH_PATHS = [
-    # Docker (fonts-noto-cjk)
-    "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+    # Docker (fonts-ipafont-gothic) — 単体TTF、TTC由来の文字化けなし
+    "/usr/share/fonts/opentype/ipafont-gothic/ipag.ttf",
     # macOS
     "/System/Library/Fonts/ヒラギノ角ゴシック W3.ttc",
     "/System/Library/Fonts/ヒラギノ角ゴシック W4.ttc",
