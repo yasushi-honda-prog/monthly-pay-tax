@@ -1,35 +1,30 @@
 # ハンドオフメモ - monthly-pay-tax
 
-**更新日**: 2026-04-13（ドキュメントページ全面更新 — architecture.py / help.py / CLAUDE.md 最新化）
+**更新日**: 2026-04-13（ドキュメントページ追加修正 — WAM操作ガイド追加 / ページ数・タブ名修正）
 **フェーズ**: WAM助成金対応 **技術側完了** — 残りはステークホルダー回答待ちのみ
 **最新デプロイ**: Collector rev 00024-hgj + Dashboard rev **00230-n6j**
 **Cloud Run設定**: 2026-04-07 `--no-cpu-throttling --max-instances=3` 適用済み（ADR 0004）
 **テストスイート**: Dashboard 252 + Cloud Run 52 = **304テスト全PASS**
 
-## 🆕 2026-04-13 ドキュメントページ全面更新
+## 🆕 2026-04-13 ドキュメントページ追加修正
 
-### ドキュメント最新化（未コミット → PR予定）
+### 修正内容（#101 マージ済み + 追加修正）
 
-architecture.py / help.py / CLAUDE.md を現在のシステム状態に完全同期。
+**PR #101（マージ済み）**: architecture.py / help.py / CLAUDE.md を現在のシステム状態に完全同期。
 
-**architecture.py の主な修正**:
-- 全体構成図: Step 6（立替金シート）, Step 7（タダメンM）追加
-- データフロー図: reimbursement_items, member_master, wam_target_projects, v_reimbursement_enriched 追加
-- BQスキーマ: 「7テーブル + 3 VIEW」→「10テーブル + 4 VIEW」、ER図に3テーブル追加
-- v_reimbursement_enriched VIEW の新セクション追加
-- ページ構成図: 「報告入力」「WAM立替金確認(6タブ)」追加
-- 認証フロー・セキュリティ: ロール名 viewer → user 修正
+**追加修正（未コミット → PR予定）**:
 
-**help.py の主な修正**:
-- ページ一覧: 「報告入力」「WAM立替金確認」カード追加（6→8枚）
-- ダッシュボード「4タブ」→「5タブ」
-- タブ内フィルター: 「業務委託費分析」説明追加
-- FAQ: ロール名 viewer → user 修正
+architecture.py:
+- コンポーネント表「7ページ」→「8ページ」修正
+- WAM Mermaid図 Tab5「支払明細書PDF」→「支払明細書」修正
 
-**CLAUDE.md の主な修正**:
-- アーキテクチャ図に Step 6-7 追加
-- ディレクトリ構成: pages/ → _pages/、全ページ反映、lib/receipt_pdf.py 追加
-- ページ構成テーブル: 5タブ/6タブ反映、ロール名修正
+help.py — WAM立替金確認の操作ガイド新規追加:
+- 6タブの機能説明テーブル（PJ別サマリー〜年間支払調書データ）
+- データ収集の仕組み説明（毎朝6時の自動収集）
+- 3ステップ操作ガイド（期間選択→明細確認→CSV/PDF出力）
+- 操作のコツ（振込CSV形式、口座自動取得、ZIP一括、BOM付UTF-8、個人情報取扱い）
+- 用語集にWAM関連5用語追加（WAM/対象PJ/振込CSV/支払明細書/年間支払調書）
+- FAQに2問追加（WAMデータ非表示/振込CSV口座空）
 
 ### 前回セッション（PR #96-#100）
 
