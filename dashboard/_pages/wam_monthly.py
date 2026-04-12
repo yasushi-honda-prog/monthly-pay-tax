@@ -11,6 +11,7 @@ import streamlit as st
 from lib.auth import require_admin
 from lib.bq_client import load_data
 from lib.constants import MONTHLY_COMPENSATION_VIEW, REIMBURSEMENT_VIEW
+from lib.receipt_pdf import generate_all_statements_zip, generate_payment_statement
 from lib.ui_helpers import fill_empty_nickname, render_kpi, render_sidebar_year_month
 
 # --- 認証チェック ---
@@ -188,7 +189,7 @@ with cols[3]:
     render_kpi("領収書添付率", f"{stats['rate']:.0f}%")
 
 # --- タブ ---
-tab1, tab2, tab3, tab4 = st.tabs(["PJ別サマリー", "メンバー別明細", "領収書添付状況", "月別報酬・振込確認"])
+tab1, tab2, tab3, tab4, tab5 = st.tabs(["PJ別サマリー", "メンバー別明細", "領収書添付状況", "月別報酬・振込確認", "支払明細書"])
 
 with tab1:
     st.subheader("対象PJ別 立替金サマリー")
@@ -321,3 +322,85 @@ with tab4:
                 key="wam_transfer_csv_download",
             )
         st.caption("※ 振込CSVの口座情報（銀行番号・支店番号・口座番号）は未入力です。ダウンロード後に手動で補完してください。")
+
+with tab5:
+    st.subheader("支払明細書")
+    if not comp_loaded or df_comp.empty:
+        st.info("報酬データがありません（支払明細書の生成には報酬データが必要です）")
+    else:
+        # メンバー選択
+        comp_members = sorted(df_comp["nickname"].dropna().unique().tolist())
+        selected_stmt_member = st.selectbox(
+            "メンバー選択", ["全メンバー"] + comp_members, key="wam_stmt_member",
+        )
+
+        if selected_stmt_member == "全メンバー":
+            # 全メンバーサマリー
+            st.caption(f"{len(comp_members):,} 名分の支払明細書を一括生成します")
+            zip_bytes = generate_all_statements_zip(
+                members_comp=df_comp,
+                reimbursement_df=df,
+                year=selected_year,
+                month=selected_month,
+            )
+            st.download_button(
+                "全メンバー一括ダウンロード (ZIP)",
+                zip_bytes,
+                file_name=f"payment_statements_{selected_year}_{selected_month:02d}.zip",
+                mime="application/zip",
+                key="wam_stmt_zip_download",
+            )
+        else:
+            # 個別メンバー
+            member_comp = df_comp[df_comp["nickname"] == selected_stmt_member].iloc[0]
+            member_reimb = df[df["nickname"] == selected_stmt_member] if not df.empty else pd.DataFrame()
+
+            comp_data = {
+                "qualification_adjusted_compensation": float(member_comp.get("qualification_adjusted_compensation", 0) or 0),
+                "withholding_tax": float(member_comp.get("withholding_tax", 0) or 0),
+                "dx_subsidy": float(member_comp.get("dx_subsidy", 0) or 0),
+                "reimbursement": float(member_comp.get("reimbursement", 0) or 0),
+                "payment": float(member_comp.get("payment", 0) or 0),
+            }
+
+            # プレビュー
+            cols5 = st.columns(3)
+            with cols5[0]:
+                subtotal_a = (
+                    comp_data["qualification_adjusted_compensation"]
+                    + comp_data["withholding_tax"]
+                    + comp_data["dx_subsidy"]
+                )
+                render_kpi("業務委託費 (A)", f"¥{subtotal_a:,.0f}")
+            with cols5[1]:
+                subtotal_b = member_reimb["payment_amount_numeric"].sum() if not member_reimb.empty else 0
+                render_kpi("立替経費 (B)", f"¥{subtotal_b:,.0f}")
+            with cols5[2]:
+                render_kpi("合計 (A+B)", f"¥{subtotal_a + subtotal_b:,.0f}")
+
+            # PDF生成・ダウンロード
+            full_name = str(member_comp.get("full_name", selected_stmt_member))
+            pdf_bytes = generate_payment_statement(
+                member_name=selected_stmt_member,
+                full_name=full_name,
+                year=selected_year,
+                month=selected_month,
+                compensation=comp_data,
+                reimbursement_items=member_reimb,
+            )
+            st.download_button(
+                "支払明細書PDFダウンロード",
+                pdf_bytes,
+                file_name=f"payment_statement_{selected_stmt_member}_{selected_year}_{selected_month:02d}.pdf",
+                mime="application/pdf",
+                key="wam_stmt_pdf_download",
+            )
+
+            # 領収書URL一覧
+            if not member_reimb.empty and "receipt_url" in member_reimb.columns:
+                urls = member_reimb["receipt_url"].dropna()
+                urls = urls[urls.str.strip() != ""]
+                if not urls.empty:
+                    with st.expander(f"添付書類一覧（{len(urls)}件）"):
+                        for i, url in enumerate(urls, 1):
+                            st.markdown(f"{i}. {url}")
