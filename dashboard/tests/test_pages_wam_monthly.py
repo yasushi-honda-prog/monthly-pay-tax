@@ -412,3 +412,129 @@ class TestDepositTypeCode:
 
     def test_with_whitespace(self):
         assert _deposit_type_code("  普通  ") == "1"
+
+
+# --- 年間支払調書データ ---
+
+def _build_annual_withholding_data(
+    df_comp_all: pd.DataFrame, year: int, df_member: pd.DataFrame
+) -> pd.DataFrame:
+    df_year = df_comp_all[df_comp_all["year"] == year].copy()
+    if df_year.empty:
+        return pd.DataFrame()
+    agg = df_year.groupby(["report_url", "nickname", "full_name"], dropna=False).agg(
+        年間報酬=("qualification_adjusted_compensation", "sum"),
+        年間源泉徴収=("withholding_tax", "sum"),
+        年間DX補助=("dx_subsidy", "sum"),
+        年間立替=("reimbursement", "sum"),
+        年間支払額=("payment", "sum"),
+    ).reset_index()
+    if not df_member.empty:
+        agg = agg.merge(df_member, on="report_url", how="left")
+    return agg.sort_values("年間支払額", ascending=False, na_position="last")
+
+
+def _generate_withholding_csv(df: pd.DataFrame) -> bytes:
+    if df.empty:
+        return b""
+    cols = [
+        "member_id", "last_name", "first_name", "last_name_kana", "first_name_kana",
+        "postal_code", "prefecture", "address",
+        "nickname", "full_name",
+        "年間報酬", "年間源泉徴収", "年間DX補助", "年間立替", "年間支払額",
+    ]
+    out = df[[c for c in cols if c in df.columns]].copy()
+    csv_str = out.to_csv(index=False)
+    return b"\xef\xbb\xbf" + csv_str.encode("utf-8")
+
+
+@pytest.fixture
+def annual_comp_df():
+    """年間報酬データ（複数月）"""
+    return pd.DataFrame({
+        "year": [2026, 2026, 2026, 2026, 2025],
+        "month": [1, 2, 1, 2, 12],
+        "nickname": ["太郎", "太郎", "花子", "花子", "太郎"],
+        "full_name": ["田中太郎", "田中太郎", "鈴木花子", "鈴木花子", "田中太郎"],
+        "report_url": ["url_t", "url_t", "url_h", "url_h", "url_t"],
+        "qualification_adjusted_compensation": [100000.0, 120000.0, 50000.0, 60000.0, 80000.0],
+        "withholding_tax": [-10210.0, -12252.0, -5105.0, -6126.0, -8168.0],
+        "dx_subsidy": [0.0, 0.0, 5000.0, 3000.0, 0.0],
+        "reimbursement": [10000.0, 0.0, 0.0, 2000.0, 5000.0],
+        "payment": [99790.0, 107748.0, 49895.0, 58874.0, 76832.0],
+    })
+
+
+@pytest.fixture
+def member_info_df():
+    """member_master氏名・住所データ"""
+    return pd.DataFrame({
+        "report_url": ["url_t", "url_h"],
+        "member_id": ["TM001", "TM002"],
+        "last_name": ["田中", "鈴木"],
+        "first_name": ["太郎", "花子"],
+        "last_name_kana": ["タナカ", "スズキ"],
+        "first_name_kana": ["タロウ", "ハナコ"],
+        "postal_code": ["100-0001", "200-0002"],
+        "prefecture": ["東京都", "神奈川県"],
+        "address": ["千代田区1-1", "横浜市2-2"],
+    })
+
+
+class TestBuildAnnualWithholdingData:
+    def test_aggregates_by_year(self, annual_comp_df, member_info_df):
+        """年間集計が正しいこと"""
+        result = _build_annual_withholding_data(annual_comp_df, 2026, member_info_df)
+        assert len(result) == 2  # 太郎 + 花子
+        taro = result[result["nickname"] == "太郎"].iloc[0]
+        assert taro["年間報酬"] == 220000.0  # 100000 + 120000
+        assert taro["年間源泉徴収"] == -22462.0  # -10210 + -12252
+        assert taro["年間支払額"] == 207538.0  # 99790 + 107748
+
+    def test_member_info_joined(self, annual_comp_df, member_info_df):
+        """member_masterの氏名・住所がJOINされること"""
+        result = _build_annual_withholding_data(annual_comp_df, 2026, member_info_df)
+        taro = result[result["nickname"] == "太郎"].iloc[0]
+        assert taro["last_name"] == "田中"
+        assert taro["postal_code"] == "100-0001"
+        assert taro["address"] == "千代田区1-1"
+
+    def test_no_data_for_year(self, annual_comp_df, member_info_df):
+        """対象年のデータがない場合は空DataFrame"""
+        result = _build_annual_withholding_data(annual_comp_df, 2024, member_info_df)
+        assert result.empty
+
+    def test_without_member_info(self, annual_comp_df):
+        """member_infoなしでも集計は動作すること"""
+        result = _build_annual_withholding_data(annual_comp_df, 2026, pd.DataFrame())
+        assert len(result) == 2
+        assert "last_name" not in result.columns
+
+    def test_sorted_by_payment_desc(self, annual_comp_df, member_info_df):
+        """支払額降順でソートされること"""
+        result = _build_annual_withholding_data(annual_comp_df, 2026, member_info_df)
+        payments = result["年間支払額"].tolist()
+        assert payments == sorted(payments, reverse=True)
+
+
+class TestGenerateWithholdingCsv:
+    def test_basic_csv(self, annual_comp_df, member_info_df):
+        """CSVが正しく生成されること"""
+        df = _build_annual_withholding_data(annual_comp_df, 2026, member_info_df)
+        csv_bytes = _generate_withholding_csv(df)
+        assert csv_bytes[:3] == b"\xef\xbb\xbf"  # BOM
+        csv_text = csv_bytes[3:].decode("utf-8")
+        assert "member_id" in csv_text
+        assert "田中" in csv_text
+        assert "220000" in csv_text
+
+    def test_empty(self):
+        assert _generate_withholding_csv(pd.DataFrame()) == b""
+
+    def test_without_member_columns(self, annual_comp_df):
+        """member_info未JOINでもCSV生成できること"""
+        df = _build_annual_withholding_data(annual_comp_df, 2026, pd.DataFrame())
+        csv_bytes = _generate_withholding_csv(df)
+        csv_text = csv_bytes[3:].decode("utf-8")
+        assert "nickname" in csv_text
+        assert "member_id" not in csv_text  # JOINされていないので含まれない
