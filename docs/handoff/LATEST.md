@@ -157,11 +157,24 @@ docs/requirements/
    - `run_reimbursement_collection()` のテスト追加（1件）
 3. PR #65 マージ
 
-#### 🟡 デプロイ前提条件（手動作業）
+#### ✅ PR #65 マージ完了（2026-04-12 早朝）
+
+**Code Review 3件の指摘をすべて対応してマージ**:
+- Issue 1: VIEW の nickname JOIN 重複防止 → QUALIFY + ROW_NUMBER() で一意化
+- Issue 2: 未使用定数 REIMBURSEMENT_DATA_RANGE を削除
+- Issue 3: run_reimbursement_collection() エントリポイント テスト 2 件追加
+
+**マージコミット**: 498d314（2 commits squashed）
+**テスト**: 37 PASS（既存 20 + 立替金収集 17）
+**ブランチ**: feat/reimbursement-collection-pipeline → main へ MERGE 完了
+
+#### 🟡 デプロイ前提条件（手動作業、ユーザー側実行 or 次セッション）
 
 1. **Google Admin Console**: `pay-collector@monthly-pay-tax.iam.gserviceaccount.com` に `drive.readonly` DWD スコープ追加
 2. **BQ Console**: `reimbursement_items` / `wam_target_projects` テーブル CREATE 実行
+   - SQL: infra/bigquery/schema.sql に定義済み（デプロイ用 CREATE TABLE IF NOT EXISTS 文）
 3. **BQ Console**: `v_reimbursement_enriched` VIEW CREATE 実行
+   - SQL: infra/bigquery/views.sql の最終セクション（最新版で QUALIFY 重複防止対応済み）
 
 #### 🟢 マージ後の次ステップ（プロトタイプ駆動）
 
