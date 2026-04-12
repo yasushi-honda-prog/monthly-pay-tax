@@ -1,8 +1,8 @@
 # ハンドオフメモ - monthly-pay-tax
 
-**更新日**: 2026-04-12（立替金シート実データ調査 → タブ名・ヘッダー位置・列構造修正）
-**フェーズ**: 6完了 + グループ機能 + グループ一括登録・自動同期 + UX改善 + 数値変換リファクタ + 報告入力機能（デプロイ済み）＋ **WAM助成金対応 Phase 1b バックエンド基盤**
-**最新デプロイ**: Collector rev 00020-g6b + Dashboard rev 00221-hjn（報告入力機能 + Tab1 活動時間ピボット）
+**更新日**: 2026-04-12（Phase 1b バックエンド完了: Collector デプロイ + 実データ2,250行収集成功）
+**フェーズ**: 6完了 + グループ機能 + グループ一括登録・自動同期 + UX改善 + 数値変換リファクタ + 報告入力機能（デプロイ済み）＋ **WAM助成金対応 Phase 1b バックエンド完了**
+**最新デプロイ**: Collector rev 00023-w7s（立替金シート収集対応）+ Dashboard rev 00221-hjn
 **Cloud Run設定**: 2026-04-07 `--no-cpu-throttling --max-instances=3` 適用済み（ADR 0004）
 **テストスイート**: Dashboard 198 + Cloud Run 42 = **240テスト全PASS**
 
@@ -154,25 +154,46 @@ docs/requirements/
 |---------|------|--------|
 | タブ名 | `入力シート`（完全一致） | `{0\|1\|2}入力シート`（サフィックスマッチ） |
 | データ開始行 | Row 2 | Row 4（Row 3=ヘッダー、Row 4-5=例データ→フィルタ除外） |
-| H:I列 | 仮払金額(H) + 利用区間発(I) | マージセル（仮払金額列なし、VIEWで吸収） |
+| H/I列 | マージセル仮説 | **独立カラム: H=仮払金額, I=利用区間(発)（実データ2,250行で相互排他確認）** |
 
 **テスト**: 42 PASS（既存20 + 立替金収集22）
 
-#### 🟡 デプロイ前提条件（手動作業、ユーザー側）
+#### ✅ デプロイ前提条件（全完了、2026-04-12）
 
-1. **Google Admin Console**: `pay-collector@monthly-pay-tax.iam.gserviceaccount.com` に `drive.readonly` DWD スコープ追加
-2. **BQ Console**: `reimbursement_items` / `wam_target_projects` テーブル CREATE 実行
-   - SQL: infra/bigquery/schema.sql に定義済み
-3. **BQ Console**: `v_reimbursement_enriched` VIEW CREATE 実行
-   - SQL: infra/bigquery/views.sql（QUALIFY 重複防止対応済み）
-   - ✅ H:I マージセル対応済み（advance_amount 列削除、from_station/col_i_merged に修正、#70）
+1. ✅ **DWD スコープ追加**: `drive.readonly`（Admin Console設定済み）
+2. ✅ **Drive API有効化**: `gcloud services enable drive.googleapis.com`
+3. ✅ **BQ テーブル作成**: `reimbursement_items` + `wam_target_projects`
+4. ✅ **BQ VIEW作成**: `v_reimbursement_enriched`
+5. ✅ **Shared Drive対応**: `supportsAllDrives` / `includeItemsFromAllDrives` パラメータ追加（PR #73）
+6. ✅ **Collector デプロイ**: rev 00023-w7s（立替金シート収集対応）
+7. ✅ **実データ収集検証**: 2,250行、68ニックネーム、5対象PJ
 
-#### 🟢 次ステップ（プロトタイプ駆動）
+#### 🟢 BQ 実データサマリー（reimbursement_items）
 
-1. ~~VIEW の列マッピング修正~~ → ✅ #70 で対応完了
-2. デプロイ → 実データ収集 → BQ で件数・nickname 一致率を確認
-3. pay-dashboard に WAM 月別確認ページ（`pages/wam_monthly.py`）追加
-4. 動くプロトタイプをステークホルダーに見せて判断を進める
+| 指標 | 値 |
+|------|-----|
+| 総行数 | 2,250 |
+| ユニークニックネーム | 68人（members 202人中） |
+| 対象PJ | 5種 |
+| advance_amount(仮払)あり | 25行 |
+| from_station(発駅)あり | 1,335行 |
+| 両方にデータ | 0行（相互排他） |
+| receipt_url あり | 1,205行 |
+
+#### 🔴 次セッションの開始点: フロントエンド（WAM確認ページ）
+
+**目的**: BQ実データを使って、ステークホルダーに「こういうデータが取れています」と見せられるドラフト提案ページ
+
+**実装方針**:
+1. `dashboard/pages/wam_monthly.py` を新規追加（st.navigation）
+2. `v_reimbursement_enriched` VIEW からデータ取得
+3. 閲覧権限: 当面 admin 限定（提案ドラフトのため）
+4. 既存ページに影響なし、BQ読み取りのみ
+
+**表示候補**:
+- WAM対象PJ別の立替金額サマリー（月別）
+- メンバー別の明細一覧（フィルタ付き）
+- 領収書PDF添付状況（receipt_url の有無）
 
 #### 📋 下書き送信（並行作業、ユーザー側）
 
@@ -180,12 +201,6 @@ ADR_0005 適用後の下書き3本（PR #60-62 初版 → PR #64 で改訂済み
 - ゆりさん: 2項目（運用継続確認のみ、改修依頼ゼロ）
 - ミヤヤさん: 4項目（Q-A1〜A3 + 相談④）+ 技術決裁済み3項目の共有
 - ヒロス/ヒデスMTG: 8項目（変更なし）
-
-#### 🟢 回答取得前でも可能な作業
-
-- 要件③実現可能性の一次評価レポート（既存 v_monthly_compensation での実現度評価）
-- Phase 1a/1b 実装 Issue (#55〜#57) の技術設計セクション追記
-- WAM判定ルールの試作（対象PJ + テキスト分類PoC）
 
 ---
 
