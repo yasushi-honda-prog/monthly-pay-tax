@@ -13,6 +13,7 @@ BQ_TABLE_MEMBERS = "members"
 BQ_TABLE_GROUPS_MASTER = "groups_master"
 BQ_TABLE_REIMBURSEMENT = "reimbursement_items"
 BQ_TABLE_WAM_PROJECTS = "wam_target_projects"
+BQ_TABLE_MEMBER_MASTER = "member_master"
 
 # 管理表スプレッドシート
 MASTER_SPREADSHEET_ID = "1fBNfkFBARSpT-OpLOytbAfoa0Xo5LTWv7irimssxcUU"
@@ -27,6 +28,49 @@ GAS_SPREADSHEET_ID = "16V9fs2kf2IzxdVz1GOJHY9mR1MmGjbmwm5L0ECiMLrc"
 MEMBER_SPREADSHEET_ID = MASTER_SPREADSHEET_ID  # 管理表に完全データあり
 MEMBER_SHEET_NAME = "報告シート（「説明用」以外はタダメンMから関数生成）M"
 MEMBER_START_ROW = 2  # 1行目はヘッダー
+
+# タダメンMマスタ全量取得（タダメンMタブから口座・住所等を含む全有用データ）
+MEMBER_MASTER_SHEET_NAME = "タダメンM"
+MEMBER_MASTER_START_ROW = 2
+# タダメンMタブの列インデックス(0-based) → member_masterカラムへのマッピング
+MEMBER_MASTER_COLUMN_INDICES = [
+    0,   # A: member_id
+    1,   # B: last_name
+    2,   # C: first_name
+    3,   # D: last_name_kana
+    4,   # E: first_name_kana
+    5,   # F: nickname
+    8,   # I: email
+    9,   # J: postal_code
+    10,  # K: prefecture
+    11,  # L: address
+    14,  # O: gws_account
+    15,  # P: report_url_1
+    16,  # Q: report_url_2
+    19,  # T: shipping_postal_code
+    20,  # U: shipping_address
+    29,  # AD: qualification_allowance
+    30,  # AE: position_rate
+    31,  # AF: corporate_sheet
+    32,  # AG: donation_sheet
+    33,  # AH: qualification_sheet
+    34,  # AI: bank1_type
+    35,  # AJ: bank1_name
+    36,  # AK: bank1_code
+    37,  # AL: bank1_branch_name
+    38,  # AM: bank1_branch_code
+    39,  # AN: bank1_account_number
+    40,  # AO: bank1_deposit_type
+    41,  # AP: bank1_holder_name
+    42,  # AQ: bank2_type
+    43,  # AR: bank2_name
+    44,  # AS: bank2_code
+    45,  # AT: bank2_branch_name
+    46,  # AU: bank2_branch_code
+    47,  # AV: bank2_account_number
+    48,  # AW: bank2_deposit_type
+    49,  # AX: bank2_holder_name
+]
 
 # スキップ対象URL
 SKIP_URLS = [
@@ -103,5 +147,20 @@ TABLE_COLUMNS = {
     ],
     BQ_TABLE_WAM_PROJECTS: [
         "target_project", "wam_flag", "note",
+    ],
+    BQ_TABLE_MEMBER_MASTER: [
+        "member_id", "last_name", "first_name",
+        "last_name_kana", "first_name_kana", "nickname",
+        "email", "postal_code", "prefecture", "address",
+        "gws_account", "report_url_1", "report_url_2",
+        "shipping_postal_code", "shipping_address",
+        "qualification_allowance", "position_rate",
+        "corporate_sheet", "donation_sheet", "qualification_sheet",
+        "bank1_type", "bank1_name", "bank1_code",
+        "bank1_branch_name", "bank1_branch_code",
+        "bank1_account_number", "bank1_deposit_type", "bank1_holder_name",
+        "bank2_type", "bank2_name", "bank2_code",
+        "bank2_branch_name", "bank2_branch_code",
+        "bank2_account_number", "bank2_deposit_type", "bank2_holder_name",
     ],
 }

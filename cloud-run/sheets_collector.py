@@ -349,6 +349,44 @@ def collect_members(service) -> list[list]:
     return filtered
 
 
+def collect_member_master(service) -> list[list]:
+    """タダメンMタブから全有用データを取得
+
+    A:AX列を一括取得し、MEMBER_MASTER_COLUMN_INDICESで指定された列のみ抽出。
+    口座情報・住所・姓名等を含む。A列(member_id)が空の行はスキップ。
+    """
+    sheet = service.spreadsheets()
+    range_notation = (
+        f"'{config.MEMBER_MASTER_SHEET_NAME}'"
+        f"!A{config.MEMBER_MASTER_START_ROW}:AX"
+    )
+
+    try:
+        request = sheet.values().get(
+            spreadsheetId=config.MEMBER_SPREADSHEET_ID,
+            range=range_notation,
+        )
+        result = _execute_with_throttle(request, context="collect_member_master")
+    except Exception as e:
+        logger.error("タダメンMマスタの読み取りエラー: %s", e)
+        return []
+
+    values = result.get("values", [])
+    indices = config.MEMBER_MASTER_COLUMN_INDICES
+
+    filtered = []
+    for row in values:
+        if not row or not row[0]:
+            continue
+        # 行の長さが足りない場合はNoneで埋める
+        padded = row + [None] * max(0, max(indices) + 1 - len(row))
+        extracted = [padded[i] for i in indices]
+        filtered.append(extracted)
+
+    logger.info("タダメンMマスタ: %d件のメンバーを取得しました", len(filtered))
+    return filtered
+
+
 def run_collection() -> dict[str, list[list]]:
     """データ収集のエントリポイント（シート収集のみ、グループ更新は /update-groups で実行）"""
     service = _build_sheets_service()
