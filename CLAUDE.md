@@ -31,7 +31,7 @@ SA鍵ファイルは使わない（ローカル開発時のみ `SA_KEY_PATH` 環
   - `sheets_collector.py` - Sheets API経由のデータ収集（DWD認証含む）
   - `bq_loader.py` - BigQueryへのデータロード（pandas DataFrame経由）
   - `config.py` - GCPプロジェクトID、BQテーブル名、マスタスプレッドシートID等の設定値
-  - `tests/` - ユニットテスト（20テスト: Sheets APIスロットリング、グループ一覧、dashboard_users同期）
+  - `tests/` - ユニットテスト（42テスト: Sheets APIスロットリング、グループ一覧、dashboard_users同期、立替金シート収集）
 - `dashboard/` - Streamlitダッシュボード（マルチページ構成）
   - `app.py` - エントリポイント（認証 + st.navigation ルーター）
   - `pages/dashboard.py` - 4タブ（月別報酬サマリー/スポンサー別業務委託費/業務報告一覧/グループ別）
@@ -107,13 +107,13 @@ BQ接続が必要なためローカル実行での完全な動作確認は困難
 | SA | `pay-collector@monthly-pay-tax.iam.gserviceaccount.com` |
 | Cloud Run URL | `https://pay-collector-209715990891.asia-northeast1.run.app` |
 | BQデータセット | `pay_reports` |
-| BQテーブル | `gyomu_reports`, `hojo_reports`, `members`, `withholding_targets`, `dashboard_users`, `check_logs`, `groups_master` |
-| BQ VIEWs | `v_gyomu_enriched`, `v_hojo_enriched`, `v_monthly_compensation` |
+| BQテーブル | `gyomu_reports`, `hojo_reports`, `members`, `withholding_targets`, `dashboard_users`, `check_logs`, `groups_master`, `reimbursement_items`, `wam_target_projects` |
+| BQ VIEWs | `v_gyomu_enriched`, `v_hojo_enriched`, `v_monthly_compensation`, `v_reimbursement_enriched` |
 | AR | `cloud-run-images`（最新2イメージ保持） |
 
 ## BQスキーマ
 
-7テーブル構成。データテーブルはすべてSTRING型 + ingested_at (TIMESTAMP)。
+9テーブル構成。データテーブルはすべてSTRING型 + ingested_at (TIMESTAMP)。
 
 - `gyomu_reports`: source_url, year, date, day_of_week, activity_category, work_category, sponsor, description, unit_price, hours, amount
 - `hojo_reports`: source_url, year, month, hours, compensation, dx_subsidy, reimbursement, total_amount, monthly_complete, dx_receipt, expense_receipt
@@ -122,6 +122,8 @@ BQ接続が必要なためローカル実行での完全な動作確認は困難
 - `dashboard_users`: email, role, display_name, added_by, source_group, created_at, updated_at（ホワイトリスト + ロール管理、source_group: グループ由来の場合グループメール/NULLなら手動登録）
 - `check_logs`: source_url, year, month, status, checker_email, memo, action_log, updated_at（業務チェック管理）
 - `groups_master`: group_email, group_name, ingested_at（Googleグループマスタ: 69グループ）
+- `reimbursement_items`: source_url, nickname, marker, year, date, target_project, category, payment_purpose, payment_amount, advance_amount, from_station, to_station, visit_purpose, receipt_url（立替金シート明細: 2,250行）
+- `wam_target_projects`: target_project, wam_flag, note（WAM対象PJマスタ）
 
 `source_url`（gyomu/hojo）= `report_url`（members）= `source_url`（check_logs）で結合。
 
@@ -132,6 +134,7 @@ GASバインドSSのスプレッドシート関数パイプラインをSQLで再
 - `v_gyomu_enriched`: メンバーJOIN + 月抽出 + 距離分離（自家用車使用→travel_distance_km） + 1立てフラグ（日給制） + 総稼働時間（全日/半日稼働加算）
 - `v_hojo_enriched`: メンバーJOIN + 年月正規化（数値年/日付文字列/Excelシリアル値の3形式対応）
 - `v_monthly_compensation`: 月別報酬＆源泉徴収（6 CTE構成: gyomu_agg → hojo_agg → member_attrs → all_keys → base_calc → with_tax）
+- `v_reimbursement_enriched`: 立替金シート明細 + メンバー情報 + WAM判定（nickname JOIN + wam_target_projects JOIN）
 
 定義: `infra/bigquery/views.sql`
 
