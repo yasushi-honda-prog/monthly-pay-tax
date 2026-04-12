@@ -121,17 +121,60 @@ docs/requirements/
 | [#57](https://github.com/yasushi-honda-prog/monthly-pay-tax/issues/57) | P1 | WAM要件③ WAM月別報酬・源泉徴収確認ツール (Must) | Blocked by #54 |
 | [#58](https://github.com/yasushi-honda-prog/monthly-pay-tax/issues/58) | P2 | WAM要件④ 支払調書作成ツールへの連携 (Want) | Blocked by #54 |
 
+### 🚀 2026-04-11 深夜 方針転換: プロトタイプ駆動 + Phase 1b 実装着手
+
+**重要な方針転換**: 「回答待ち → 実装」ではなく「**先にプロトタイプを作って見せて判断を進める**」方式に転換。回答待ちは発生しない。
+
+#### PR #65（Open）: 立替金シート収集パイプライン
+
+`feat/reimbursement-collection-pipeline` ブランチに実装済み。**main にはまだマージされていない**。
+
+**実装済み（ブランチ上）**:
+- `cloud-run/config.py`: REIMBURSEMENT_* 定数、TABLE_COLUMNS 追加
+- `cloud-run/sheets_collector.py`: `_get_dwd_credentials(scopes=None)` パラメータ化 + Drive API フォルダ一覧 → nickname 抽出 → 立替金シートデータ取得（5関数追加）
+- `cloud-run/main.py`: Step 6 追加（try/except で本体処理に影響なし）
+- `infra/bigquery/schema.sql`: `reimbursement_items` + `wam_target_projects` テーブル
+- `infra/bigquery/views.sql`: `v_reimbursement_enriched` VIEW（members.nickname JOIN + WAM判定 + 数値化）
+- `cloud-run/tests/test_reimbursement_collector.py`: 15テスト新規（全35テスト PASS）
+
+**メンバー紐付け**: スプレッドシート名 `【ニックネーム】委託事業_...` → regex `【(.+?)】` → `members.nickname` で JOIN
+
+**追加の紐付け参考資料（ユーザー情報提供）**:
+- 各タダメンの業務報告シート「【月１入力】」タブの L3 付近にスマートチップでリンクあり
+- `管理用_ファイルアドレス取得ツール`（`1rOTPfwAX2PVnA-jxObbbDvLfLfjrrnLGqGC5MErigiI`）で管理（完全ではない可能性あり）
+
 ### 次セッションの開始点
 
-**Phase 0 の下書きは ADR_0005 適用後の最新版（13項目）**。次のステップは **「ユーザー作業: 実送信・回答取得」** → **「回答を Q&A 文書に記録」** の流れ。
+#### 🔴 最優先: PR #65 のマージ準備
 
-#### 🔴 ユーザー作業待ち（ヤススさん側）
-次セッションで AI ができるのは、ユーザーが下書きを送信・MTGを実施した後の以下:
-1. ゆりさんからの回答（2項目）を `QUESTIONS_20260411` の Q-E3, Q-B4 に追記
-2. ミヤヤさんからの回答（4項目）を Q-A1〜A3 + 相談④ に追記
-3. ヒロス/ヒデスMTG決定事項（7〜8項目）を Q-A5, Q-B1/B2, Q-C1〜C3, Q-D1/D2 に追記
-4. Phase 0 完了宣言 → Issue #54 クローズ
-5. Phase 1a/1b 実装 Issue (#55〜#57) のブロッカー解除コメント
+1. **Playwright で立替金シートの実データ確認**（Playwright MCP 再起動が必要）
+   - 任意の立替金シートの「入力シート」タブを開く
+   - ヘッダー行が何行目か確認 → `config.REIMBURSEMENT_DATA_START_ROW` を確定
+   - 現在の仮値: 2（1行目ヘッダー → 2行目からデータ）
+2. PR #65 コードレビュー指摘対応:
+   - VIEW の nickname JOIN 重複リスク → コメントまたは QUALIFY で対応
+   - 未使用定数 `REIMBURSEMENT_DATA_RANGE` の削除
+   - `run_reimbursement_collection()` のテスト追加（1件）
+3. PR #65 マージ
+
+#### 🟡 デプロイ前提条件（手動作業）
+
+1. **Google Admin Console**: `pay-collector@monthly-pay-tax.iam.gserviceaccount.com` に `drive.readonly` DWD スコープ追加
+2. **BQ Console**: `reimbursement_items` / `wam_target_projects` テーブル CREATE 実行
+3. **BQ Console**: `v_reimbursement_enriched` VIEW CREATE 実行
+
+#### 🟢 マージ後の次ステップ（プロトタイプ駆動）
+
+- デプロイ → 実データ収集 → BQ で件数・nickname 一致率を確認
+- 確認後、pay-dashboard に WAM 月別確認ページ（`pages/wam_monthly.py`）を追加
+- 動くプロトタイプをステークホルダーに見せて判断を進める
+
+#### 📋 下書き送信（並行作業、ユーザー側）
+
+ADR_0005 適用後の下書き3本（PR #60-62 初版 → PR #64 で改訂済み）:
+- ゆりさん: 2項目（運用継続確認のみ、改修依頼ゼロ）
+- ミヤヤさん: 4項目（Q-A1〜A3 + 相談④）+ 技術決裁済み3項目の共有
+- ヒロス/ヒデスMTG: 8項目（変更なし）
 
 #### 🟢 回答取得前でも可能な作業
 Phase 0 回答取得を待たずに着手可能なタスク（ADR_0005 の原則に従って設計）:
@@ -140,14 +183,12 @@ Phase 0 回答取得を待たずに着手可能なタスク（ADR_0005 の原則
 - **D**: WAM判定ルール（対象PJ「その他」+ 説明欄テキスト分類）の試作（ルールベース or LLM分類のPoC）
 
 **着手前に必読**:
+- **PR #65 のブランチ `feat/reimbursement-collection-pipeline`**: 実装コード全体
 - **`docs/adr/0005-wam-gcp-side-processing-principle.md`**（GCP側処理完結原則、設計判断の根拠）
-- `docs/requirements/DRAFT_20260411_yuri-consultation.md`（2項目版）
-- `docs/requirements/DRAFT_20260411_miyaya-reply.md`（4項目版 + 技術決裁済み3項目）
-- `docs/requirements/DRAFT_20260411_hiros-hides-mtg.md`（8項目、変更なし）
+- `docs/requirements/REF_20260411_reimbursement-sheet-discovery.md` セクション2.2（ヘッダー構造）, セクション4（データフロー）
 - `docs/requirements/REQ_20260409_wam-grant-workflow.md` セクション7 実装ロードマップ
-- `docs/requirements/REF_20260411_reimbursement-sheet-discovery.md` セクション4〜7
-- `docs/requirements/QUESTIONS_20260411_wam-phase0.md` 全体（ADR_0005 マーク入り）
-- Issues #54〜#58 の Description + Issue #54 の進捗コメント履歴
+- Issues #54〜#58 の Description + Issue #54 の進捗コメント履歴（最新コメントに方針転換記録あり）
+- プラン: `~/.claude/plans/curried-leaping-sutherland.md`（実装設計書）
 
 ---
 
