@@ -1367,7 +1367,7 @@ with tab5:
             )
             total_hover = alt.Chart(totals).mark_point(opacity=0, size=300).encode(
                 x=alt.X("年月:O", sort=_cost_ym_order),
-                y=alt.Y("合計:Q"),
+                y=alt.Y("合計:Q", stack=False),
                 tooltip=[
                     alt.Tooltip("年月:O", title="年月"),
                     alt.Tooltip("tooltip_amt:N", title="月合計"),
