@@ -1239,6 +1239,7 @@ with tab5:
 
         _cost_f = _cost_f.copy()
         _cost_f["cost_group"] = _cost_f["work_category"].map(_COST_GROUP_MAP).fillna("(未分類)")
+        # ① スポンサーフィールドによる振り替え
         _cost_f.loc[
             (_cost_f["sponsor"] == "神奈川県DX") &
             (
@@ -1248,6 +1249,16 @@ with tab5:
                     "スポンサー対応（PM業務）",
                 }))
             ),
+            "cost_group",
+        ] = "行政事業（神奈川DX）"
+        # ② スポンサー未入力の補完：内容欄キーワードで神奈川DXに振り替え
+        _kw_target = {
+            "行政事業（ケアプー：ケアプランデータ連携システムを広め隊）",
+            "スポンサー対応（主にスマート介護士を推進し隊）",
+        }
+        _cost_f.loc[
+            (_cost_f["cost_group"].isin(_kw_target)) &
+            (_cost_f["description"].fillna("").str.contains("神奈川DX|神奈川県DX|神奈川県", na=False)),
             "cost_group",
         ] = "行政事業（神奈川DX）"
 
