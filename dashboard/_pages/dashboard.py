@@ -1370,19 +1370,35 @@ with tab5:
                 (bar + label + total_hover).resolve_scale(color="shared") if _show_labels else (bar + total_hover).resolve_scale(color="shared")
             ).properties(height=580)
             _event = st.altair_chart(_chart, use_container_width=True, on_select="rerun", key=_widget_key)
-            if st.button("チャートをリセット", key=f"reset_view_{chart_key}",
-                         help="テーブル表示になった場合はクリックするとチャートに戻ります"):
-                st.session_state[_ver_key] += 1
-                st.rerun()
+            _sb_key = f"sb_cost_{chart_key}"
+            _col_reset, _col_sb = st.columns([1, 3])
+            with _col_reset:
+                if st.button("チャートをリセット", key=f"reset_view_{chart_key}",
+                             help="テーブル表示になった場合はクリックするとチャートに戻ります"):
+                    st.session_state[_ver_key] += 1
+                    st.session_state.pop(_sb_key, None)
+                    st.rerun()
+            with _col_sb:
+                _all_groups = sorted(df["cost_group"].unique().tolist())
+                _sb_val = st.selectbox(
+                    "分類を選択",
+                    ["（選択なし）"] + _all_groups,
+                    key=_sb_key,
+                    help="バーが小さくて選択しにくい場合はこちらから選択できます",
+                    label_visibility="collapsed",
+                )
 
-            # ドリルダウン：分類クリック時にメンバー別内訳を表示
+            # ドリルダウン：セレクトボックスまたはチャートバークリックで分類を選択
             _selected_cost = None
-            try:
-                _pts = (_event.selection or {}).get(_sel_name, [])
-                if _pts:
-                    _selected_cost = _pts[0].get("分類")
-            except Exception:
-                pass
+            if _sb_val != "（選択なし）":
+                _selected_cost = _sb_val
+            else:
+                try:
+                    _pts = (_event.selection or {}).get(_sel_name, [])
+                    if _pts:
+                        _selected_cost = _pts[0].get("分類")
+                except Exception:
+                    pass
 
             if _selected_cost:
                 st.divider()
@@ -1392,6 +1408,7 @@ with tab5:
                 with _btn_col:
                     if st.button("選択解除", key=f"clear_{chart_key}"):
                         st.session_state[_ver_key] += 1
+                        st.session_state.pop(_sb_key, None)
                         st.rerun()
                 st.caption("分類バーをダブルクリックするとドリルダウンが解除されます")
                 _drill_df = df[df["cost_group"] == _selected_cost].copy()
