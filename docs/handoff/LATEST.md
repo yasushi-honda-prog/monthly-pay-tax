@@ -1,10 +1,17 @@
 # ハンドオフメモ - monthly-pay-tax
 
-**更新日**: 2026-04-13（ドキュメントページ全面更新 — architecture.py / help.py / CLAUDE.md 最新化）
+**更新日**: 2026-04-24（業務委託費分析タブ 行政事業をケアプー/神奈川DXに分割）
 **フェーズ**: WAM助成金対応 **技術側完了** — 残りはステークホルダー回答待ちのみ
-**最新デプロイ**: Collector rev 00024-hgj + Dashboard rev **00230-n6j**
+**最新デプロイ**: Collector rev 00024-hgj + Dashboard rev **00232-h64**
 **Cloud Run設定**: 2026-04-07 `--no-cpu-throttling --max-instances=3` 適用済み（ADR 0004）
 **テストスイート**: Dashboard 252 + Cloud Run 52 = **304テスト全PASS**
+
+## 🆕 2026-04-24 行政事業分類分割（ケアプー/神奈川DX）
+
+業務委託費分析タブの「行政事業」分類を、スポンサーフィールドを基に2分類に分割。
+- `sponsor == "神奈川県DX"` → 「行政事業（神奈川DX）」
+- その他（ケアプー事業・移動手当等）→ 「行政事業（ケアプー：ケアプランデータ連携システムを広め隊）」
+- 対象ファイル: `dashboard/_pages/dashboard.py`（_COST_GROUP_MAP / _COST_GROUP_EXCLUDE_NONPROFIT / _COST_COLOR_DOMAIN + Tab5振り替えロジック）
 
 ## 🆕 2026-04-13 ドキュメントページ全面更新
 
