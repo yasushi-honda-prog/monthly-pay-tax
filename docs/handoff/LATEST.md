@@ -2,7 +2,7 @@
 
 **更新日**: 2026-04-24（業務委託費分析タブ 行政事業をケアプー/神奈川DXに分割）
 **フェーズ**: WAM助成金対応 **技術側完了** — 残りはステークホルダー回答待ちのみ
-**最新デプロイ**: Collector rev 00024-hgj + Dashboard rev **00232-h64**
+**最新デプロイ**: Collector rev 00024-hgj + Dashboard rev **00233-k66**
 **Cloud Run設定**: 2026-04-07 `--no-cpu-throttling --max-instances=3` 適用済み（ADR 0004）
 **テストスイート**: Dashboard 252 + Cloud Run 52 = **304テスト全PASS**
 
@@ -94,7 +94,7 @@ architecture.py / help.py / CLAUDE.md を現在のシステム状態に完全同
 | サービス | Rev | 内容 |
 |---------|-----|------|
 | Collector | 00024-hgj | member_master 収集追加 |
-| Dashboard | **00230-n6j** | 口座自動化 + 年間支払調書 + 個人情報非表示 |
+| Dashboard | **00233-k66** | 業務委託費分析 行政事業をケアプー/神奈川DXに分割（スポンサー対応・エリアリーダー分類含む） |
 
 ## センシティブデータ方針
 
