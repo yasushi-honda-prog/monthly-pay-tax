@@ -100,6 +100,26 @@ _COST_GROUP_MAP: dict[str, str] = {
     "発送業務": "その他",
 }
 
+# モバイル凡例用 短縮表示名（チャート凡例のみ使用、データ・ドリルダウンは正式名）
+_COST_GROUP_SHORT: dict[str, str] = {
+    "行政事業（ケアプー：ケアプランデータ連携システムを広め隊）": "行政事業（ケアプー）",
+    "行政事業（神奈川DX）": "行政事業（神奈川DX）",
+    "スポンサー対応（主にスマート介護士を推進し隊）": "スポンサー対応",
+    "タダスク（主にタダスクわいわい盛り上げ隊）": "タダスク",
+    "タダスク（主にみんなでスキルアップし隊）": "タダスク（スキルアップ）",
+    "タダサポ（主にタダスクわいわい盛り上げ隊）": "タダサポ",
+    "出張タダスク（主に出張タダスクで喜ばれ隊）": "出張タダスク",
+    "タダレク（主に色んな企業とwin-winになり隊）": "タダレク",
+    "イベント企画/コミュニティ（主にみんなと仲良くし隊）": "イベント/コミュニティ",
+    "テクニカル・オペレーション業務（主にすごいシステムつくり隊）": "テクニカル・オペレーション",
+    "タダカヨ経営戦略・業務管理（主にしっかり法人を経営し隊）": "経営戦略・業務管理",
+    "広報（主に広報がんばり隊、シン・もっと寄付を集め隊）": "広報",
+    "法人内MTG（全隊）": "法人内MTG",
+    "電話対応（主にケアプランデータ連携システムを広め隊）": "電話対応",
+    "その他": "その他",
+    "(未分類)": "(未分類)",
+}
+
 # 非営利活動タブで除外する分類
 _COST_GROUP_EXCLUDE_NONPROFIT: set[str] = {
     "行政事業（ケアプー：ケアプランデータ連携システムを広め隊）",
@@ -1558,10 +1578,15 @@ with tab5:
             _last_chart_sel_key = f"_m_last_{chart_key}"
             _all_groups = sorted(df["cost_group"].unique().tolist())
             _color_map = dict(zip(_COST_COLOR_DOMAIN, _COST_COLOR_RANGE))
+            # 短縮名マップ（凡例表示専用）
+            _short_map = {g: _COST_GROUP_SHORT.get(g, g) for g in _all_groups}
+            _short_rev = {v: k for k, v in _short_map.items()}
+            _color_map_short = {_short_map.get(k, k): v for k, v in _color_map.items()}
+            agg["分類_表示"] = agg["分類"].map(_short_map)
 
             fig = px.bar(
-                agg, x="年月", y="金額", color="分類",
-                color_discrete_map=_color_map,
+                agg, x="年月", y="金額", color="分類_表示",
+                color_discrete_map=_color_map_short,
                 barmode="stack",
                 custom_data=["件数", "人数"],
                 height=380,
@@ -1592,10 +1617,11 @@ with tab5:
                 fig, use_container_width=True, on_select="rerun", key=f"m_plt_{chart_key}"
             )
 
-            # タップ選択 → セレクトボックス連動
+            # タップ選択 → セレクトボックス連動（短縮名→正式名に逆引き）
             try:
                 _pts = _event.selection.points if _event.selection else []
-                _chart_sel = _pts[0].get("legendgroup") if _pts else None
+                _chart_sel_short = _pts[0].get("legendgroup") if _pts else None
+                _chart_sel = _short_rev.get(_chart_sel_short, _chart_sel_short) if _chart_sel_short else None
             except Exception:
                 _chart_sel = None
             _last = st.session_state.get(_last_chart_sel_key)
