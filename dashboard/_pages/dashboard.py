@@ -1337,6 +1337,9 @@ with tab5:
             if _ver_key not in st.session_state:
                 st.session_state[_ver_key] = 0
             _widget_key = f"chart_{chart_key}_{st.session_state[_ver_key]}"
+            _sb_key = f"sb_cost_{chart_key}"
+            _last_chart_sel_key = f"_last_chart_sel_{chart_key}"
+            _all_groups = sorted(df["cost_group"].unique().tolist())
 
             bar = alt.Chart(agg).mark_bar().encode(
                 x=alt.X("年月:O", title=x_title, sort=_cost_ym_order,
@@ -1381,16 +1384,30 @@ with tab5:
                 (bar + label + total_hover).resolve_scale(color="shared") if _show_labels else (bar + total_hover).resolve_scale(color="shared")
             ).properties(height=580)
             _event = st.altair_chart(_chart, use_container_width=True, on_select="rerun", key=_widget_key)
-            _sb_key = f"sb_cost_{chart_key}"
+
+            # チャートクリック → セレクトボックス連動
+            try:
+                _pts = (_event.selection or {}).get(_sel_name, [])
+                _current_chart_sel = _pts[0].get("分類") if _pts else None
+            except Exception:
+                _current_chart_sel = None
+            _last_synced = st.session_state.get(_last_chart_sel_key)
+            if _current_chart_sel != _last_synced:
+                if _current_chart_sel and _current_chart_sel in _all_groups:
+                    st.session_state[_sb_key] = _current_chart_sel
+                elif _last_synced and not _current_chart_sel:
+                    st.session_state[_sb_key] = "（選択なし）"
+                st.session_state[_last_chart_sel_key] = _current_chart_sel
+
             _col_reset, _col_sb = st.columns([1, 3])
             with _col_reset:
                 if st.button("チャートをリセット", key=f"reset_view_{chart_key}",
                              help="テーブル表示になった場合はクリックするとチャートに戻ります"):
                     st.session_state[_ver_key] += 1
                     st.session_state.pop(_sb_key, None)
+                    st.session_state.pop(_last_chart_sel_key, None)
                     st.rerun()
             with _col_sb:
-                _all_groups = sorted(df["cost_group"].unique().tolist())
                 _sb_val = st.selectbox(
                     "分類を選択",
                     ["（選択なし）"] + _all_groups,
@@ -1399,17 +1416,10 @@ with tab5:
                     label_visibility="collapsed",
                 )
 
-            # ドリルダウン：セレクトボックスまたはチャートバークリックで分類を選択
+            # ドリルダウン：セレクトボックスで分類を選択（チャートクリックで連動）
             _selected_cost = None
             if _sb_val != "（選択なし）":
                 _selected_cost = _sb_val
-            else:
-                try:
-                    _pts = (_event.selection or {}).get(_sel_name, [])
-                    if _pts:
-                        _selected_cost = _pts[0].get("分類")
-                except Exception:
-                    pass
 
             if _selected_cost:
                 st.divider()
@@ -1420,6 +1430,7 @@ with tab5:
                     if st.button("選択解除", key=f"clear_{chart_key}"):
                         st.session_state[_ver_key] += 1
                         st.session_state.pop(_sb_key, None)
+                        st.session_state.pop(_last_chart_sel_key, None)
                         st.rerun()
                 st.caption("分類バーをダブルクリックするとドリルダウンが解除されます")
                 _drill_df = df[df["cost_group"] == _selected_cost].copy()
