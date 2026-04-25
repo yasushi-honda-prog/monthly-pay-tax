@@ -12,13 +12,15 @@ TAB2_CSV_COLS = [
     "payment_purpose", "payment_amount", "advance_amount",
     "from_station", "to_station", "visit_purpose",
 ]
-TAB2_DISPLAY_COLS = TAB2_CSV_COLS + ["source_url", "receipt_url"]
+# receipt_url は collector が =HYPERLINK() の表示テキストのみ取得しており URL 化されていないため、
+# collector 改修まではリンク列として扱わない（#TODO: 別Issue で改修）
+TAB2_DISPLAY_COLS = TAB2_CSV_COLS + ["source_url"]
 TAB2_COL_LABELS = {
     "nickname": "メンバー", "date": "月日", "target_project": "対象PJ",
     "is_wam": "WAM対象", "category": "分類", "payment_purpose": "支払用途",
     "payment_amount": "支払金額", "advance_amount": "仮払金額",
     "from_station": "発", "to_station": "着", "visit_purpose": "訪問目的",
-    "source_url": "URL", "receipt_url": "領収書",
+    "source_url": "URL",
 }
 
 
@@ -33,9 +35,8 @@ def build_tab2_display_df(df_detail: pd.DataFrame) -> pd.DataFrame:
     existing = [c for c in TAB2_DISPLAY_COLS if c in df_detail.columns]
     df_display = df_detail[existing].rename(columns=TAB2_COL_LABELS).copy()
     # LinkColumn は "nan"/空文字も href として描画するため、空欄化してリンク化を抑止
-    for url_col in ("URL", "領収書"):
-        if url_col in df_display.columns:
-            df_display[url_col] = df_display[url_col].apply(_safe_url)
+    if "URL" in df_display.columns:
+        df_display["URL"] = df_display["URL"].apply(_safe_url)
     return df_display
 
 

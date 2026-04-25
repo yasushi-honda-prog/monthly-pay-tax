@@ -320,7 +320,6 @@ with tab2:
             build_tab2_display_df(df_detail),
             column_config={
                 "URL": st.column_config.LinkColumn(display_text="開く"),
-                "領収書": st.column_config.LinkColumn(display_text="開く"),
             },
             use_container_width=True,
             hide_index=True,
