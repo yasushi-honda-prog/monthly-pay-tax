@@ -315,13 +315,12 @@ with tab2:
         selected_member = st.selectbox("メンバー", ["すべて"] + members, key="wam_member")
         df_detail = df if selected_member == "すべて" else df[df["nickname"] == selected_member]
 
-        # CSV用カラム（URL列は含めない、既存仕様維持）
+        # CSV は既存仕様維持のため URL/領収書 を含めない（表示側のみリンク列を追加）
         csv_cols = [
             "nickname", "date", "target_project", "is_wam", "category",
             "payment_purpose", "payment_amount", "advance_amount",
             "from_station", "to_station", "visit_purpose",
         ]
-        # 表示用カラム（URL・領収書をリンク列として追加）
         display_cols = csv_cols + ["source_url", "receipt_url"]
         existing_csv_cols = [c for c in csv_cols if c in df_detail.columns]
         existing_display_cols = [c for c in display_cols if c in df_detail.columns]
@@ -333,7 +332,7 @@ with tab2:
             "source_url": "URL", "receipt_url": "領収書",
         }
 
-        # 表示用DF: URL列を正規化（NaN/None/""/"nan" → 空欄化）
+        # LinkColumn は "nan"/空文字も href として描画するため、空欄化してリンク化を抑止
         df_display = df_detail[existing_display_cols].rename(columns=col_labels).copy()
         for url_col in ("URL", "領収書"):
             if url_col in df_display.columns:
@@ -350,7 +349,6 @@ with tab2:
         )
         st.caption(f"{len(df_detail):,} 件表示")
 
-        # CSVダウンロード（URL列は含めない、既存仕様維持）
         csv_data = df_detail[existing_csv_cols].rename(columns=col_labels).to_csv(index=False)
         st.download_button(
             "CSVダウンロード",
