@@ -1,22 +1,31 @@
 # ハンドオフメモ - monthly-pay-tax
 
-**更新日**: 2026-04-25（WAM Tab2 にスプレッドシート/領収書リンク列を追加）
+**更新日**: 2026-04-25（WAM Tab2 にURLリンク列追加・領収書列は collector 改修待ちで暫定削除）
 **フェーズ**: WAM助成金対応 **技術側完了** — 残りはステークホルダー回答待ちのみ
-**最新デプロイ**: Collector rev 00024-hgj + Dashboard rev **00238-4cx**
+**最新デプロイ**: Collector rev 00024-hgj + Dashboard rev **00239-j5z**
 **Cloud Run設定**: 2026-04-07 `--no-cpu-throttling --max-instances=3` 適用済み（ADR 0004）
 **テストスイート**: Dashboard 259 + Cloud Run 52 = **311テスト全PASS**
 
-## 🆕 2026-04-25 WAM Tab2 にスプレッドシート/領収書リンク列追加 (#103)
+## 🆕 2026-04-25 WAM Tab2 リンク列追加 (#103) → 領収書列削除 (#105)
 
-WAM立替金確認ページの Tab2「メンバー別明細」に「URL」（立替金シート）と「領収書」の2列を追加し、
+### #103: URL/領収書 LinkColumn 追加
+WAM立替金確認 Tab2「メンバー別明細」に「URL」（立替金シート）と「領収書」の2列を追加し、
 `st.column_config.LinkColumn(display_text="開く")` でクリッカブル化。
-admin運用での原本確認動線を短縮。
+- 新規 `dashboard/lib/wam_helpers.py`: Tab2 の DF 構築ヘルパーを分離（test/prod 共通化）
+- CSV出力は既存仕様維持（URL列を含めない）
 
-- 新規 `dashboard/lib/wam_helpers.py`: Tab2 の表示用/CSV用 DF 構築ヘルパーを分離
-  （production と test の双方から参照、テストヘルパーのコピー実装を排除）
-- CSV出力は既存仕様維持（URL列を含めない）→ 既存ユーザーへの影響ゼロ
-- URL正規化: `_safe_url` で `None/NaN/""/"nan"/空白のみ` を空欄化（LinkColumn の誤描画抑止）
-- ロールバック先: `pay-dashboard-00237-9xs`（保持中）
+### #105: 領収書列を暫定削除（バグ修正）
+admin 動作確認で「領収書リンクが機能しない」と判明。
+原因: collector が `=HYPERLINK("url", "ファイル名")` の `formattedValue` を取得しており、
+BQ `receipt_url` には **ファイル名のみ** が入っていた（URL は失われている）。
+
+→ Tab2 から領収書列を削除（暫定）。`source_url`（立替金シート、正規URL）は維持。
+
+### 中期対応: Issue #106
+collector で `=HYPERLINK()` の URL を取得するロジック追加（推奨: Sheets API `cellData.hyperlink` 属性）。
+完了後に Tab2 に領収書列を再追加して復活。
+
+ロールバック先: `pay-dashboard-00238-4cx` / `pay-dashboard-00237-9xs`（保持中）
 
 ## 2026-04-24 行政事業分類分割（ケアプー/神奈川DX）
 
