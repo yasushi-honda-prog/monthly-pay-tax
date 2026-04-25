@@ -1,8 +1,12 @@
-"""WAM立替金確認ページ（admin限定・ドラフト提案用）
+"""WAM立替金確認ページ（checker/admin・ドラフト提案用）
 
 v_reimbursement_enriched VIEW から立替金データを取得し、
 PJ別サマリー・メンバー別明細・領収書添付状況を表示する。
 v_monthly_compensation VIEW から報酬・源泉徴収データを表示する。
+
+ロール制御:
+- checker / admin: Tab1〜Tab5 アクセス可
+- admin のみ: Tab6（年間支払調書データ、氏名・住所等の個人情報を含む）
 """
 
 import io
@@ -10,7 +14,7 @@ import io
 import pandas as pd
 import streamlit as st
 
-from lib.auth import require_admin
+from lib.auth import require_checker
 from lib.bq_client import load_data
 from lib.constants import MEMBER_MASTER_TABLE, MONTHLY_COMPENSATION_VIEW, REIMBURSEMENT_VIEW
 from lib.receipt_pdf import generate_all_statements_zip, generate_payment_statement
@@ -20,7 +24,7 @@ from lib.wam_helpers import build_tab2_csv_df, build_tab2_display_df
 # --- 認証チェック ---
 email = st.session_state.get("user_email", "")
 role = st.session_state.get("user_role", "")
-require_admin(email, role)
+require_checker(email, role)
 
 st.header("WAM 立替金・報酬確認")
 st.caption("立替金シートデータ・月別報酬の確認・分析（ドラフト）")
@@ -294,7 +298,18 @@ with cols[3]:
     render_kpi("領収書添付率", f"{stats['rate']:.0f}%")
 
 # --- タブ ---
-tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["PJ別サマリー", "メンバー別明細", "領収書添付状況", "月別報酬・振込確認", "支払明細書", "年間支払調書データ"])
+# Tab6（年間支払調書データ）は氏名・住所等の個人情報を含むため admin 限定
+if role == "admin":
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+        "PJ別サマリー", "メンバー別明細", "領収書添付状況",
+        "月別報酬・振込確認", "支払明細書", "年間支払調書データ",
+    ])
+else:
+    tab1, tab2, tab3, tab4, tab5 = st.tabs([
+        "PJ別サマリー", "メンバー別明細", "領収書添付状況",
+        "月別報酬・振込確認", "支払明細書",
+    ])
+    tab6 = None
 
 with tab1:
     st.subheader("対象PJ別 立替金サマリー")
@@ -534,53 +549,54 @@ with tab5:
                         for i, url in enumerate(urls, 1):
                             st.markdown(f"{i}. {url}")
 
-with tab6:
-    st.subheader("年間支払調書データ")
-    st.caption("メンバー別の年間報酬・源泉徴収合計＋氏名住所（支払調書作成用）")
-    if not comp_loaded:
-        st.warning("報酬データの取得に失敗しました")
-    else:
-        try:
-            df_member_info = _load_member_info()
-        except Exception:
-            df_member_info = pd.DataFrame()
-
-        df_annual = _build_annual_withholding_data(df_comp_all, selected_year, df_member_info)
-
-        if df_annual.empty:
-            st.info(f"{selected_year}年のデータがありません")
+if tab6 is not None:
+    with tab6:
+        st.subheader("年間支払調書データ")
+        st.caption("メンバー別の年間報酬・源泉徴収合計＋氏名住所（支払調書作成用）")
+        if not comp_loaded:
+            st.warning("報酬データの取得に失敗しました")
         else:
-            # KPI
-            cols6 = st.columns(4)
-            with cols6[0]:
-                render_kpi("対象者数", f"{len(df_annual):,}")
-            with cols6[1]:
-                render_kpi("年間報酬合計", f"¥{df_annual['年間報酬'].sum():,.0f}")
-            with cols6[2]:
-                render_kpi("年間源泉徴収合計", f"¥{abs(df_annual['年間源泉徴収'].sum()):,.0f}")
-            with cols6[3]:
-                render_kpi("年間支払額合計", f"¥{df_annual['年間支払額'].sum():,.0f}")
+            try:
+                df_member_info = _load_member_info()
+            except Exception:
+                df_member_info = pd.DataFrame()
 
-            # テーブル表示（個人情報は非表示 — 氏名・住所はCSVのみ）
-            display_cols = ["nickname"]
-            display_cols += ["年間報酬", "年間源泉徴収", "年間DX補助", "年間立替", "年間支払額"]
-            df_display = df_annual[[c for c in display_cols if c in df_annual.columns]].copy()
+            df_annual = _build_annual_withholding_data(df_comp_all, selected_year, df_member_info)
 
-            # 金額列をフォーマット
-            for col in ["年間報酬", "年間源泉徴収", "年間DX補助", "年間立替", "年間支払額"]:
-                if col in df_display.columns:
-                    df_display[col] = df_display[col].apply(lambda x: f"¥{x:,.0f}")
+            if df_annual.empty:
+                st.info(f"{selected_year}年のデータがありません")
+            else:
+                # KPI
+                cols6 = st.columns(4)
+                with cols6[0]:
+                    render_kpi("対象者数", f"{len(df_annual):,}")
+                with cols6[1]:
+                    render_kpi("年間報酬合計", f"¥{df_annual['年間報酬'].sum():,.0f}")
+                with cols6[2]:
+                    render_kpi("年間源泉徴収合計", f"¥{abs(df_annual['年間源泉徴収'].sum()):,.0f}")
+                with cols6[3]:
+                    render_kpi("年間支払額合計", f"¥{df_annual['年間支払額'].sum():,.0f}")
 
-            st.dataframe(df_display, use_container_width=True, hide_index=True)
-            st.caption(f"{len(df_annual):,} 名表示（{selected_year}年 年間集計）")
+                # テーブル表示（個人情報は非表示 — 氏名・住所はCSVのみ）
+                display_cols = ["nickname"]
+                display_cols += ["年間報酬", "年間源泉徴収", "年間DX補助", "年間立替", "年間支払額"]
+                df_display = df_annual[[c for c in display_cols if c in df_annual.columns]].copy()
 
-            # CSVダウンロード
-            csv_bytes = _generate_withholding_csv(df_annual)
-            st.download_button(
-                "支払調書データCSV",
-                csv_bytes,
-                file_name=f"withholding_data_{selected_year}.csv",
-                mime="text/csv",
-                key="wam_withholding_csv_download",
-            )
-            st.caption("※ 支払調書の正式作成には別途マイナンバー等の情報が必要です。")
+                # 金額列をフォーマット
+                for col in ["年間報酬", "年間源泉徴収", "年間DX補助", "年間立替", "年間支払額"]:
+                    if col in df_display.columns:
+                        df_display[col] = df_display[col].apply(lambda x: f"¥{x:,.0f}")
+
+                st.dataframe(df_display, use_container_width=True, hide_index=True)
+                st.caption(f"{len(df_annual):,} 名表示（{selected_year}年 年間集計）")
+
+                # CSVダウンロード
+                csv_bytes = _generate_withholding_csv(df_annual)
+                st.download_button(
+                    "支払調書データCSV",
+                    csv_bytes,
+                    file_name=f"withholding_data_{selected_year}.csv",
+                    mime="text/csv",
+                    key="wam_withholding_csv_download",
+                )
+                st.caption("※ 支払調書の正式作成には別途マイナンバー等の情報が必要です。")
