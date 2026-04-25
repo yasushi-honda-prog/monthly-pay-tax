@@ -1,12 +1,24 @@
 # ハンドオフメモ - monthly-pay-tax
 
-**更新日**: 2026-04-25（WAM Tab2 にURLリンク列追加・領収書列は collector 改修待ちで暫定削除）
+**更新日**: 2026-04-26（admin_settings BQテーブル一覧に立替金・タダメンマスタ等を追加）
 **フェーズ**: WAM助成金対応 **技術側完了** — 残りはステークホルダー回答待ちのみ
-**最新デプロイ**: Collector rev 00024-hgj + Dashboard rev **00239-j5z**
+**最新デプロイ**: Collector rev 00024-hgj + Dashboard rev **00240-7fj**
 **Cloud Run設定**: 2026-04-07 `--no-cpu-throttling --max-instances=3` 適用済み（ADR 0004）
 **テストスイート**: Dashboard 259 + Cloud Run 52 = **311テスト全PASS**
 
-## 🆕 2026-04-25 WAM Tab2 リンク列追加 (#103) → 領収書列削除 (#105)
+## 🆕 2026-04-26 admin_settings BQテーブル一覧拡充 (#108)
+
+admin_settings ページの「BigQuery テーブル情報」一覧に CLAUDE.md 記載の10テーブル全て表示。
+立替金・タダメンマスタ等のデータ収録タイミングが admin から確認可能に。
+
+追加テーブル:
+- `reimbursement_items`（立替金シート、約2,300行、毎朝06:21更新）
+- `member_master`（タダメンMマスタ、244件、毎朝06:21更新）
+- `wam_target_projects`（WAM対象PJマスタ、4件、変更時のみ）
+
+ロールバック先: `pay-dashboard-00239-j5z` / `00238-4cx`（保持中）
+
+## 2026-04-25 WAM Tab2 リンク列追加 (#103) → 領収書列削除 (#105)
 
 ### #103: URL/領収書 LinkColumn 追加
 WAM立替金確認 Tab2「メンバー別明細」に「URL」（立替金シート）と「領収書」の2列を追加し、
