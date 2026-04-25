@@ -1,12 +1,24 @@
 # ハンドオフメモ - monthly-pay-tax
 
-**更新日**: 2026-04-24（業務委託費分析タブ 行政事業をケアプー/神奈川DXに分割）
+**更新日**: 2026-04-25（WAM Tab2 にスプレッドシート/領収書リンク列を追加）
 **フェーズ**: WAM助成金対応 **技術側完了** — 残りはステークホルダー回答待ちのみ
-**最新デプロイ**: Collector rev 00024-hgj + Dashboard rev **00237-9xs**
+**最新デプロイ**: Collector rev 00024-hgj + Dashboard rev **00238-4cx**
 **Cloud Run設定**: 2026-04-07 `--no-cpu-throttling --max-instances=3` 適用済み（ADR 0004）
-**テストスイート**: Dashboard 252 + Cloud Run 52 = **304テスト全PASS**
+**テストスイート**: Dashboard 259 + Cloud Run 52 = **311テスト全PASS**
 
-## 🆕 2026-04-24 行政事業分類分割（ケアプー/神奈川DX）
+## 🆕 2026-04-25 WAM Tab2 にスプレッドシート/領収書リンク列追加 (#103)
+
+WAM立替金確認ページの Tab2「メンバー別明細」に「URL」（立替金シート）と「領収書」の2列を追加し、
+`st.column_config.LinkColumn(display_text="開く")` でクリッカブル化。
+admin運用での原本確認動線を短縮。
+
+- 新規 `dashboard/lib/wam_helpers.py`: Tab2 の表示用/CSV用 DF 構築ヘルパーを分離
+  （production と test の双方から参照、テストヘルパーのコピー実装を排除）
+- CSV出力は既存仕様維持（URL列を含めない）→ 既存ユーザーへの影響ゼロ
+- URL正規化: `_safe_url` で `None/NaN/""/"nan"/空白のみ` を空欄化（LinkColumn の誤描画抑止）
+- ロールバック先: `pay-dashboard-00237-9xs`（保持中）
+
+## 2026-04-24 行政事業分類分割（ケアプー/神奈川DX）
 
 業務委託費分析タブの「行政事業」分類を、スポンサーフィールドを基に2分類に分割。
 - `sponsor == "神奈川県DX"` → 「行政事業（神奈川DX）」
