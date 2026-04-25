@@ -15,6 +15,7 @@ from lib.bq_client import load_data
 from lib.constants import MEMBER_MASTER_TABLE, MONTHLY_COMPENSATION_VIEW, REIMBURSEMENT_VIEW
 from lib.receipt_pdf import generate_all_statements_zip, generate_payment_statement
 from lib.ui_helpers import fill_empty_nickname, render_kpi, render_sidebar_year_month
+from lib.wam_helpers import build_tab2_csv_df, build_tab2_display_df
 
 # --- 認証チェック ---
 email = st.session_state.get("user_email", "")
@@ -315,31 +316,8 @@ with tab2:
         selected_member = st.selectbox("メンバー", ["すべて"] + members, key="wam_member")
         df_detail = df if selected_member == "すべて" else df[df["nickname"] == selected_member]
 
-        # CSV は既存仕様維持のため URL/領収書 を含めない（表示側のみリンク列を追加）
-        csv_cols = [
-            "nickname", "date", "target_project", "is_wam", "category",
-            "payment_purpose", "payment_amount", "advance_amount",
-            "from_station", "to_station", "visit_purpose",
-        ]
-        display_cols = csv_cols + ["source_url", "receipt_url"]
-        existing_csv_cols = [c for c in csv_cols if c in df_detail.columns]
-        existing_display_cols = [c for c in display_cols if c in df_detail.columns]
-        col_labels = {
-            "nickname": "メンバー", "date": "月日", "target_project": "対象PJ",
-            "is_wam": "WAM対象", "category": "分類", "payment_purpose": "支払用途",
-            "payment_amount": "支払金額", "advance_amount": "仮払金額",
-            "from_station": "発", "to_station": "着", "visit_purpose": "訪問目的",
-            "source_url": "URL", "receipt_url": "領収書",
-        }
-
-        # LinkColumn は "nan"/空文字も href として描画するため、空欄化してリンク化を抑止
-        df_display = df_detail[existing_display_cols].rename(columns=col_labels).copy()
-        for url_col in ("URL", "領収書"):
-            if url_col in df_display.columns:
-                df_display[url_col] = df_display[url_col].apply(_safe_str)
-
         st.dataframe(
-            df_display,
+            build_tab2_display_df(df_detail),
             column_config={
                 "URL": st.column_config.LinkColumn(display_text="開く"),
                 "領収書": st.column_config.LinkColumn(display_text="開く"),
@@ -349,7 +327,7 @@ with tab2:
         )
         st.caption(f"{len(df_detail):,} 件表示")
 
-        csv_data = df_detail[existing_csv_cols].rename(columns=col_labels).to_csv(index=False)
+        csv_data = build_tab2_csv_df(df_detail).to_csv(index=False)
         st.download_button(
             "CSVダウンロード",
             csv_data,
