@@ -459,3 +459,75 @@ class TestErrorMessages:
             "yasushi-honda@tadakayo.jp", "viewer"
         )
         assert message == "初期管理者のロールは変更できません"
+
+
+class TestFilterUsers:
+    """filter_users() のテスト
+
+    ロール・グループでのフィルタロジックを検証
+    """
+
+    @pytest.fixture
+    def sample_users_df(self):
+        import pandas as pd
+        return pd.DataFrame([
+            {"email": "admin1@tadakayo.jp", "role": "admin", "source_group": None},
+            {"email": "admin2@tadakayo.jp", "role": "admin", "source_group": "admins@tadakayo.jp"},
+            {"email": "checker1@tadakayo.jp", "role": "checker", "source_group": "checkers@tadakayo.jp"},
+            {"email": "user1@tadakayo.jp", "role": "user", "source_group": "members@tadakayo.jp"},
+            {"email": "user2@tadakayo.jp", "role": "user", "source_group": None},
+            {"email": "viewer1@tadakayo.jp", "role": "viewer", "source_group": "members@tadakayo.jp"},
+        ])
+
+    def test_filter_all_no_filter(self, module_under_test, sample_users_df):
+        """ロール=全て・グループ=全て → 全件返却"""
+        result = module_under_test.filter_users(sample_users_df, "全て", "全て")
+        assert len(result) == 6
+
+    def test_filter_role_admin(self, module_under_test, sample_users_df):
+        """ロール=admin → admin のみ"""
+        result = module_under_test.filter_users(sample_users_df, "admin", "全て")
+        assert len(result) == 2
+        assert all(result["role"] == "admin")
+
+    def test_filter_role_checker(self, module_under_test, sample_users_df):
+        """ロール=checker → checker のみ"""
+        result = module_under_test.filter_users(sample_users_df, "checker", "全て")
+        assert len(result) == 1
+        assert result.iloc[0]["email"] == "checker1@tadakayo.jp"
+
+    def test_filter_role_no_match(self, module_under_test, sample_users_df):
+        """該当ロール無し → 空 DataFrame"""
+        # 一時的に存在しないロールを指定
+        result = module_under_test.filter_users(sample_users_df, "nonexistent", "全て")
+        assert len(result) == 0
+
+    def test_filter_group_individual_only(self, module_under_test, sample_users_df):
+        """グループ=(個別登録のみ) → source_group が NaN のみ"""
+        result = module_under_test.filter_users(sample_users_df, "全て", "(個別登録のみ)")
+        assert len(result) == 2
+        assert all(result["source_group"].isna())
+
+    def test_filter_group_specific(self, module_under_test, sample_users_df):
+        """グループ=members@tadakayo.jp → 該当グループのみ"""
+        result = module_under_test.filter_users(sample_users_df, "全て", "members@tadakayo.jp")
+        assert len(result) == 2
+        assert all(result["source_group"] == "members@tadakayo.jp")
+
+    def test_filter_role_and_group_combined(self, module_under_test, sample_users_df):
+        """ロール=user + グループ=members@tadakayo.jp → AND 条件"""
+        result = module_under_test.filter_users(sample_users_df, "user", "members@tadakayo.jp")
+        assert len(result) == 1
+        assert result.iloc[0]["email"] == "user1@tadakayo.jp"
+
+    def test_filter_role_admin_and_individual_group(self, module_under_test, sample_users_df):
+        """ロール=admin + グループ=(個別登録のみ) → 個別登録の admin のみ"""
+        result = module_under_test.filter_users(sample_users_df, "admin", "(個別登録のみ)")
+        assert len(result) == 1
+        assert result.iloc[0]["email"] == "admin1@tadakayo.jp"
+
+    def test_filter_does_not_mutate_original(self, module_under_test, sample_users_df):
+        """フィルタ適用後も元の DataFrame が変更されない"""
+        original_len = len(sample_users_df)
+        module_under_test.filter_users(sample_users_df, "admin", "全て")
+        assert len(sample_users_df) == original_len
