@@ -1,12 +1,22 @@
 # ハンドオフメモ - monthly-pay-tax
 
-**更新日**: 2026-04-26（admin_settings BQテーブル一覧に立替金・タダメンマスタ等を追加）
+**更新日**: 2026-04-26（architecture/help ページを同期、`docs/add-wam-help-guide` ブランチを吸収）
 **フェーズ**: WAM助成金対応 **技術側完了** — 残りはステークホルダー回答待ちのみ
-**最新デプロイ**: Collector rev 00024-hgj + Dashboard rev **00240-7fj**
+**最新デプロイ**: Collector rev 00024-hgj + Dashboard rev **00243-zr7**
 **Cloud Run設定**: 2026-04-07 `--no-cpu-throttling --max-instances=3` 適用済み（ADR 0004）
 **テストスイート**: Dashboard 259 + Cloud Run 52 = **311テスト全PASS**
 
-## 🆕 2026-04-26 admin_settings BQテーブル一覧拡充 (#108)
+## 🆕 2026-04-26 architecture/help 同期 (#110)
+
+未マージのまま残っていた `docs/add-wam-help-guide` (c423875) の内容を取り込み、
+今回セッションの変更（PR #103 Tab2 URL列追加）も反映。
+
+- `architecture.py`: ページ数表記 7→8（実体と整合）、ラベル `支払明細書PDF → 支払明細書`
+- `help.py`: WAM立替金確認の操作ガイド・FAQ・用語集を追加
+  + メンバー別明細タブの説明に「立替金シートURL」「URLクリックで原本シート表示」を追記
+- `docs/add-wam-help-guide` ブランチは本PRで吸収のため delete 済み
+
+## 2026-04-26 admin_settings BQテーブル一覧拡充 (#108)
 
 admin_settings ページの「BigQuery テーブル情報」一覧に CLAUDE.md 記載の10テーブル全て表示。
 立替金・タダメンマスタ等のデータ収録タイミングが admin から確認可能に。
