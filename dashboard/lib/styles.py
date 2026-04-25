@@ -171,6 +171,19 @@ CUSTOM_CSS = """
         margin-top: 0.2rem;
     }
 
+    /* モバイル対応: wide レイアウトの横スクロール防止 */
+    @media (max-width: 767px) {
+        .main .block-container,
+        .stMainBlockContainer {
+            max-width: 100vw !important;
+            padding-left: 0.75rem !important;
+            padding-right: 0.75rem !important;
+        }
+        .stApp { overflow-x: hidden; }
+        /* KPI文字を小さめに */
+        .kpi-card .kpi-value { font-size: 1.1rem; }
+    }
+
 </style>
 """
 

@@ -10,6 +10,7 @@ from datetime import date as _date
 
 import altair as alt
 import pandas as pd
+import plotly.express as px
 import streamlit as st
 
 from lib.bq_client import load_data
@@ -23,6 +24,10 @@ from lib.ui_helpers import (
 )
 
 logger = logging.getLogger(__name__)
+
+# モバイル検出（User-Agent）
+_UA = st.context.headers.get("User-Agent", "")
+_is_mobile = bool(re.search(r"Mobile|Android|iPhone|iPad|webOS", _UA, re.I))
 
 # v_monthly_compensation の数値カラム（BQ STRING → float 変換対象）
 _COMP_NUM_COLS = [
@@ -1522,11 +1527,156 @@ with tab5:
                         unsafe_allow_html=True,
                     )
 
+        def _render_cost_chart_mobile(df: pd.DataFrame, x_title: str, chart_key: str = "default") -> None:
+            """モバイル向けPlotly版コストチャート（タップ操作でドリルダウン）"""
+            if df.empty:
+                st.info("対象期間のデータがありません")
+                return
+
+            agg = (
+                df.groupby(["ym_label", "cost_group"])
+                .agg(
+                    金額=("amount_num", "sum"),
+                    件数=("amount_num", "count"),
+                    人数=("nickname", "nunique"),
+                )
+                .reset_index()
+            )
+            agg.columns = ["年月", "分類", "金額", "件数", "人数"]
+            agg = agg[agg["金額"] > 0]
+
+            _member_count = df["nickname"].nunique()
+            st.metric("総額", f"¥{df['amount_num'].sum():,.0f}",
+                      help="業務報告の金額合計。役職手当率・資格手当は含まれません。")
+            st.caption(f"件数：{len(df):,} 件  ／  人数：{_member_count:,} 人  ／  バーをタップ→ドリルダウン")
+
+            if agg.empty:
+                st.info("対象期間の金額データがありません")
+                return
+
+            _sb_key = f"m_sb_{chart_key}"
+            _last_chart_sel_key = f"_m_last_{chart_key}"
+            _all_groups = sorted(df["cost_group"].unique().tolist())
+            _color_map = dict(zip(_COST_COLOR_DOMAIN, _COST_COLOR_RANGE))
+
+            fig = px.bar(
+                agg, x="年月", y="金額", color="分類",
+                color_discrete_map=_color_map,
+                barmode="stack",
+                custom_data=["件数", "人数"],
+                height=380,
+                category_orders={"年月": _cost_ym_order},
+            )
+            fig.update_traces(
+                hovertemplate=(
+                    "<b>%{fullData.name}</b><br>"
+                    "金額: ¥%{y:,.0f}<br>"
+                    "件数: %{customdata[0]:,} 件<br>"
+                    "人数: %{customdata[1]:,} 人<extra></extra>"
+                )
+            )
+            fig.update_layout(
+                xaxis_title=None,
+                yaxis_title="金額（円）",
+                yaxis_tickformat=",.0f",
+                legend=dict(
+                    orientation="h", yanchor="top", y=-0.2,
+                    xanchor="left", x=0,
+                    font=dict(size=9), title=None,
+                ),
+                margin=dict(l=0, r=0, t=10, b=0),
+                clickmode="event+select",
+            )
+
+            _event = st.plotly_chart(
+                fig, use_container_width=True, on_select="rerun", key=f"m_plt_{chart_key}"
+            )
+
+            # タップ選択 → セレクトボックス連動
+            try:
+                _pts = _event.selection.points if _event.selection else []
+                _chart_sel = _pts[0].get("legendgroup") if _pts else None
+            except Exception:
+                _chart_sel = None
+            _last = st.session_state.get(_last_chart_sel_key)
+            if _chart_sel != _last:
+                if _chart_sel and _chart_sel in _all_groups:
+                    st.session_state[_sb_key] = _chart_sel
+                elif _last and not _chart_sel:
+                    st.session_state[_sb_key] = "（選択なし）"
+                st.session_state[_last_chart_sel_key] = _chart_sel
+
+            _sb_val = st.selectbox(
+                "分類を選択",
+                ["（選択なし）"] + _all_groups,
+                key=_sb_key,
+                help="バーが選択しにくい場合はこちらから選択できます",
+                label_visibility="collapsed",
+            )
+
+            _selected_cost = None if _sb_val == "（選択なし）" else _sb_val
+
+            if _selected_cost:
+                st.divider()
+                _hdr_col, _btn_col = st.columns([3, 1])
+                with _hdr_col:
+                    st.markdown(f"##### 内訳：{_selected_cost}")
+                with _btn_col:
+                    if st.button("解除", key=f"m_clr_{chart_key}"):
+                        st.session_state.pop(_sb_key, None)
+                        st.session_state.pop(_last_chart_sel_key, None)
+                        st.rerun()
+                _drill_df = df[df["cost_group"] == _selected_cost].copy()
+                _drill_df["display_name"] = _drill_df["nickname"].map(lambda n: name_map.get(n, n))
+                _drill_agg = (
+                    _drill_df.groupby(["ym_label", "display_name"])["amount_num"]
+                    .sum().reset_index()
+                )
+                _drill_agg.columns = ["年月", "メンバー", "金額"]
+                _drill_agg = _drill_agg[_drill_agg["金額"] > 0]
+                if not _drill_agg.empty:
+                    dc1, dc2 = st.columns(2)
+                    with dc1:
+                        render_kpi("分類合計", f"¥{_drill_df['amount_num'].sum():,.0f}")
+                    with dc2:
+                        render_kpi("メンバー数", f"{_drill_df['nickname'].nunique()} 名")
+                    _drill_fig = px.bar(
+                        _drill_agg, x="年月", y="金額", color="メンバー",
+                        barmode="stack", height=320,
+                        category_orders={"年月": _cost_ym_order},
+                    )
+                    _drill_fig.update_layout(
+                        yaxis_tickformat=",.0f",
+                        legend=dict(
+                            orientation="h", yanchor="top", y=-0.25,
+                            font=dict(size=9), title=None,
+                        ),
+                        margin=dict(l=0, r=0, t=10, b=0),
+                    )
+                    st.plotly_chart(_drill_fig, use_container_width=True)
+                    _member_total = (
+                        _drill_df.groupby("display_name")["amount_num"]
+                        .sum().sort_values(ascending=False).reset_index()
+                    )
+                    _member_total.columns = ["メンバー", "合計（円）"]
+                    st.dataframe(
+                        _member_total.style.format({"合計（円）": "¥{:,.0f}"}),
+                        hide_index=True, use_container_width=True,
+                    )
+                else:
+                    st.info("対象期間にデータがありません")
+
         with ctab1:
             st.subheader("業務委託費全体（分類別・月次推移）")
-            _render_cost_chart(_cf, x_title="業務委託費（全体）", chart_key="all")
+            if _is_mobile:
+                _render_cost_chart_mobile(_cf, x_title="業務委託費（全体）", chart_key="all")
+            else:
+                _render_cost_chart(_cf, x_title="業務委託費（全体）", chart_key="all")
 
         with ctab2:
             st.subheader("非営利活動（分類別・月次推移）")
             _cf_np = _cf[~_cf["cost_group"].isin(_COST_GROUP_EXCLUDE_NONPROFIT)].copy()
-            _render_cost_chart(_cf_np, x_title="業務委託費（行政事業以外）", chart_key="np")
+            if _is_mobile:
+                _render_cost_chart_mobile(_cf_np, x_title="業務委託費（行政事業以外）", chart_key="np")
+            else:
+                _render_cost_chart(_cf_np, x_title="業務委託費（行政事業以外）", chart_key="np")
