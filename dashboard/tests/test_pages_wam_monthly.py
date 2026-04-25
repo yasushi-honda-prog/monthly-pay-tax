@@ -538,3 +538,115 @@ class TestGenerateWithholdingCsv:
         csv_text = csv_bytes[3:].decode("utf-8")
         assert "nickname" in csv_text
         assert "member_id" not in csv_text  # JOINされていないので含まれない
+
+
+# --- Tab2 メンバー別明細: URL/領収書リンク列の構築ロジック ---
+
+_TAB2_CSV_COLS = [
+    "nickname", "date", "target_project", "is_wam", "category",
+    "payment_purpose", "payment_amount", "advance_amount",
+    "from_station", "to_station", "visit_purpose",
+]
+_TAB2_DISPLAY_COLS = _TAB2_CSV_COLS + ["source_url", "receipt_url"]
+_TAB2_COL_LABELS = {
+    "nickname": "メンバー", "date": "月日", "target_project": "対象PJ",
+    "is_wam": "WAM対象", "category": "分類", "payment_purpose": "支払用途",
+    "payment_amount": "支払金額", "advance_amount": "仮払金額",
+    "from_station": "発", "to_station": "着", "visit_purpose": "訪問目的",
+    "source_url": "URL", "receipt_url": "領収書",
+}
+
+
+def _build_tab2_display_df(df_detail: pd.DataFrame) -> pd.DataFrame:
+    """Tab2 表示用DF（URL/領収書列をリンク化対象として含む）"""
+    existing = [c for c in _TAB2_DISPLAY_COLS if c in df_detail.columns]
+    df_display = df_detail[existing].rename(columns=_TAB2_COL_LABELS).copy()
+    for url_col in ("URL", "領収書"):
+        if url_col in df_display.columns:
+            df_display[url_col] = df_display[url_col].apply(_safe_str)
+    return df_display
+
+
+def _build_tab2_csv_df(df_detail: pd.DataFrame) -> pd.DataFrame:
+    """Tab2 CSV用DF（URL/領収書列を含めない、既存仕様維持）"""
+    existing = [c for c in _TAB2_CSV_COLS if c in df_detail.columns]
+    return df_detail[existing].rename(columns=_TAB2_COL_LABELS)
+
+
+class TestTab2DisplayDf:
+    """Tab2 表示用DF構築（URL列リンク化対応）"""
+
+    def test_url_column_renamed(self, sample_df):
+        result = _build_tab2_display_df(sample_df)
+        assert "URL" in result.columns
+        assert "source_url" not in result.columns
+
+    def test_receipt_column_renamed(self, sample_df):
+        result = _build_tab2_display_df(sample_df)
+        assert "領収書" in result.columns
+        assert "receipt_url" not in result.columns
+
+    def test_url_normalized_for_nan_none_empty_nan_string(self):
+        """NaN/None/空文字/'nan'/空白のみ のURLが空文字になる（AC2/AC9）"""
+        df = pd.DataFrame({
+            "nickname": ["A", "B", "C", "D", "E", "F"],
+            "date": ["1/1", "1/2", "1/3", "1/4", "1/5", "1/6"],
+            "source_url": [
+                "https://example.com/1",  # 正常URL
+                None,                      # None
+                "",                        # 空文字
+                "nan",                     # "nan" 文字列
+                float("nan"),              # NaN
+                "  ",                      # 空白のみ
+            ],
+            "receipt_url": [
+                None,                      # None
+                "https://example.com/r2", # 正常URL
+                "  ",                      # 空白のみ
+                "nan",                     # "nan" 文字列
+                "",                        # 空文字
+                float("nan"),              # NaN
+            ],
+        })
+        result = _build_tab2_display_df(df)
+        # URL列の正規化確認
+        assert result.iloc[0]["URL"] == "https://example.com/1"
+        assert result.iloc[1]["URL"] == ""
+        assert result.iloc[2]["URL"] == ""
+        assert result.iloc[3]["URL"] == ""
+        assert result.iloc[4]["URL"] == ""
+        assert result.iloc[5]["URL"] == ""
+        # 領収書列の正規化確認
+        assert result.iloc[0]["領収書"] == ""
+        assert result.iloc[1]["領収書"] == "https://example.com/r2"
+        assert result.iloc[2]["領収書"] == ""
+        assert result.iloc[3]["領収書"] == ""
+        assert result.iloc[4]["領収書"] == ""
+        assert result.iloc[5]["領収書"] == ""
+
+    def test_missing_url_columns_no_error(self):
+        """source_url / receipt_url がないDFでもエラーにならない"""
+        df = pd.DataFrame({"nickname": ["A"], "date": ["1/1"]})
+        result = _build_tab2_display_df(df)
+        assert "URL" not in result.columns
+        assert "領収書" not in result.columns
+        assert "メンバー" in result.columns
+
+
+class TestTab2CsvDf:
+    """Tab2 CSV用DF構築（URL列を含まない=既存仕様維持: AC3/AC8）"""
+
+    def test_url_columns_excluded_from_csv(self, sample_df):
+        result = _build_tab2_csv_df(sample_df)
+        assert "URL" not in result.columns
+        assert "領収書" not in result.columns
+        assert "source_url" not in result.columns
+        assert "receipt_url" not in result.columns
+
+    def test_csv_existing_columns_preserved(self, sample_df):
+        """既存のCSV列構成が維持される（sample_dfに含まれる列のみ）"""
+        result = _build_tab2_csv_df(sample_df)
+        # sample_dfにあるCSV列は全て含まれる
+        for orig_col, label in _TAB2_COL_LABELS.items():
+            if orig_col in _TAB2_CSV_COLS and orig_col in sample_df.columns:
+                assert label in result.columns

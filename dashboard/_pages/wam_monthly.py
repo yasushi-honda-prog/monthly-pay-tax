@@ -315,27 +315,43 @@ with tab2:
         selected_member = st.selectbox("メンバー", ["すべて"] + members, key="wam_member")
         df_detail = df if selected_member == "すべて" else df[df["nickname"] == selected_member]
 
-        display_cols = [
+        # CSV用カラム（URL列は含めない、既存仕様維持）
+        csv_cols = [
             "nickname", "date", "target_project", "is_wam", "category",
             "payment_purpose", "payment_amount", "advance_amount",
             "from_station", "to_station", "visit_purpose",
         ]
-        existing_cols = [c for c in display_cols if c in df_detail.columns]
+        # 表示用カラム（URL・領収書をリンク列として追加）
+        display_cols = csv_cols + ["source_url", "receipt_url"]
+        existing_csv_cols = [c for c in csv_cols if c in df_detail.columns]
+        existing_display_cols = [c for c in display_cols if c in df_detail.columns]
         col_labels = {
             "nickname": "メンバー", "date": "月日", "target_project": "対象PJ",
             "is_wam": "WAM対象", "category": "分類", "payment_purpose": "支払用途",
             "payment_amount": "支払金額", "advance_amount": "仮払金額",
             "from_station": "発", "to_station": "着", "visit_purpose": "訪問目的",
+            "source_url": "URL", "receipt_url": "領収書",
         }
+
+        # 表示用DF: URL列を正規化（NaN/None/""/"nan" → 空欄化）
+        df_display = df_detail[existing_display_cols].rename(columns=col_labels).copy()
+        for url_col in ("URL", "領収書"):
+            if url_col in df_display.columns:
+                df_display[url_col] = df_display[url_col].apply(_safe_str)
+
         st.dataframe(
-            df_detail[existing_cols].rename(columns=col_labels),
+            df_display,
+            column_config={
+                "URL": st.column_config.LinkColumn(display_text="開く"),
+                "領収書": st.column_config.LinkColumn(display_text="開く"),
+            },
             use_container_width=True,
             hide_index=True,
         )
         st.caption(f"{len(df_detail):,} 件表示")
 
-        # CSVダウンロード
-        csv_data = df_detail[existing_cols].rename(columns=col_labels).to_csv(index=False)
+        # CSVダウンロード（URL列は含めない、既存仕様維持）
+        csv_data = df_detail[existing_csv_cols].rename(columns=col_labels).to_csv(index=False)
         st.download_button(
             "CSVダウンロード",
             csv_data,
