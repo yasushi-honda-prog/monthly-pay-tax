@@ -603,6 +603,115 @@ st.markdown("""
 
 
 # ============================================================
+# WAM立替金確認ガイド
+# ============================================================
+st.markdown("""
+<div class="sh">
+    <div class="sh-icon purple">💰</div>
+    <h2>WAM立替金確認の使い方</h2>
+</div>
+""", unsafe_allow_html=True)
+
+st.markdown(
+    "立替金シートのデータ確認、振込CSV出力、支払明細書PDF生成、年間支払調書データ出力を行うページです。"
+    "**admin** ロールが必要です。"
+)
+
+st.markdown("""
+<div class="tip">
+    <div class="tip-t">📥 データの仕組み</div>
+    <div class="tip-c">
+        立替金データは、各メンバーのスプレッドシートから<strong>毎朝6時に自動収集</strong>されます。<br>
+        収集された明細はBigQuery（reimbursement_items）に格納され、WAM対象PJ判定と結合して表示されます。
+    </div>
+</div>
+""", unsafe_allow_html=True)
+
+# 6タブ説明テーブル
+st.markdown("""
+<table class="ct">
+<thead>
+    <tr><th>タブ</th><th>内容</th><th>操作</th></tr>
+</thead>
+<tbody>
+    <tr>
+        <td><strong>PJ別サマリー</strong></td>
+        <td>対象PJ別の立替金集計（件数・支払金額・仮払金額）</td>
+        <td class="cr">閲覧のみ</td>
+    </tr>
+    <tr>
+        <td><strong>メンバー別明細</strong></td>
+        <td>メンバーごとの立替経費明細（日付・PJ・分類・金額・立替金シートURL）</td>
+        <td class="ce">✏️ CSVダウンロード / URLクリックで原本シート表示</td>
+    </tr>
+    <tr>
+        <td><strong>領収書添付状況</strong></td>
+        <td>メンバー別の領収書添付率（KPI + 未添付数ソート）</td>
+        <td class="cr">閲覧のみ</td>
+    </tr>
+    <tr>
+        <td><strong>月別報酬・振込確認</strong></td>
+        <td>月別の報酬集計（対象メンバー数・報酬・源泉・支払額）</td>
+        <td class="ce">✏️ 報酬明細CSV / 振込CSV（GMOあおぞら形式）</td>
+    </tr>
+    <tr>
+        <td><strong>支払明細書</strong></td>
+        <td>メンバー別の支払明細書プレビュー（業務委託費 + 立替経費）</td>
+        <td class="ce">✏️ PDF生成 / ZIP一括生成</td>
+    </tr>
+    <tr>
+        <td><strong>年間支払調書データ</strong></td>
+        <td>メンバー別の年間報酬・源泉徴収集計</td>
+        <td class="ce">✏️ CSVダウンロード（BOM付UTF-8）</td>
+    </tr>
+</tbody>
+</table>
+""", unsafe_allow_html=True)
+
+# WAM操作フロー
+st.markdown("""
+<div class="sh">
+    <div class="sh-icon purple">📋</div>
+    <h2>WAM立替金確認の進め方</h2>
+</div>
+""", unsafe_allow_html=True)
+
+st.markdown("""
+<div class="steps">
+    <div class="step" style="border-color: rgba(139,92,246,0.15); background: linear-gradient(170deg, rgba(139,92,246,0.06) 0%, transparent 60%);">
+        <div class="step-num" style="background: linear-gradient(135deg, #8B5CF6, #7C3AED);">1</div>
+        <h3>期間・PJを選択</h3>
+        <p>サイドバーで年月を選択。対象PJフィルターやWAM対象チェックボックスで絞り込めます。</p>
+    </div>
+    <div class="step" style="border-color: rgba(139,92,246,0.15); background: linear-gradient(170deg, rgba(139,92,246,0.06) 0%, transparent 60%);">
+        <div class="step-num" style="background: linear-gradient(135deg, #8B5CF6, #7C3AED);">2</div>
+        <h3>明細・領収書を確認</h3>
+        <p>PJ別サマリー・メンバー別明細で金額を確認。領収書添付状況で未添付のメンバーをチェック。</p>
+    </div>
+    <div class="step" style="border-color: rgba(139,92,246,0.15); background: linear-gradient(170deg, rgba(139,92,246,0.06) 0%, transparent 60%);">
+        <div class="step-num" style="background: linear-gradient(135deg, #8B5CF6, #7C3AED);">3</div>
+        <h3>CSV/PDF出力</h3>
+        <p>振込CSVで銀行振込データを出力。支払明細書PDFを個別またはZIP一括で生成。年間支払調書CSVで税務用データを出力。</p>
+    </div>
+</div>
+""", unsafe_allow_html=True)
+
+# WAM操作ティップス
+st.markdown("""
+<div class="tip">
+    <div class="tip-t">💡 操作のコツ</div>
+    <div class="tip-c">
+        ・振込CSVはGMOあおぞらネット銀行の総合振込フォーマット（Shift_JIS）です<br>
+        ・口座情報はタダメンMマスタから自動取得されます（手入力不要）<br>
+        ・支払明細書は「全メンバー」選択でZIP一括生成、個別選択で1枚ずつ生成できます<br>
+        ・年間支払調書CSVはBOM付きUTF-8のため、Excelで直接開いても文字化けしません<br>
+        ・個人情報（氏名・住所・口座）は画面に表示されず、CSV/PDFファイル出力のみに含まれます
+    </div>
+</div>
+""", unsafe_allow_html=True)
+
+
+# ============================================================
 # データ用語集
 # ============================================================
 st.markdown("""
@@ -627,6 +736,11 @@ st.markdown("""
     <div class="gi"><div class="gi-t">当月入力完了</div><div class="gi-d">メンバーがSSで当月分の入力完了を申告した状態</div></div>
     <div class="gi"><div class="gi-t">DX領収書</div><div class="gi-d">DX補助用の領収書添付欄の記入状況</div></div>
     <div class="gi"><div class="gi-t">立替領収書</div><div class="gi-d">個人立替用の領収書添付欄（立替シート利用者はシート添付欄）</div></div>
+    <div class="gi"><div class="gi-t">WAM</div><div class="gi-d">立替金管理の対象プロジェクト判定の仕組み。wam_target_projectsマスタで管理</div></div>
+    <div class="gi"><div class="gi-t">対象PJ</div><div class="gi-d">立替金が紐づくプロジェクト名。WAM対象かどうかはマスタで判定</div></div>
+    <div class="gi"><div class="gi-t">振込CSV</div><div class="gi-d">GMOあおぞらネット銀行の総合振込用データ（Shift_JIS形式）</div></div>
+    <div class="gi"><div class="gi-t">支払明細書</div><div class="gi-d">メンバー別の業務委託費+立替経費の内訳をまとめたPDF帳票</div></div>
+    <div class="gi"><div class="gi-t">年間支払調書</div><div class="gi-d">メンバー別の年間報酬・源泉徴収の集計データ（税務用CSV出力）</div></div>
 </div>
 """, unsafe_allow_html=True)
 
@@ -689,6 +803,24 @@ with st.expander("業務チェックのステータスが保存されません")
     2. **競合**: 別のチェック者が同じメンバーを同時に更新した場合、競合エラーが発生します。
        ページを再読み込みしてから再度操作してください。
     3. **ネットワーク**: 通信エラーの場合はしばらく待ってから再試行してください
+    """)
+
+with st.expander("WAM立替金確認にデータが表示されません"):
+    st.markdown("""
+    以下を確認してください:
+
+    1. **ロール**: admin ロールが必要です（checker/userでは表示されません）
+    2. **期間**: サイドバーの年月選択が正しいか確認してください
+    3. **立替金シート**: 対象メンバーのスプレッドシートに立替金シートが存在するか確認してください
+    4. **収集タイミング**: データは毎朝6時に自動収集されます。当日入力分は翌朝の反映です
+    """)
+
+with st.expander("振込CSVの口座情報が空です"):
+    st.markdown("""
+    振込CSVの口座情報はタダメンMマスタ（member_master）から自動取得されます。
+
+    口座が空の場合、管理表のタダメンMタブに該当メンバーの口座情報が未登録の可能性があります。
+    管理表で口座情報を登録すれば、翌朝のバッチ処理後に反映されます。
     """)
 
 with st.expander("デプロイ後にページが正しく表示されません"):
