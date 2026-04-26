@@ -336,6 +336,9 @@ else:
     st.caption(f"表示件数: {len(df_filtered)} / 全 {len(df_users)} 件")
 
     # --- 削除確認ダイアログ ---
+    # st.dialog は ESC/×/モーダル外クリックで閉じてもコールバックが発火しないため、
+    # session_state["delete_target"] はダイアログ起動時に pop（ワンショット消費）し、
+    # 残置による「次回 rerun で復活」を防ぐ。
     @st.dialog("ユーザー削除の確認")
     def _confirm_delete_dialog(target_email: str, display_label: str):
         st.warning("以下のユーザーを削除します。元に戻せません。")
@@ -348,19 +351,18 @@ else:
             if st.button("削除を実行（OK）", type="primary", use_container_width=True, key="dialog_delete_ok"):
                 success, msg = delete_user(target_email)
                 if success:
-                    st.session_state.pop("delete_target", None)
                     st.success(msg)
-                    st.rerun()
                 else:
-                    st.error(msg)
+                    st.error(f"削除に失敗しました: {msg}（再度「削除」ボタンから操作してください）")
+                st.rerun()
         with col_cancel:
             if st.button("キャンセル", use_container_width=True, key="dialog_delete_cancel"):
-                st.session_state.pop("delete_target", None)
                 st.rerun()
 
-    # ダイアログ表示制御（削除ボタン押下後にトリガー）
-    if st.session_state.get("delete_target"):
-        _target_email, _display_label = st.session_state["delete_target"]
+    # ダイアログ表示制御（ワンショット消費 — ESC/×で閉じても再表示されない）
+    _delete_target = st.session_state.pop("delete_target", None)
+    if _delete_target is not None:
+        _target_email, _display_label = _delete_target
         _confirm_delete_dialog(_target_email, _display_label)
 
     if df_filtered.empty:
