@@ -295,7 +295,7 @@ graph TD
     APP --> P2[業務チェック<br/>checker / admin]
     APP --> P3[アーキテクチャ<br/>全ロール]
     APP --> P4[ヘルプ<br/>全ロール]
-    APP --> P7[WAM立替金確認<br/>checker / admin<br/>※Tab6 年間支払調書データは admin のみ]
+    APP --> P7[WAM立替金確認 6タブ<br/>checker / admin]
     APP --> P5[ユーザー管理<br/>admin のみ]
     APP --> P6[管理設定<br/>admin のみ]
 
@@ -326,8 +326,8 @@ graph TD
     APP -->|email照合| BQ[(BQ dashboard_users)]
     BQ -->|未登録| DENY[アクセス拒否]
     BQ -->|user| VIEW[ダッシュボード<br/>+ 報告入力<br/>+ アーキテクチャ<br/>+ ヘルプ]
-    BQ -->|checker| CHECK[上記 +<br/>業務チェック管理表<br/>+ WAM立替金確認 Tab1-5]
-    BQ -->|admin| ADMIN[上記 +<br/>WAM立替金確認 Tab6<br/>+ ユーザー管理<br/>+ 管理設定]
+    BQ -->|checker| CHECK[上記 +<br/>業務チェック管理表<br/>+ WAM立替金確認 6タブ]
+    BQ -->|admin| ADMIN[上記 +<br/>ユーザー管理<br/>+ 管理設定]
     ADMIN -->|グループ一括登録| GRP[groups_master<br/>からメンバー取得]
     GRP -->|MERGE INSERT| BQ
     BQ -->|BQ障害時| FB{フォールバック}

@@ -41,7 +41,7 @@ SA鍵ファイルは使わない（ローカル開発時のみ `SA_KEY_PATH` 環
   - `_pages/dashboard.py` - 5タブ（月別報酬サマリー/スポンサー別業務委託費/業務報告一覧/グループ別/業務委託費分析）
   - `_pages/report_input.py` - 報告入力（業務報告・補助報告のアプリ入力プロトタイプ）
   - `_pages/check_management.py` - 業務チェック管理表（checker/admin専用、BQ DML）
-  - `_pages/wam_monthly.py` - WAM立替金確認（checker/admin、6タブ: PJ別サマリー/メンバー別明細/領収書添付状況/月別報酬・振込確認/支払明細書PDF/年間支払調書データ。Tab6「年間支払調書データ」は氏名・住所等の個人情報を含むため admin 限定）
+  - `_pages/wam_monthly.py` - WAM立替金確認（checker/admin、6タブ: PJ別サマリー/メンバー別明細/領収書添付状況/月別報酬・振込確認/支払明細書PDF/年間支払調書データ。Tab4 振込CSV・Tab5 支払明細書PDF・Tab6 年間支払調書CSVには氏名/口座/住所等の個人情報を含む）
   - `_pages/architecture.py` - Mermaidアーキテクチャ図
   - `_pages/user_management.py` - ユーザー管理（admin専用、BQ DML）
   - `_pages/admin_settings.py` - 管理設定（admin専用）
@@ -164,7 +164,7 @@ GASバインドSSのスプレッドシート関数パイプラインをSQLで再
 | 業務チェック | `_pages/check_management.py` | checker/admin |
 | アーキテクチャ | `_pages/architecture.py` | user/checker/admin |
 | ヘルプ | `_pages/help.py` | user/checker/admin |
-| WAM立替金確認（6タブ） | `_pages/wam_monthly.py` | checker/admin（Tab6 年間支払調書データのみ admin 限定） |
+| WAM立替金確認（6タブ） | `_pages/wam_monthly.py` | checker/admin |
 | ユーザー管理 | `_pages/user_management.py` | adminのみ |
 | 管理設定 | `_pages/admin_settings.py` | adminのみ |
 
