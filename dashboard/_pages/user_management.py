@@ -173,6 +173,22 @@ def update_display_name(target_email: str, new_name: str):
     return True, "表示名を変更しました"
 
 
+def filter_users(df, role_filter: str, group_filter: str):
+    """ユーザー一覧 DataFrame にロール・グループフィルタを適用して返す
+
+    role_filter: "全て" / "admin" / "checker" / "viewer" / "user"
+    group_filter: "全て" / "(個別登録のみ)" / 具体的な source_group メール
+    """
+    result = df.copy()
+    if role_filter != "全て":
+        result = result[result["role"] == role_filter]
+    if group_filter == "(個別登録のみ)":
+        result = result[result["source_group"].isna()]
+    elif group_filter != "全て":
+        result = result[result["source_group"] == group_filter]
+    return result
+
+
 def update_role(target_email: str, new_role: str):
     """ロールを変更"""
     if target_email == INITIAL_ADMIN_EMAIL and new_role != "admin":
@@ -298,7 +314,60 @@ except Exception as e:
 if df_users.empty:
     st.info("登録ユーザーがいません")
 else:
-    for idx, row in df_users.iterrows():
+    # --- フィルタUI ---
+    role_options_filter = ["全て", "admin", "checker", "viewer", "user"]
+    # source_group の選択肢: 個別登録(NULL) + 登録済みグループの distinct
+    distinct_groups = sorted(df_users["source_group"].dropna().unique().tolist())
+    group_options_filter = ["全て", "(個別登録のみ)"] + distinct_groups
+
+    col_f1, col_f2 = st.columns(2)
+    with col_f1:
+        filter_role = st.selectbox(
+            "ロールで絞り込み", role_options_filter, key="filter_role"
+        )
+    with col_f2:
+        filter_group = st.selectbox(
+            "グループで絞り込み", group_options_filter, key="filter_group"
+        )
+
+    # --- フィルタ適用 ---
+    df_filtered = filter_users(df_users, filter_role, filter_group)
+
+    st.caption(f"表示件数: {len(df_filtered)} / 全 {len(df_users)} 件")
+
+    # --- 削除確認ダイアログ ---
+    # st.dialog は ESC/×/モーダル外クリックで閉じてもコールバックが発火しないため、
+    # session_state["delete_target"] はダイアログ起動時に pop（ワンショット消費）し、
+    # 残置による「次回 rerun で復活」を防ぐ。
+    @st.dialog("ユーザー削除の確認")
+    def _confirm_delete_dialog(target_email: str, display_label: str):
+        st.warning("以下のユーザーを削除します。元に戻せません。")
+        st.markdown(f"- メールアドレス: **{target_email}**")
+        st.markdown(f"- 表示名: **{display_label or '(未設定)'}**")
+        st.caption("OKを押すと即座にBigQueryから削除されます。")
+
+        col_ok, col_cancel = st.columns(2)
+        with col_ok:
+            if st.button("削除を実行（OK）", type="primary", use_container_width=True, key="dialog_delete_ok"):
+                success, msg = delete_user(target_email)
+                if success:
+                    st.success(msg)
+                else:
+                    st.error(f"削除に失敗しました: {msg}（再度「削除」ボタンから操作してください）")
+                st.rerun()
+        with col_cancel:
+            if st.button("キャンセル", use_container_width=True, key="dialog_delete_cancel"):
+                st.rerun()
+
+    # ダイアログ表示制御（ワンショット消費 — ESC/×で閉じても再表示されない）
+    _delete_target = st.session_state.pop("delete_target", None)
+    if _delete_target is not None:
+        _target_email, _display_label = _delete_target
+        _confirm_delete_dialog(_target_email, _display_label)
+
+    if df_filtered.empty:
+        st.info("該当するユーザーがいません")
+    for idx, row in df_filtered.iterrows():
         with st.container(border=True):
             c1, c2, c3 = st.columns([4, 1, 1])
             with c1:
@@ -354,9 +423,9 @@ else:
                 can_delete = not is_initial and not is_self
                 if can_delete:
                     if st.button("削除", key=f"del_{row['email']}", type="secondary"):
-                        success, msg = delete_user(row["email"])
-                        if success:
-                            st.success(msg)
-                            st.rerun()
-                        else:
-                            st.error(msg)
+                        # ダイアログで確認後に delete_user を呼ぶ
+                        st.session_state["delete_target"] = (
+                            row["email"],
+                            row["display_name"] or "",
+                        )
+                        st.rerun()
