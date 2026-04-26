@@ -441,7 +441,7 @@ st.markdown("""
     <div class="pc pr">
         <div class="pc-icon">💰</div>
         <h3>WAM立替金確認</h3>
-        <p>立替金シートデータ・月別報酬の確認、振込CSV・支払明細書PDFの出力（Tab6 年間支払調書データは admin 限定）</p>
+        <p>立替金シートデータ・月別報酬の確認、振込CSV・支払明細書PDF・年間支払調書データの出力</p>
         <span class="badge bp">checker / admin</span>
     </div>
     <div class="pc pr">
@@ -779,8 +779,8 @@ with st.expander("アクセス権限を追加してほしい"):
     管理者は「ユーザー管理」ページからメールアドレスを登録できます。
 
     - **user**: ダッシュボード閲覧 + 報告入力
-    - **checker**: 上記 + 業務チェック管理 + WAM立替金確認（Tab1〜Tab5）
-    - **admin**: 全機能（WAM立替金確認 Tab6 年間支払調書データ・ユーザー管理・管理設定を含む）
+    - **checker**: 上記 + 業務チェック管理 + WAM立替金確認（全6タブ）
+    - **admin**: 全機能（ユーザー管理・管理設定を含む）
 
     対象は **tadakayo.jpドメイン** のGWSアカウントのみです。
     """)
