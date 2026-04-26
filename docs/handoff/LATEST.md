@@ -1,12 +1,52 @@
 # ハンドオフメモ - monthly-pay-tax
 
-**更新日**: 2026-04-26（architecture/help ページを同期、`docs/add-wam-help-guide` ブランチを吸収）
+**更新日**: 2026-04-26（WAM checker 解放 #112 + ユーザー管理改善 #113 デプロイ完了）
 **フェーズ**: WAM助成金対応 **技術側完了** — 残りはステークホルダー回答待ちのみ
-**最新デプロイ**: Collector rev 00024-hgj + Dashboard rev **00243-zr7**
+**最新デプロイ**: Collector rev 00024-hgj + Dashboard rev **00244-tps**
 **Cloud Run設定**: 2026-04-07 `--no-cpu-throttling --max-instances=3` 適用済み（ADR 0004）
-**テストスイート**: Dashboard 259 + Cloud Run 52 = **311テスト全PASS**
+**テストスイート**: Dashboard **268** + Cloud Run 52 = **320テスト全PASS**
 
-## 🆕 2026-04-26 architecture/help 同期 (#110)
+## 🆕 2026-04-26 ユーザー管理画面 フィルタ・削除確認ダイアログ追加 (#113)
+
+### フィルタ機能
+- ロール（admin/checker/viewer/user）・グループ（source_group）の絞り込み
+- 「(個別登録のみ)」選択で source_group が NULL のユーザーを抽出
+- 表示件数キャプション「N / 全 M 件」
+
+### 削除確認ダイアログ
+- `@st.dialog` ベース（Streamlit 1.55）
+- 削除ボタン押下 → モーダル表示 →「削除を実行（OK）」or「キャンセル」
+- ESC/×で閉じても session_state に残らない**ワンショット消費パターン**を採用（レビュー指摘 silent-failure-hunter 対応）
+
+### テスト追加
+- `TestFilterUsers` クラス 9テスト（ロール/グループ単独・複合・(個別登録のみ)・元 DataFrame 不変）
+- Dashboard tests: 259 → **268 passed** (+9)
+
+ロールバック先: `pay-dashboard-00243-zr7`（保持中）
+
+## 🆕 2026-04-26 WAM立替金確認を checker 解放 (#112)
+
+WAM立替金確認ページを admin 限定 → **checker/admin 解放**（β案）。
+
+### Tab1〜Tab5: checker/admin 表示
+- PJ別サマリー / メンバー別明細 / 領収書添付状況 / 月別報酬・振込確認 / 支払明細書
+
+### Tab6: admin 限定維持
+- 年間支払調書データ（氏名・住所等の個人情報を含むため）
+
+### 三重防御
+1. ナビゲーションレベル: `app.py` で `wam_monthly` を `checker_pages` に配置
+2. ページレベル: `require_checker(email, role)`
+3. タブレベル: `if role == "admin":` で Tab6 を生成（else の `tab6 = None`）
+
+### ドキュメント同期
+- `architecture.py` Mermaid: ロール表記更新（Tab1-5 / Tab6 分離）
+- `help.py`: ページバッジ「checker / admin」、FAQ ロール説明更新
+- `CLAUDE.md`: ページ構成テーブル・ファイル説明更新
+
+ロールバック先: `pay-dashboard-00243-zr7`（保持中）
+
+## 2026-04-26 architecture/help 同期 (#110)
 
 未マージのまま残っていた `docs/add-wam-help-guide` (c423875) の内容を取り込み、
 今回セッションの変更（PR #103 Tab2 URL列追加）も反映。
