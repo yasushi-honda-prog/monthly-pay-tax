@@ -1,12 +1,36 @@
 # ハンドオフメモ - monthly-pay-tax
 
-**更新日**: 2026-04-26（WAM checker 解放 #112 + ユーザー管理改善 #113 デプロイ完了）
+**更新日**: 2026-04-26（WAM Tab6 checker 解放 #115 デプロイ完了）
 **フェーズ**: WAM助成金対応 **技術側完了** — 残りはステークホルダー回答待ちのみ
-**最新デプロイ**: Collector rev 00024-hgj + Dashboard rev **00244-tps**
+**最新デプロイ**: Collector rev 00024-hgj + Dashboard rev **00245-2br**
 **Cloud Run設定**: 2026-04-07 `--no-cpu-throttling --max-instances=3` 適用済み（ADR 0004）
 **テストスイート**: Dashboard **268** + Cloud Run 52 = **320テスト全PASS**
 
-## 🆕 2026-04-26 ユーザー管理画面 フィルタ・削除確認ダイアログ追加 (#113)
+## 🆕 2026-04-26 WAM Tab6 を checker ロールにも解放 (#115)
+
+PR #112 で「Tab6 admin 限定」としていた制限を撤廃し、6タブすべて checker/admin 解放に統一。
+
+### 判断根拠
+- checker は限定的な担当者ロール
+- Tab4 振込CSV / Tab5 支払明細書PDF で **既に氏名・口座情報は checker から取得可能**
+- Tab6 解放で追加されるのは住所・カナ氏名・member_id のみ
+- 主要個人情報（氏名・口座）が解放済の状態で、住所だけ admin 限定にする実効性は限定的
+
+### 機密度マッピング（最終形）
+| 情報 | 露出箇所 | アクセス権 |
+|------|---------|----------|
+| 氏名（フルネーム） | Tab4 振込CSV / Tab5 PDF / Tab6 CSV | checker / admin |
+| 口座情報 | Tab4 振込CSV | checker / admin |
+| 住所・カナ氏名 | Tab6 CSV のみ | **checker / admin（本PRで解放）** |
+| ニックネーム・金額 | 全タブ | 全ロール（user 含む） |
+
+### 変更
+- `wam_monthly.py`: tabs() の role 分岐削除、Tab6 ガード撤去
+- `architecture.py` / `help.py` / `CLAUDE.md`: Tab6 admin 限定の注釈削除
+
+ロールバック先: `pay-dashboard-00244-tps`（保持中）
+
+## 2026-04-26 ユーザー管理画面 フィルタ・削除確認ダイアログ追加 (#113)
 
 ### フィルタ機能
 - ロール（admin/checker/viewer/user）・グループ（source_group）の絞り込み
@@ -24,20 +48,20 @@
 
 ロールバック先: `pay-dashboard-00243-zr7`（保持中）
 
-## 🆕 2026-04-26 WAM立替金確認を checker 解放 (#112)
+## 2026-04-26 WAM立替金確認を checker 解放 (#112)
 
 WAM立替金確認ページを admin 限定 → **checker/admin 解放**（β案）。
+※ 同日 #115 で Tab6 も追加解放され、最終的に6タブすべて checker/admin 可となった。
 
-### Tab1〜Tab5: checker/admin 表示
+### Tab1〜Tab5: checker/admin 表示（#112）
 - PJ別サマリー / メンバー別明細 / 領収書添付状況 / 月別報酬・振込確認 / 支払明細書
 
-### Tab6: admin 限定維持
-- 年間支払調書データ（氏名・住所等の個人情報を含むため）
+### Tab6: 当初 admin 限定 → #115 で checker 解放
+- 年間支払調書データ
 
-### 三重防御
+### 二重防御（現行）
 1. ナビゲーションレベル: `app.py` で `wam_monthly` を `checker_pages` に配置
 2. ページレベル: `require_checker(email, role)`
-3. タブレベル: `if role == "admin":` で Tab6 を生成（else の `tab6 = None`）
 
 ### ドキュメント同期
 - `architecture.py` Mermaid: ロール表記更新（Tab1-5 / Tab6 分離）
