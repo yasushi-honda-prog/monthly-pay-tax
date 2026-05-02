@@ -32,9 +32,14 @@ jobs:
         uses: google-github-actions/setup-gcloud@v2
 
       - name: Cloud Build (Docker push to Artifact Registry)
+        # --default-buckets-behavior=REGIONAL_USER_OWNED_BUCKET:
+        # CI から実行する gcloud builds submit がデフォルト global ログバケットへの
+        # ストリーム権限不足で exit 1 を返す問題を回避（ビルド自体は成功するが
+        # ログ tail で失敗する）。リージョナル user-owned bucket に切替
         run: |
           gcloud builds submit \
             --tag "${{ vars.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/cloud-run-images/pay-collector" \
+            --default-buckets-behavior=REGIONAL_USER_OWNED_BUCKET \
             --project="${{ vars.GCP_PROJECT_ID }}"
 
       - name: Deploy to Cloud Run
