@@ -74,9 +74,26 @@ python3 -m pytest dashboard/tests/ cloud-run/tests/ -q
 
 - Dashboard: `conftest.py`でStreamlit/BQを全モック化。BQ接続不要
 - Cloud Run: GCP APIをモック化。BQ/Sheets接続不要
-- CI/CDなし。テストは手動実行
+- CI: `.github/workflows/test.yml` が `pull_request` / `main push` で自動実行（ADR-0006）。ローカルでも `python3 -m pytest` で実行可
 
 ## ビルド・デプロイ
+
+**default: GitHub Actions による自動デプロイ**（ADR-0006、WIF キーレス認証）
+
+| トリガー | 対象 | ワークフロー |
+|---------|------|-------------|
+| `main` への push（パスフィルタ `cloud-run/**`） | pay-collector | `.github/workflows/deploy-collector.yml` |
+| `main` への push（パスフィルタ `dashboard/**`） | pay-dashboard | `.github/workflows/deploy-dashboard.yml` |
+| `workflow_dispatch`（GitHub UI または `gh workflow run`） | 任意の時点で両サービスを再デプロイ可 | 同上 |
+
+CI/CD で使用するリソース（Phase 2 で構築済み）:
+- Workload Identity Pool: `github-actions-pool` / Provider: `github-actions-provider`（リポジトリ限定）
+- Deployer SA: `github-actions-deployer@monthly-pay-tax.iam.gserviceaccount.com`（7 役割付与）
+- GitHub repo variables: `WIF_PROVIDER` / `WIF_SA` / `GCP_PROJECT_ID` / `GCP_REGION`
+
+### 手動デプロイ（フォールバック）
+
+CI/CD 障害時や緊急対応時は以下のコマンドで手動デプロイ可。`workflow_dispatch` でも同じ結果が得られる。
 
 ```bash
 # Collector（cloud-run/ ディレクトリから）
@@ -84,6 +101,7 @@ gcloud builds submit --tag asia-northeast1-docker.pkg.dev/monthly-pay-tax/cloud-
 gcloud run deploy pay-collector \
   --image asia-northeast1-docker.pkg.dev/monthly-pay-tax/cloud-run-images/pay-collector \
   --platform managed --region asia-northeast1 --memory 2Gi --timeout 1800 \
+  --no-cpu-throttling --max-instances 3 \
   --no-allow-unauthenticated
 
 # Dashboard（dashboard/ ディレクトリから）
@@ -92,11 +110,23 @@ gcloud builds submit --tag asia-northeast1-docker.pkg.dev/monthly-pay-tax/cloud-
 gcloud run deploy pay-dashboard \
   --image asia-northeast1-docker.pkg.dev/monthly-pay-tax/cloud-run-images/pay-dashboard \
   --platform managed --region asia-northeast1 --memory 512Mi \
+  --no-cpu-throttling --max-instances 3 \
   --allow-unauthenticated
 ```
 
 - Collector: メモリ2GiB必須（190件巡回で512MBはOOM）。gunicornは1worker/1thread/1800sタイムアウト。
 - Dashboard: 512MiB。`--no-allow-unauthenticated` にするとブラウザから403になるので注意。
+- 両サービスとも ADR-0004 で `--no-cpu-throttling --max-instances 3` 適用。
+
+### ロールバック
+
+CI/CD でデプロイ後の問題発生時:
+```bash
+# 直前リビジョンに traffic 戻し
+gcloud run services update-traffic pay-dashboard \
+  --to-revisions=pay-dashboard-XXXXX=100 \
+  --region=asia-northeast1 --project=monthly-pay-tax
+```
 
 ### ダッシュボード デプロイ前チェック
 BQ接続が必要なためローカル実行での完全な動作確認は困難。以下で代替する:
