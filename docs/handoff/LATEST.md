@@ -1,12 +1,67 @@
 # ハンドオフメモ - monthly-pay-tax
 
-**更新日**: 2026-05-02（業務報告一覧 日付ソート修正 #119 デプロイ完了）
-**フェーズ**: WAM助成金対応 **技術側完了** — 次セッションで GitHub Actions CI/CD 導入 (4 PR 計画) に着手予定
-**最新デプロイ**: Collector rev 00024-hgj + Dashboard rev **00247-6rh**
+**更新日**: 2026-05-02（GitHub Actions CI/CD 導入完了、初回自動デプロイ検証済み）
+**フェーズ**: WAM助成金対応 **技術側完了** + **CI/CD 自動デプロイ稼働中**
+**最新デプロイ**: Collector rev **00025-rxr** + Dashboard rev **00248-rjl**（両方とも GitHub Actions 経由）
 **Cloud Run設定**: 2026-04-07 `--no-cpu-throttling --max-instances=3` 適用済み（ADR 0004）
-**テストスイート**: Dashboard **307** + Cloud Run 52 = **359テスト全PASS**
+**CI/CD**: ADR-0006、main push + パスフィルタで自動デプロイ、`workflow_dispatch` で手動実行可
+**テストスイート**: Dashboard **307** + Cloud Run 52 = **359テスト全PASS**（CI 上でも自動実行）
 
-## 🆕 2026-05-02 業務報告一覧 日付ソート修正 (#119)
+## 🆕 2026-05-02 GitHub Actions CI/CD 導入完了 (#121〜#124)
+
+ADR-0006「GitHub Actions による CI/CD 導入」の 4 段階導入を全 Phase 完遂。
+本番運用が「main merge → 自動デプロイ」フローに移行。
+
+### Phase 別完了状況
+
+| Phase | PR | 内容 |
+|-------|----|----|
+| Phase 1 | #121 | ADR-0006 + `.github/workflows/test.yml`（pytest 359 件を CI で自動実行） |
+| Phase 2 | (PR なし) | WIF プール `github-actions-pool` + provider + `github-actions-deployer` SA 構築（gcloud + gh variables） |
+| Phase 3 | #122, #123 | `deploy-dashboard.yml` + `deploy-collector.yml`、Cloud Build ログバケット権限修正 |
+| Phase 4 | #124 | プロジェクト CLAUDE.md を CI/CD 運用に整合 |
+
+### 構築リソース（Phase 2）
+
+- **WIF Pool**: `github-actions-pool`（リポジトリ条件 `attribute.repository == 'yasushi-honda-prog/monthly-pay-tax'`）
+- **Deployer SA**: `github-actions-deployer@monthly-pay-tax.iam.gserviceaccount.com`
+- **付与 role 7 件**: `run.admin` / `cloudbuild.builds.editor` / `artifactregistry.writer` /
+  `artifactregistry.reader`（gcp.md ルール 2025-01-13 以降必須）/ `iam.serviceAccountUser` /
+  `storage.admin` / `logging.logWriter`（Cloud Build ログ書き込み用）
+- **GitHub repo variables**: `WIF_PROVIDER` / `WIF_SA` / `GCP_PROJECT_ID` / `GCP_REGION`
+- **runtime SA actAs binding**: deployer SA → `pay-collector@...` （両サービス共用）
+
+### Phase 3 で発生したインシデントと修正（PR #123）
+
+PR #122 マージ直後の自動再発火で、両 deploy ワークフローが両方 FAIL。
+原因: `gcloud builds submit` がデフォルト global ログバケットへの tail 権限不足で
+exit 1 を返した（ビルド自体は SUCCESS で image は AR に push 済み）。
+
+修正: `--default-buckets-behavior=REGIONAL_USER_OWNED_BUCKET` を追加し、
+リージョナル user-owned bucket（`gs://${PROJECT_ID}_${REGION}_cloudbuild`）に切替。
+PR #123 マージで両 ワークフロー SUCCESS、自動デプロイ稼働開始。
+
+### 初回自動デプロイ実績
+
+- pay-dashboard: rev **`00248-rjl`**（2026-05-02 14:17 UTC）
+- pay-collector: rev **`00025-rxr`**（2026-05-02 14:17 UTC）
+- ロールバック先 rev は保持中（dashboard `00247-6rh` / collector `00024-hgj`）
+
+### 運用方針
+
+- **default**: GitHub Actions 自動デプロイ（main merge トリガー、パスフィルタ付き）
+- **緊急時**: `workflow_dispatch`（GitHub UI または `gh workflow run`）
+- **CI 障害時**: 手動 `gcloud builds submit` + `gcloud run deploy`（CLAUDE.md フォールバック節）
+- **ロールバック**: `gcloud run services update-traffic --to-revisions=<rev>=100`
+
+### スコープ外（将来 ADR）
+
+- BQ schema (`infra/bigquery/`) の自動適用
+- staging 環境分離
+- canary deployment
+- E2E テスト on Cloud Run
+
+## 2026-05-02 業務報告一覧 日付ソート修正 (#119)
 
 ダッシュボード「業務報告一覧」テーブルの日付列降順ソートが「4/7, 4/6, 4/3, 4/29, 4/28...」と
 崩れる不具合を修正。BQ STRING 型の文字列ソート（"4/7" > "4/29"）が原因。
@@ -35,20 +90,31 @@
 
 ロールバック先: `pay-dashboard-00246-bvn`（保持中）
 
-## 次セッション着手予定: GitHub Actions CI/CD 導入 (4 PR)
+## 次セッション着手候補
 
-現状の手動 `gcloud builds submit + gcloud run deploy` 運用を CI/CD に置き換え。
+CI/CD 導入は完了。次は積み残し Issue の triage と着手:
 
-| # | 内容 | リスク | 担当 |
-|---|------|--------|------|
-| PR-1 | ADR-0006 + `.github/workflows/test.yml`（pytest のみ、deploy なし） | 低 | AI 実装 |
-| PR-2 | WIF プール + `github-actions-deployer` SA を gcloud で構築 | 中 | AI 実行・ログ提示 |
-| PR-3 | `deploy-dashboard.yml` + `deploy-collector.yml`（main push + パスフィルタ + workflow_dispatch） | 中 | AI 実装 |
-| PR-4 | CLAUDE.md / README 整合（手動コマンドはフォールバックとして残す） | 低 | AI 実装 |
+| Issue | 内容 | ラベル |
+|-------|------|--------|
+| #106 | collector が `=HYPERLINK()` の URL を取得できていない（receipt_url 無効） | bug, P2 |
+| #93 | app_gyomu_reports / app_hojo_reports テーブル作成（基盤整備） | enhancement, P2 |
+| #94 | Cloud Run コスト監視 — ADR 0004 効果測定 | P2 |
+| #58 | WAM要件④: 支払調書作成ツールへの連携（Want） | enhancement, P2 |
+| #54 | WAM Phase 0: ステークホルダー確認事項（参考情報） | documentation, P2 |
 
-設計判断: WIF キーレス採用（リポジトリ PUBLIC のため SA key を repo secrets に置かない）、
-runtime SA `pay-collector` は触らずデプロイ専用 SA を新設、`workflow_dispatch` で
-緊急時の手動デプロイをフォールバックとして残す。
+優先候補: bug ラベル付きの **#106** が最優先。次に基盤整備 #93。
+WAM 系（#58, #54）はステークホルダー回答待ちで後回し可。
+
+## Issue Net 変化（本セッション）
+
+- Close 数: 0 件
+- 起票数: 0 件
+- Net: 0 件
+
+本セッションの作業（PR #119 マージ・デプロイ + CI/CD 4 PR 導入）は機能追加・
+インフラ改善であり、Issue Triage 対象の修正・要望ではないため起票なし。
+既存 Issue にも触れていないため close もなし。CI/CD 完了後の次セッションで
+#106 などに着手することで Net を減らす想定。
 
 ## 2026-04-26 ロール権限マトリックス追加 (#117)
 
