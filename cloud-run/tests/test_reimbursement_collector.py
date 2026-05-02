@@ -157,24 +157,37 @@ class TestFindInputTabName:
         assert _find_input_tab_name(mock_service, "test_id") is None
 
 
+def _row(*cells_text, hyperlink_at=None) -> dict:
+    """rowData の 1 行をテキストのみ (+任意の hyperlink) から組み立てる"""
+    values = []
+    for i, text in enumerate(cells_text):
+        cell: dict = {"formattedValue": text} if text else {}
+        if hyperlink_at and i in hyperlink_at:
+            cell["hyperlink"] = hyperlink_at[i]
+        values.append(cell)
+    return {"values": values}
+
+
 def _mock_service_with_tab(tab_name="0入力シート"):
-    """タブ名検索 + values取得の両方をモックしたサービスを作成"""
+    """タブ名検索 + spreadsheets.get(includeGridData) の両方をモックしたサービスを作成"""
     mock_service = MagicMock()
     mock_spreadsheets = MagicMock()
     mock_service.spreadsheets.return_value = mock_spreadsheets
 
-    # spreadsheets().get() → タブ名一覧
-    mock_meta = MagicMock()
-    mock_meta.execute.return_value = {
+    # 1 回目: spreadsheets().get(fields="sheets.properties.title") → タブ名検索
+    # 2 回目: spreadsheets().get(includeGridData=True, ...) → データ取得
+    # MagicMock の get() は呼ぶたびに同じ MagicMock を返すので、
+    # side_effect ではなく context マネージャ風に切り替えるため、
+    # `get` 自体に side_effect を仕掛ける
+    tab_lookup_response = MagicMock()
+    tab_lookup_response.execute.return_value = {
         "sheets": [{"properties": {"title": tab_name}}],
     }
-    mock_spreadsheets.get.return_value = mock_meta
+    grid_response = MagicMock()
+    # grid_response.execute.return_value はテストごとに上書き
+    mock_spreadsheets.get.side_effect = [tab_lookup_response, grid_response]
 
-    # spreadsheets().values().get() → データ取得
-    mock_values = MagicMock()
-    mock_spreadsheets.values.return_value = mock_values
-
-    return mock_service, mock_values
+    return mock_service, grid_response
 
 
 class TestGetReimbursementSheetData:
@@ -182,12 +195,12 @@ class TestGetReimbursementSheetData:
 
     @patch("sheets_collector.time.sleep")
     def test_filters_example_rows(self, mock_sleep):
-        mock_service, mock_values = _mock_service_with_tab()
-        mock_values.get().execute.return_value = {
-            "values": [
-                ["例", "2026年", "3月20日", "ケアプーPJ", "旅費交通費", "新幹線代", "¥21,510", "", "東京", "大阪", "訪問", "url"],
-                ["", "2026年", "4月1日", "経産省PJ", "個人立替費", "文具", "¥500", "", "", "", "事務", "url2"],
-            ],
+        mock_service, grid_response = _mock_service_with_tab()
+        grid_response.execute.return_value = {
+            "sheets": [{"data": [{"rowData": [
+                _row("例", "2026年", "3月20日", "ケアプーPJ", "旅費交通費", "新幹線代", "¥21,510", "", "東京", "大阪", "訪問", "url"),
+                _row("", "2026年", "4月1日", "経産省PJ", "個人立替費", "文具", "¥500", "", "", "", "事務", "url2"),
+            ]}]}]
         }
 
         result = get_reimbursement_sheet_data(mock_service, "test_id")
@@ -198,13 +211,13 @@ class TestGetReimbursementSheetData:
 
     @patch("sheets_collector.time.sleep")
     def test_filters_empty_rows(self, mock_sleep):
-        mock_service, mock_values = _mock_service_with_tab()
-        mock_values.get().execute.return_value = {
-            "values": [
-                ["", "2026年", "3月20日", "ケアプーPJ", "旅費交通費", "テスト", "¥1,000"],
-                [],
-                ["", "", "", "", "", "", ""],
-            ],
+        mock_service, grid_response = _mock_service_with_tab()
+        grid_response.execute.return_value = {
+            "sheets": [{"data": [{"rowData": [
+                _row("", "2026年", "3月20日", "ケアプーPJ", "旅費交通費", "テスト", "¥1,000"),
+                {},  # 完全空行 (values キーなし)
+                _row("", "", "", "", "", "", ""),
+            ]}]}]
         }
 
         result = get_reimbursement_sheet_data(mock_service, "test_id")
@@ -213,12 +226,12 @@ class TestGetReimbursementSheetData:
 
     @patch("sheets_collector.time.sleep")
     def test_keeps_valid_rows(self, mock_sleep):
-        mock_service, mock_values = _mock_service_with_tab()
-        mock_values.get().execute.return_value = {
-            "values": [
-                ["", "2026年", "3月20日", "WAM-出張タダスクPJ", "旅費交通費", "新幹線代", "¥21,510", "", "東京", "仙台", "訪問", "pdf_url"],
-                ["", "2026年", "4月5日", "その他", "個人立替費", "文具", "¥300", "", "", "", "事務", ""],
-            ],
+        mock_service, grid_response = _mock_service_with_tab()
+        grid_response.execute.return_value = {
+            "sheets": [{"data": [{"rowData": [
+                _row("", "2026年", "3月20日", "WAM-出張タダスクPJ", "旅費交通費", "新幹線代", "¥21,510", "", "東京", "仙台", "訪問", "pdf_url"),
+                _row("", "2026年", "4月5日", "その他", "個人立替費", "文具", "¥300", "", "", "", "事務", ""),
+            ]}]}]
         }
 
         result = get_reimbursement_sheet_data(mock_service, "test_id")
@@ -226,10 +239,78 @@ class TestGetReimbursementSheetData:
         assert len(result) == 2
 
     @patch("sheets_collector.time.sleep")
+    def test_extracts_hyperlink_from_receipt_cell(self, mock_sleep):
+        """=HYPERLINK("url", "text") を含むセルから URL を抽出する (#106)"""
+        mock_service, grid_response = _mock_service_with_tab()
+        grid_response.execute.return_value = {
+            "sheets": [{"data": [{"rowData": [
+                _row(
+                    "", "2026年", "4月1日", "経産省PJ", "個人立替費", "文具",
+                    "¥500", "", "", "", "事務", "ファイル名.pdf",
+                    hyperlink_at={11: "https://drive.google.com/file/d/abc123/view"},
+                ),
+            ]}]}]
+        }
+
+        result = get_reimbursement_sheet_data(mock_service, "test_id")
+
+        assert len(result) == 1
+        # L 列 (index 11) には formattedValue ではなく hyperlink が入る
+        assert result[0][11] == "https://drive.google.com/file/d/abc123/view"
+
+    @patch("sheets_collector.time.sleep")
+    def test_keeps_plain_text_when_no_hyperlink(self, mock_sleep):
+        """hyperlink 属性がないセルは formattedValue を維持 (後方互換)"""
+        mock_service, grid_response = _mock_service_with_tab()
+        grid_response.execute.return_value = {
+            "sheets": [{"data": [{"rowData": [
+                _row("", "2026年", "4月1日", "経産省PJ", "個人立替費", "文具",
+                     "¥500", "", "", "", "事務", "領収書なし"),
+            ]}]}]
+        }
+
+        result = get_reimbursement_sheet_data(mock_service, "test_id")
+
+        assert len(result) == 1
+        assert result[0][11] == "領収書なし"
+
+    @patch("sheets_collector.time.sleep")
+    def test_pads_short_row_when_hyperlink_present(self, mock_sleep):
+        """API が trailing 空セルを省略して 12 列未満の row を返しても受領書 hyperlink は拾う"""
+        mock_service, grid_response = _mock_service_with_tab()
+        # K 列 (index 10) までしかないが、L 列 (index 11) に hyperlink のみ
+        # （実際の API では起こりにくいが念のため defensive にカバー）
+        grid_response.execute.return_value = {
+            "sheets": [{"data": [{"rowData": [
+                {
+                    "values": [
+                        {"formattedValue": ""},
+                        {"formattedValue": "2026年"},
+                        {"formattedValue": "4月1日"},
+                        {"formattedValue": "経産省PJ"},
+                        {"formattedValue": "個人立替費"},
+                        {"formattedValue": "文具"},
+                        {"formattedValue": "¥500"},
+                        {},
+                        {},
+                        {},
+                        {"formattedValue": "事務"},
+                        {"hyperlink": "https://drive.google.com/file/d/xyz/view"},
+                    ]
+                }
+            ]}]}]
+        }
+
+        result = get_reimbursement_sheet_data(mock_service, "test_id")
+
+        assert len(result) == 1
+        assert result[0][11] == "https://drive.google.com/file/d/xyz/view"
+
+    @patch("sheets_collector.time.sleep")
     def test_returns_empty_on_values_error(self, mock_sleep):
-        mock_service, mock_values = _mock_service_with_tab()
+        mock_service, grid_response = _mock_service_with_tab()
         resp = httplib2.Response({"status": 404})
-        mock_values.get().execute.side_effect = HttpError(resp, b"Not Found")
+        grid_response.execute.side_effect = HttpError(resp, b"Not Found")
 
         result = get_reimbursement_sheet_data(mock_service, "test_id")
 
