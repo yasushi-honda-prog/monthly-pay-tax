@@ -3,10 +3,88 @@
 dashboard.py と check_management.py で共用する関数を集約。
 """
 
+import re
 from datetime import date
 
 import pandas as pd
 import streamlit as st
+
+
+_DATE_FULL_RE = re.compile(r"^\s*(\d{4})/(\d{1,2})/(\d{1,2})\s*$")
+_DATE_JP_RE = re.compile(r"^\s*(\d{1,2})月(\d{1,2})日\s*$")
+_DATE_MD_RE = re.compile(r"^\s*(\d{1,2})/(\d{1,2})\s*$")
+
+
+def parse_gyomu_date(year, date_str) -> pd.Timestamp:
+    """gyomu_reports.date (STRING) を pd.Timestamp に変換する。
+
+    対応形式:
+        "M/D"      (例: "4/29")  → year 引数で年を補完
+        "M月D日"   (例: "4月29日") → year 引数で年を補完
+        "YYYY/M/D" (例: "2025/4/29") → 文字列内の年を優先
+
+    Args:
+        year: 年補完用 (int / 文字列 / NaN)。"YYYY/M/D" 形式では未使用
+        date_str: BQ から取得した日付文字列
+
+    Returns:
+        pd.Timestamp。パース不能なら pd.NaT
+    """
+    if date_str is None or (isinstance(date_str, float) and pd.isna(date_str)):
+        return pd.NaT
+    s = str(date_str).strip()
+    if not s:
+        return pd.NaT
+
+    m = _DATE_FULL_RE.match(s)
+    if m:
+        try:
+            return pd.Timestamp(year=int(m.group(1)), month=int(m.group(2)), day=int(m.group(3)))
+        except (ValueError, TypeError):
+            return pd.NaT
+
+    if year is None or (isinstance(year, float) and pd.isna(year)):
+        return pd.NaT
+    try:
+        year_int = int(year)
+    except (ValueError, TypeError):
+        return pd.NaT
+
+    m = _DATE_JP_RE.match(s)
+    if m:
+        try:
+            return pd.Timestamp(year=year_int, month=int(m.group(1)), day=int(m.group(2)))
+        except (ValueError, TypeError):
+            return pd.NaT
+
+    m = _DATE_MD_RE.match(s)
+    if m:
+        try:
+            return pd.Timestamp(year=year_int, month=int(m.group(1)), day=int(m.group(2)))
+        except (ValueError, TypeError):
+            return pd.NaT
+
+    return pd.NaT
+
+
+def add_gyomu_date_dt(df: pd.DataFrame, col_name: str = "date_dt") -> pd.DataFrame:
+    """gyomu DataFrame に Timestamp 列を追加した copy を返す。
+
+    DataFrame は year / date 列を持つ前提。Streamlit の dataframe で日付ソート
+    可能にするためのヘルパ。元の date 列は STRING のまま残す。
+
+    Args:
+        df: year, date 列を持つ DataFrame
+        col_name: 追加する列名（デフォルト "date_dt"）
+
+    Returns:
+        新しい列を持つ DataFrame の copy
+    """
+    out = df.copy()
+    out[col_name] = out.apply(
+        lambda r: parse_gyomu_date(r["year"], r["date"]), axis=1
+    )
+    return out
 
 
 def render_kpi(label: str, value: str):

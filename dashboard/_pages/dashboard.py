@@ -16,6 +16,7 @@ import streamlit as st
 from lib.bq_client import load_data
 from lib.constants import PROJECT_ID, DATASET
 from lib.ui_helpers import (
+    add_gyomu_date_dt,
     clean_numeric_series,
     fill_empty_nickname,
     render_kpi,
@@ -682,15 +683,16 @@ def _render_group_tab(
             render_kpi("メンバー数", f"{result_g['nickname'].nunique()}")
 
         if not result_g.empty:
+            result_g = add_gyomu_date_dt(result_g)
             st.dataframe(
                 result_g[[
-                    "display_name", "date", "day_of_week",
+                    "display_name", "date_dt", "day_of_week",
                     "activity_category", "work_category",
                     "sponsor", "description",
                     "unit_price", "work_hours", "amount",
                 ]].rename(columns={
                     "display_name": "メンバー",
-                    "date": "日付",
+                    "date_dt": "日付",
                     "day_of_week": "曜日",
                     "activity_category": "活動分類",
                     "work_category": "業務分類",
@@ -700,6 +702,9 @@ def _render_group_tab(
                     "work_hours": "時間",
                     "amount": "金額",
                 }),
+                column_config={
+                    "日付": st.column_config.DateColumn(format="M/D"),
+                },
                 use_container_width=True,
                 hide_index=True,
                 height=600,
@@ -1176,6 +1181,7 @@ with tab3:
         if sel_wcat:
             result = result[result["work_category"].isin(sel_wcat)]
 
+        result = add_gyomu_date_dt(result)
         result["amount_num"] = clean_numeric_series(result["amount"])
 
         k1, k2, k3 = st.columns(3)
@@ -1190,7 +1196,7 @@ with tab3:
         st.dataframe(
             result[
                 [
-                    "display_name", "source_url", "date", "day_of_week",
+                    "display_name", "source_url", "date_dt", "day_of_week",
                     "activity_category", "work_category",
                     "sponsor", "description",
                     "unit_price", "work_hours", "travel_distance_km", "amount",
@@ -1198,7 +1204,7 @@ with tab3:
             ].rename(columns={
                 "display_name": "メンバー",
                 "source_url": "URL",
-                "date": "日付",
+                "date_dt": "日付",
                 "day_of_week": "曜日",
                 "activity_category": "活動分類",
                 "work_category": "業務分類",
@@ -1211,6 +1217,7 @@ with tab3:
             }),
             column_config={
                 "URL": st.column_config.LinkColumn(display_text="開く"),
+                "日付": st.column_config.DateColumn(format="M/D"),
             },
             use_container_width=True,
             hide_index=True,
