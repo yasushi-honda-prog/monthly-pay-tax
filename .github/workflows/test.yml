@@ -19,6 +19,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install Japanese font (required by receipt_pdf tests)
+        # Dockerfile と同じ fonts-ipafont-gothic を入れて日本語 PDF 生成を有効化
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends fonts-ipafont-gothic
+
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
