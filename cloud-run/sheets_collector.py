@@ -534,11 +534,16 @@ def _find_input_tab_name(service, spreadsheet_id: str) -> str | None:
     return None
 
 
+_RECEIPT_COLUMN_INDEX = 11  # L列 (A=0, ..., L=11)
+
+
 def get_reimbursement_sheet_data(service, spreadsheet_id: str) -> list[list]:
     """立替金シートの入力シートタブからデータを取得
 
     A列~L列のSTART_ROW行以降を取得。
     マーカー列が "例" の行、全空行をフィルタリング。
+    L列の receipt_url は cellData.hyperlink を優先取得し、
+    `=HYPERLINK(url, text)` の URL 部分を BQ に保存する (#106)。
     """
     tab_name = _find_input_tab_name(service, spreadsheet_id)
     if not tab_name:
@@ -550,9 +555,11 @@ def get_reimbursement_sheet_data(service, spreadsheet_id: str) -> list[list]:
         f"!A{config.REIMBURSEMENT_DATA_START_ROW}:L"
     )
     try:
-        request = service.spreadsheets().values().get(
+        request = service.spreadsheets().get(
             spreadsheetId=spreadsheet_id,
-            range=range_notation,
+            ranges=[range_notation],
+            includeGridData=True,
+            fields="sheets.data.rowData.values(formattedValue,hyperlink)",
         )
         result = _execute_with_throttle(
             request, context=f"reimbursement({spreadsheet_id[:8]})"
@@ -561,9 +568,18 @@ def get_reimbursement_sheet_data(service, spreadsheet_id: str) -> list[list]:
         logger.warning("立替金シート '%s' が読み取れません", spreadsheet_id)
         return []
 
-    values = result.get("values", [])
+    sheets = result.get("sheets", [])
+    if not sheets:
+        return []
+    data_blocks = sheets[0].get("data", [])
+    if not data_blocks:
+        return []
+    row_data = data_blocks[0].get("rowData", [])
+
     filtered = []
-    for row in values:
+    for rd in row_data:
+        cells = rd.get("values") or []
+        row = [(cell.get("formattedValue") or "") for cell in cells]
         if not row:
             continue
         data_cols = row[1:] if len(row) > 1 else []
@@ -571,6 +587,14 @@ def get_reimbursement_sheet_data(service, spreadsheet_id: str) -> list[list]:
             continue
         if row[0] and row[0].strip() == "例":
             continue
+        # 領収書列(L列, index 11) は hyperlink を優先(=HYPERLINK 関数の URL 取得)
+        if len(cells) > _RECEIPT_COLUMN_INDEX:
+            link = cells[_RECEIPT_COLUMN_INDEX].get("hyperlink")
+            if link:
+                # row が短い場合は空文字でパディングしてから上書き
+                while len(row) <= _RECEIPT_COLUMN_INDEX:
+                    row.append("")
+                row[_RECEIPT_COLUMN_INDEX] = link
         filtered.append(row)
     return filtered
 

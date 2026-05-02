@@ -557,14 +557,14 @@ class TestTab2DisplayDf:
         assert "URL" in result.columns
         assert "source_url" not in result.columns
 
-    def test_receipt_column_excluded(self, sample_df):
-        # collector が HYPERLINK の URL を取得できていないため受領書列は出さない
+    def test_receipt_column_renamed(self, sample_df):
+        # collector が hyperlink を取得するようになったため領収書列を再追加 (#106)
         result = build_tab2_display_df(sample_df)
-        assert "領収書" not in result.columns
+        assert "領収書" in result.columns
         assert "receipt_url" not in result.columns
 
     def test_url_normalized_for_nan_none_empty_nan_string(self):
-        """NaN/None/空文字/'nan'/空白のみ のURLが空文字になる"""
+        """NaN/None/空文字/'nan'/空白のみ のURL/領収書が空文字になる"""
         df = pd.DataFrame({
             "nickname": ["A", "B", "C", "D", "E", "F"],
             "date": ["1/1", "1/2", "1/3", "1/4", "1/5", "1/6"],
@@ -576,6 +576,14 @@ class TestTab2DisplayDf:
                 float("nan"),
                 "  ",
             ],
+            "receipt_url": [
+                None,
+                "https://example.com/r2",
+                "  ",
+                "nan",
+                "",
+                float("nan"),
+            ],
         })
         result = build_tab2_display_df(df)
         assert result.iloc[0]["URL"] == "https://example.com/1"
@@ -584,12 +592,36 @@ class TestTab2DisplayDf:
         assert result.iloc[3]["URL"] == ""
         assert result.iloc[4]["URL"] == ""
         assert result.iloc[5]["URL"] == ""
+        assert result.iloc[0]["領収書"] == ""
+        assert result.iloc[1]["領収書"] == "https://example.com/r2"
+        assert result.iloc[2]["領収書"] == ""
+        assert result.iloc[3]["領収書"] == ""
+        assert result.iloc[4]["領収書"] == ""
+        assert result.iloc[5]["領収書"] == ""
+
+    def test_receipt_url_filtered_when_not_http_scheme(self):
+        """collector 改修前の旧データ (ファイル名のみ等) が混入しても http(s) でなければ非表示 (#106)"""
+        df = pd.DataFrame({
+            "nickname": ["A", "B", "C"],
+            "date": ["1/1", "1/2", "1/3"],
+            "source_url": ["https://example.com/1", "https://example.com/2", "https://example.com/3"],
+            "receipt_url": [
+                "ファイル名.pdf",                 # 旧形式: ファイル名のみ
+                "https://drive.google.com/file/d/abc/view",  # 新形式: Drive URL
+                "ftp://example.com/r.pdf",       # 非 http(s) スキーマ
+            ],
+        })
+        result = build_tab2_display_df(df)
+        assert result.iloc[0]["領収書"] == ""
+        assert result.iloc[1]["領収書"] == "https://drive.google.com/file/d/abc/view"
+        assert result.iloc[2]["領収書"] == ""
 
     def test_missing_url_columns_no_error(self):
-        """source_url がないDFでもエラーにならない"""
+        """source_url / receipt_url がないDFでもエラーにならない"""
         df = pd.DataFrame({"nickname": ["A"], "date": ["1/1"]})
         result = build_tab2_display_df(df)
         assert "URL" not in result.columns
+        assert "領収書" not in result.columns
         assert "メンバー" in result.columns
 
 
@@ -608,11 +640,12 @@ class TestTab2CsvDf:
                 assert TAB2_COL_LABELS[orig_col] in result.columns
 
     def test_display_df_column_order_stable(self, sample_df):
-        # 表示用DFの列順がリファクタで崩れないことを担保（CSV列 → URL）
+        # 表示用DFの列順がリファクタで崩れないことを担保（CSV列 → URL → 領収書）
         result = build_tab2_display_df(sample_df)
         actual = list(result.columns)
         expected_csv_labels = [
             TAB2_COL_LABELS[c] for c in TAB2_CSV_COLS if c in sample_df.columns
         ]
         url_label = ["URL"] if "source_url" in sample_df.columns else []
-        assert actual == expected_csv_labels + url_label
+        receipt_label = ["領収書"] if "receipt_url" in sample_df.columns else []
+        assert actual == expected_csv_labels + url_label + receipt_label
