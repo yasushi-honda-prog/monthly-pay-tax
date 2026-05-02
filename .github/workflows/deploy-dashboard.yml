@@ -13,8 +13,38 @@ permissions:
   contents: read
 
 jobs:
+  test:
+    name: Dashboard tests (pytest)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: dashboard
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Japanese font (required by receipt_pdf tests)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends fonts-ipafont-gothic
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: dashboard/requirements.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest
+
+      - name: Run pytest
+        run: python -m pytest tests/ -v
+
   deploy:
     name: Build & Deploy pay-dashboard
+    needs: test
     runs-on: ubuntu-latest
     defaults:
       run:
