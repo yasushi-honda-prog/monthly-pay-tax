@@ -65,9 +65,61 @@ gcloud run services update pay-dashboard \
 2. **3〜5日後にCloud Billing Reportsで日次コスト確認**（日次¥95前後に収まるか）
 3. 1週間後に効果測定、不十分なら追加対策（Streamlit fragment idle timeout / Looker Studio分離）を検討
 
+## 効果測定 (2026-05-03、Issue #94)
+
+観測期間: 2026-04-02 〜 2026-05-02 (30日 / ADR-0004 適用日 2026-04-07 をまたぐ)
+データソース: Cloud Monitoring API (`run.googleapis.com/container/billable_instance_time`, `request_count`)
+
+⚠️ 制約: BQ Billing export 未設定 + `yasushi-honda@tadakayo.jp` に課金アカウント `013C90-D4C0A0-A391D6` の billing.viewer 権限なし → 実コストではなく公開単価ベースの**理論値**で評価。
+
+### 利用量（30日合計）
+
+| サービス | billable_instance_time | request_count | vCPU | Memory |
+|---------|------------------------|---------------|------|--------|
+| pay-collector | 43,612 s (12.1 h) | 41 | 1 | 2 GiB |
+| pay-dashboard | 1,318,471 s (366.2 h) | 23,588 | 1 | 0.5 GiB |
+
+### 週次推移（pay-dashboard, billable_instance_time）
+
+| 週末日 | 時間 | 備考 |
+|-------|------|------|
+| 2026-04-05 | 63.8 h | 適用前期間を含む |
+| 2026-04-12 | 86.3 h | 適用後 1週目 |
+| 2026-04-19 | 102.5 h | 適用後 2週目（ピーク） |
+| 2026-04-26 | 80.9 h | 適用後 3週目 |
+| 2026-05-03 | 72.3 h | 適用後 4週目 |
+
+適用後 4週平均: 約 85.5 h / 週
+
+### 理論コスト（asia-northeast1 Tier 1, always-allocated 単価）
+
+公開単価: vCPU $0.000018/s、Memory $0.000002/GiB-s、Requests $0.40/M
+
+| サービス | vCPU | Memory | Requests | 合計 (USD) | 合計 (¥, $1=¥150) |
+|---------|------|--------|----------|------------|-------------------|
+| pay-collector | $0.785 | $0.174 | $0.00002 | $0.96 | ¥144 |
+| pay-dashboard | $23.73 | $1.32 | $0.0094 | $25.07 | ¥3,761 |
+| **合計** | | | | **$26.03** | **¥3,905** |
+
+### 評価
+
+- ADR-0004 適用前 (3月実績): pay-dashboard ¥4,536
+- 適用後 (本観測): pay-dashboard ¥3,761（理論値）
+- → **17% 削減**は確認できるが、ADR-0004 期待値 ¥3,400 を **+11% 超過**
+- 月¥3,000 閾値に対しては **+25% 超過**（dashboard 単体で予算超）
+
+差異要因の仮説:
+- WebSocket 持続による idle 時間の課金（業務時間外も接続が続く可能性）
+- Streamlit 同時セッション数の振れ（max=3 で複数インスタンス並走時間）
+- CI/CD（GitHub Actions）デプロイによるリビジョン切替時の一時的ダブル課金
+
+### 判定: ⭕ 採用継続（コスト改善は確認、ただし期待を下回る）
+
 ## 残課題
 - **ユーザー報告 ¥10,079 と Reports ¥4,903 のズレが未解明**: 請求書PDF確認で「請求書≠使用月（前月分が翌月請求）」かを確定する必要あり
-- **予算アラート未設定**: 月¥3,000閾値で 50/90/100% 通知をフォロータスクとして起票候補
+- **予算アラート未設定**: 月¥3,000閾値は実測超過のため、設定値を ¥4,500 程度に上方修正検討。設定には課金アカウント `013C90-D4C0A0-A391D6` への billing.admin 権限取得が必要（現状 `yasushi-honda@tadakayo.jp` には未付与、`billingbudgets.googleapis.com` API も未有効）
+- **BQ Billing export 未設定**: 将来の実コスト分析のため `monthly-pay-tax:billing_export` データセット作成 + Billing → BQ export 設定を推奨。billing.admin 権限取得後に対応
+- **ユーザー WebSocket 持続による idle 課金**: dashboard アクセスログで業務時間外接続の頻度を測定し、必要なら Streamlit 側の auto-disconnect / idle timeout 検討
 
 ## 関連
 - 調査コマンド（再現用）:
