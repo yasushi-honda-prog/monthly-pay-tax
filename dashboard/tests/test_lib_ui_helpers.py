@@ -11,9 +11,11 @@ import pandas as pd
 import pytest
 
 from lib.ui_helpers import (
+    add_gyomu_date_dt,
     clean_numeric_scalar,
     clean_numeric_series,
     fill_empty_nickname,
+    parse_gyomu_date,
     valid_years,
 )
 
@@ -396,3 +398,260 @@ class TestValidYears:
         """単一要素の無効な年"""
         result = valid_years(pd.Series([2040]))[0]
         assert result is None
+
+
+class TestParseGyomuDate:
+    """parse_gyomu_date() のテスト
+
+    BQ の gyomu_reports.date は STRING 型 ("4/29" / "4月29日" / "2025/4/29")
+    のため、ソート可能な pd.Timestamp に変換するヘルパをカバーする。
+    """
+
+    # ========== 正常系: M/D 形式 ==========
+
+    def test_md形式の通常入力(self):
+        result = parse_gyomu_date(2025, "4/29")
+        assert result == pd.Timestamp(year=2025, month=4, day=29)
+
+    def test_md形式の月初(self):
+        result = parse_gyomu_date(2025, "4/1")
+        assert result == pd.Timestamp(year=2025, month=4, day=1)
+
+    def test_md形式の年末(self):
+        result = parse_gyomu_date(2025, "12/31")
+        assert result == pd.Timestamp(year=2025, month=12, day=31)
+
+    def test_md形式_前後空白(self):
+        result = parse_gyomu_date(2025, " 4/29 ")
+        assert result == pd.Timestamp(year=2025, month=4, day=29)
+
+    # ========== 正常系: M月D日 形式 ==========
+
+    def test_jp形式の通常入力(self):
+        result = parse_gyomu_date(2025, "4月29日")
+        assert result == pd.Timestamp(year=2025, month=4, day=29)
+
+    def test_jp形式_1桁月日(self):
+        result = parse_gyomu_date(2025, "1月3日")
+        assert result == pd.Timestamp(year=2025, month=1, day=3)
+
+    # ========== 正常系: YYYY/M/D 形式 ==========
+
+    def test_full形式_年が引数より優先される(self):
+        """YYYY/M/D 形式では文字列の年を優先（year 引数は無視）"""
+        result = parse_gyomu_date(2099, "2024/4/29")
+        assert result == pd.Timestamp(year=2024, month=4, day=29)
+
+    def test_full形式_2桁月日(self):
+        result = parse_gyomu_date(None, "2025/12/31")
+        assert result == pd.Timestamp(year=2025, month=12, day=31)
+
+    # ========== year が int 以外 ==========
+
+    def test_year_が文字列(self):
+        """year が文字列でも int 化されればパース成功"""
+        result = parse_gyomu_date("2025", "4/29")
+        assert result == pd.Timestamp(year=2025, month=4, day=29)
+
+    def test_year_が浮動小数(self):
+        """year が float でも int 化"""
+        result = parse_gyomu_date(2025.0, "4/29")
+        assert result == pd.Timestamp(year=2025, month=4, day=29)
+
+    # ========== 異常系: NaT 返却 ==========
+
+    def test_None入力(self):
+        assert pd.isna(parse_gyomu_date(2025, None))
+
+    def test_空文字列(self):
+        assert pd.isna(parse_gyomu_date(2025, ""))
+
+    def test_空白のみ(self):
+        assert pd.isna(parse_gyomu_date(2025, "   "))
+
+    def test_NaN入力(self):
+        assert pd.isna(parse_gyomu_date(2025, float("nan")))
+
+    def test_year_None_かつ_md形式(self):
+        """year が無く M/D だけでは年補完不能 → NaT"""
+        assert pd.isna(parse_gyomu_date(None, "4/29"))
+
+    def test_year_NaN_かつ_md形式(self):
+        assert pd.isna(parse_gyomu_date(float("nan"), "4/29"))
+
+    def test_year_不正文字列(self):
+        """year が int 化できない → NaT"""
+        assert pd.isna(parse_gyomu_date("abc", "4/29"))
+
+    def test_全く不正なdate(self):
+        assert pd.isna(parse_gyomu_date(2025, "xyz"))
+
+    def test_不正な月日(self):
+        """月日として無効（13月など）→ NaT"""
+        assert pd.isna(parse_gyomu_date(2025, "13/1"))
+
+    def test_存在しない日付(self):
+        """2月30日など → NaT"""
+        assert pd.isna(parse_gyomu_date(2025, "2/30"))
+
+    def test_閏年の2月29日_成功(self):
+        """閏年 (2024) の 2/29 は YYYY/M/D 形式で成功"""
+        result = parse_gyomu_date(None, "2024/2/29")
+        assert result == pd.Timestamp(year=2024, month=2, day=29)
+
+    def test_非閏年の2月29日_NaT(self):
+        """非閏年 (2025) の 2/29 → NaT"""
+        assert pd.isna(parse_gyomu_date(2025, "2/29"))
+
+    # ========== 末尾アンカーによる汚れデータ拒否 ==========
+
+    def test_md形式の後ろにゴミ文字(self):
+        """末尾アンカーで "4/29 abc" は受理しない"""
+        assert pd.isna(parse_gyomu_date(2025, "4/29 abc"))
+
+    def test_full形式の後ろにゴミ文字(self):
+        """末尾アンカーで "2025/4/29foo" は受理しない"""
+        assert pd.isna(parse_gyomu_date(None, "2025/4/29foo"))
+
+    def test_jp形式の後ろにゴミ文字(self):
+        """末尾アンカーで "4月29日(火)" は受理しない"""
+        assert pd.isna(parse_gyomu_date(2025, "4月29日(火)"))
+
+    # ========== ソート整合性: バグ再現の回帰テスト ==========
+
+    def test_ソートが文字列でなく日付として動作する(self):
+        """文字列ソートだと "4/29" が "4/7"/"4/15" より前に並んでしまうバグ
+        (スクリーンショット報告) の回帰防止。Timestamp 化で正しい日付ソート
+        になることを確認。
+        """
+        dates = ["4/7", "4/29", "4/3", "4/15"]
+        df = pd.DataFrame({"year": [2025] * 4, "date": dates})
+        df["dt"] = df.apply(
+            lambda r: parse_gyomu_date(r["year"], r["date"]), axis=1
+        )
+        sorted_desc = df.sort_values("dt", ascending=False)["date"].tolist()
+        assert sorted_desc == ["4/29", "4/15", "4/7", "4/3"]
+        sorted_asc = df.sort_values("dt", ascending=True)["date"].tolist()
+        assert sorted_asc == ["4/3", "4/7", "4/15", "4/29"]
+
+    def test_月跨ぎソート(self):
+        """1〜12月の混在で正しく日付順に並ぶこと。
+        文字列ソートだと "11/15" < "12/31" < "1/3" となる回帰の防止。
+        """
+        dates = ["12/31", "1/3", "11/15", "5/20"]
+        df = pd.DataFrame({"year": [2025] * 4, "date": dates})
+        df["dt"] = df.apply(
+            lambda r: parse_gyomu_date(r["year"], r["date"]), axis=1
+        )
+        sorted_asc = df.sort_values("dt", ascending=True)["date"].tolist()
+        assert sorted_asc == ["1/3", "5/20", "11/15", "12/31"]
+
+
+class TestAddGyomuDateDt:
+    """add_gyomu_date_dt() のテスト
+
+    DataFrame に date_dt 列を追加するヘルパ。dashboard.py の重複ロジックを集約。
+    """
+
+    def test_date_dt列が追加される(self):
+        df = pd.DataFrame({"year": [2025, 2025], "date": ["4/29", "4/3"]})
+        out = add_gyomu_date_dt(df)
+        assert "date_dt" in out.columns
+        assert out["date_dt"].iloc[0] == pd.Timestamp(year=2025, month=4, day=29)
+        assert out["date_dt"].iloc[1] == pd.Timestamp(year=2025, month=4, day=3)
+
+    def test_元のDataFrameは変更されない(self):
+        """ヘルパは copy を返し、元の df に列を追加しない"""
+        df = pd.DataFrame({"year": [2025], "date": ["4/29"]})
+        add_gyomu_date_dt(df)
+        assert "date_dt" not in df.columns
+
+    def test_元のdate列は保持される(self):
+        """date_dt 追加後も元の date 列（STRING）は残る"""
+        df = pd.DataFrame({"year": [2025], "date": ["4/29"]})
+        out = add_gyomu_date_dt(df)
+        assert out["date"].iloc[0] == "4/29"
+
+    def test_列名カスタマイズ(self):
+        """col_name 引数で別名指定可能"""
+        df = pd.DataFrame({"year": [2025], "date": ["4/29"]})
+        out = add_gyomu_date_dt(df, col_name="my_dt")
+        assert "my_dt" in out.columns
+        assert out["my_dt"].iloc[0] == pd.Timestamp(year=2025, month=4, day=29)
+
+    def test_空DataFrame(self):
+        """空 DataFrame でもエラーなし、date_dt 列は追加される"""
+        df = pd.DataFrame({"year": pd.Series([], dtype="Int64"), "date": pd.Series([], dtype=object)})
+        out = add_gyomu_date_dt(df)
+        assert "date_dt" in out.columns
+        assert len(out) == 0
+
+    def test_NaT行が混在(self):
+        """パース失敗行は NaT、成功行はそのまま"""
+        df = pd.DataFrame({"year": [2025, 2025, 2025], "date": ["4/29", "xyz", "4/1"]})
+        out = add_gyomu_date_dt(df)
+        assert out["date_dt"].iloc[0] == pd.Timestamp(year=2025, month=4, day=29)
+        assert pd.isna(out["date_dt"].iloc[1])
+        assert out["date_dt"].iloc[2] == pd.Timestamp(year=2025, month=4, day=1)
+
+    def test_date_dt列がdatetime64型(self):
+        """Streamlit DateColumn が認識するため datetime64 dtype であること"""
+        df = pd.DataFrame({"year": [2025], "date": ["4/29"]})
+        out = add_gyomu_date_dt(df)
+        assert pd.api.types.is_datetime64_any_dtype(out["date_dt"])
+
+    # ========== 観測性: パース失敗時のログ + UI warning ==========
+
+    def test_全行成功時はwarningログ出ない(self, caplog, mock_streamlit):
+        """全行パース成功なら WARNING ログも st.warning も出ない"""
+        mock_streamlit.warning.reset_mock()
+        df = pd.DataFrame({"year": [2025, 2025], "date": ["4/29", "4/1"]})
+        with caplog.at_level("WARNING", logger="lib.ui_helpers"):
+            add_gyomu_date_dt(df)
+        assert not any("parse_gyomu_date failed" in r.message for r in caplog.records)
+        mock_streamlit.warning.assert_not_called()
+
+    def test_失敗行があればWARNINGログ(self, caplog, mock_streamlit):
+        """1行でも失敗があれば logger.warning が呼ばれる"""
+        mock_streamlit.warning.reset_mock()
+        df = pd.DataFrame({"year": [2025] * 3, "date": ["4/29", "xyz", "4/1"]})
+        with caplog.at_level("WARNING", logger="lib.ui_helpers"):
+            add_gyomu_date_dt(df)
+        assert any(
+            "parse_gyomu_date failed" in r.message and "1/3" in r.message
+            for r in caplog.records
+        )
+
+    def test_失敗率5パーセント以上でst_warning(self, mock_streamlit):
+        """失敗率が閾値 (5%) 以上なら st.warning が呼ばれる"""
+        mock_streamlit.warning.reset_mock()
+        # 10 行中 1 行失敗 = 10% (>= 5%)
+        df = pd.DataFrame(
+            {"year": [2025] * 10, "date": ["4/29"] * 9 + ["xyz"]}
+        )
+        add_gyomu_date_dt(df)
+        mock_streamlit.warning.assert_called_once()
+        call_msg = mock_streamlit.warning.call_args[0][0]
+        assert "1件" in call_msg
+        assert "全10件" in call_msg
+
+    def test_失敗率5パーセント未満ではst_warning呼ばれない(self, mock_streamlit):
+        """失敗率が閾値未満なら ログのみ、UI warning なし"""
+        mock_streamlit.warning.reset_mock()
+        # 100 行中 1 行失敗 = 1% (< 5%)
+        df = pd.DataFrame(
+            {"year": [2025] * 100, "date": ["4/29"] * 99 + ["xyz"]}
+        )
+        add_gyomu_date_dt(df)
+        mock_streamlit.warning.assert_not_called()
+
+    def test_空DataFrameではログもwarningも出ない(self, caplog, mock_streamlit):
+        """空 df では nat_count=0 のため何もログされない"""
+        mock_streamlit.warning.reset_mock()
+        df = pd.DataFrame(
+            {"year": pd.Series([], dtype="Int64"), "date": pd.Series([], dtype=object)}
+        )
+        with caplog.at_level("WARNING", logger="lib.ui_helpers"):
+            add_gyomu_date_dt(df)
+        assert not any("parse_gyomu_date failed" in r.message for r in caplog.records)
+        mock_streamlit.warning.assert_not_called()
