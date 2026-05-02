@@ -1,11 +1,25 @@
 # ハンドオフメモ - monthly-pay-tax
 
-**更新日**: 2026-05-02（GitHub Actions CI/CD 導入完了、初回自動デプロイ検証済み）
-**フェーズ**: WAM助成金対応 **技術側完了** + **CI/CD 自動デプロイ稼働中**
-**最新デプロイ**: Collector rev **00025-rxr** + Dashboard rev **00248-rjl**（両方とも GitHub Actions 経由）
+**更新日**: 2026-05-02（CI/CD test gate 追加、deploy ワークフローでテスト失敗時にデプロイブロック）
+**フェーズ**: WAM助成金対応 **技術側完了** + **CI/CD 自動デプロイ稼働中（test gate 強化済み）**
+**最新デプロイ**: Collector rev **00026-p4r** + Dashboard rev **00249-x26**（PR #126 マージ時に test gate 経由で自動再デプロイ）
 **Cloud Run設定**: 2026-04-07 `--no-cpu-throttling --max-instances=3` 適用済み（ADR 0004）
-**CI/CD**: ADR-0006、main push + パスフィルタで自動デプロイ、`workflow_dispatch` で手動実行可
+**CI/CD**: ADR-0006、main push + パスフィルタで自動デプロイ、deploy 内に test gate 配置（PR #126）
 **テストスイート**: Dashboard **307** + Cloud Run 52 = **359テスト全PASS**（CI 上でも自動実行）
+
+## 🆕 2026-05-02 deploy ワークフローに test gate 追加 (#126)
+
+`Test` ワークフローと `Deploy *` ワークフローが並列実行で、Test 落ちでもデプロイされる
+潜在リスクを解消。各 deploy ワークフロー内に該当サービスの pytest ジョブを追加し、
+`deploy` ジョブを `needs: test` で gate。
+
+- `deploy-collector.yml`: Cloud Run tests (pytest) → deploy（needs: test）
+- `deploy-dashboard.yml`: Dashboard tests (pytest, 日本語フォント込み) → deploy（needs: test）
+- 別ワークフロー間 `needs:` は不可のため各 deploy 内に test job を複製
+- `test.yml` は引き続き PR ゲートとして残置（PR 段階で 359 件全実行）
+
+PR #126 マージで両 deploy ワークフローが自動再発火（パスフィルタにワークフローファイル
+自身が含まれるため）し、新しい test gate を実機で検証。
 
 ## 🆕 2026-05-02 GitHub Actions CI/CD 導入完了 (#121〜#124)
 
