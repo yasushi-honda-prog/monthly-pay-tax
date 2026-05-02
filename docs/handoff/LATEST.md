@@ -1,12 +1,56 @@
 # ハンドオフメモ - monthly-pay-tax
 
-**更新日**: 2026-04-26（ロール権限マトリックス追加 #117 デプロイ完了）
-**フェーズ**: WAM助成金対応 **技術側完了** — 残りはステークホルダー回答待ちのみ
-**最新デプロイ**: Collector rev 00024-hgj + Dashboard rev **00246-bvn**
+**更新日**: 2026-05-02（業務報告一覧 日付ソート修正 #119 デプロイ完了）
+**フェーズ**: WAM助成金対応 **技術側完了** — 次セッションで GitHub Actions CI/CD 導入 (4 PR 計画) に着手予定
+**最新デプロイ**: Collector rev 00024-hgj + Dashboard rev **00247-6rh**
 **Cloud Run設定**: 2026-04-07 `--no-cpu-throttling --max-instances=3` 適用済み（ADR 0004）
-**テストスイート**: Dashboard **268** + Cloud Run 52 = **320テスト全PASS**
+**テストスイート**: Dashboard **307** + Cloud Run 52 = **359テスト全PASS**
 
-## 🆕 2026-04-26 ロール権限マトリックス追加 (#117)
+## 🆕 2026-05-02 業務報告一覧 日付ソート修正 (#119)
+
+ダッシュボード「業務報告一覧」テーブルの日付列降順ソートが「4/7, 4/6, 4/3, 4/29, 4/28...」と
+崩れる不具合を修正。BQ STRING 型の文字列ソート（"4/7" > "4/29"）が原因。
+
+### 修正内容
+- `lib/ui_helpers.py`: `parse_gyomu_date()` / `add_gyomu_date_dt()` 追加
+  - "M/D" / "M月D日" / "YYYY/M/D" の3形式対応、末尾アンカーで汚れデータ拒否
+  - パース失敗集計の WARNING ログ + 失敗率 5% 超で UI に warning 表示（観測性確保）
+- `_pages/dashboard.py`: Tab3 業務報告一覧 と グループ別タブ内サブタブ の 2 箇所で
+  pd.Timestamp 列追加 + `DateColumn(format="M/D")`
+  - 表示は「4/29」のまま、ソートは日付順に動作
+
+### レビュー
+- Codex セカンドオピニオン: High なし、Medium 2 件（末尾アンカー / DRY 集約）適用済み
+- 4 エージェント並列 `/review-pr`: Critical 0、silent-failure-hunter 指摘の observability を反映
+
+### テスト
+- Dashboard: 268 → **307 passed**（+39: parse_gyomu_date 28 / add_gyomu_date_dt 11）
+- Cloud Run: 52 passed（regression なし）
+
+### Test plan 残（要手動確認）
+- [ ] 業務報告一覧の「↓日付」列ヘッダクリックで降順 4/29, 4/28, 4/27, ... の順
+- [ ] 同タブで昇順クリックで 4/1, 4/3, 4/7, ... の順
+- [ ] 「グループ別」タブ内の業務報告サブタブも同様にソート動作する
+- [ ] 表示フォーマットが "4/29" のまま（"2025-04-29" 等にならない）
+
+ロールバック先: `pay-dashboard-00246-bvn`（保持中）
+
+## 次セッション着手予定: GitHub Actions CI/CD 導入 (4 PR)
+
+現状の手動 `gcloud builds submit + gcloud run deploy` 運用を CI/CD に置き換え。
+
+| # | 内容 | リスク | 担当 |
+|---|------|--------|------|
+| PR-1 | ADR-0006 + `.github/workflows/test.yml`（pytest のみ、deploy なし） | 低 | AI 実装 |
+| PR-2 | WIF プール + `github-actions-deployer` SA を gcloud で構築 | 中 | AI 実行・ログ提示 |
+| PR-3 | `deploy-dashboard.yml` + `deploy-collector.yml`（main push + パスフィルタ + workflow_dispatch） | 中 | AI 実装 |
+| PR-4 | CLAUDE.md / README 整合（手動コマンドはフォールバックとして残す） | 低 | AI 実装 |
+
+設計判断: WIF キーレス採用（リポジトリ PUBLIC のため SA key を repo secrets に置かない）、
+runtime SA `pay-collector` は触らずデプロイ専用 SA を新設、`workflow_dispatch` で
+緊急時の手動デプロイをフォールバックとして残す。
+
+## 2026-04-26 ロール権限マトリックス追加 (#117)
 
 architecture.py に新セクション **6.5 ロール権限マトリックス** を追加。
 LATEST.md にアドホック記載していた機密度マッピングを恒久ドキュメント化。
