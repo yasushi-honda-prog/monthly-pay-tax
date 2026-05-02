@@ -1,0 +1,61 @@
+name: Deploy Dashboard
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "dashboard/**"
+      - ".github/workflows/deploy-dashboard.yml"
+  workflow_dispatch:
+
+permissions:
+  id-token: write   # Workload Identity Federation 用
+  contents: read
+
+jobs:
+  deploy:
+    name: Build & Deploy pay-dashboard
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: dashboard
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud (WIF)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.WIF_PROVIDER }}
+          service_account: ${{ vars.WIF_SA }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Cloud Build (Docker push to Artifact Registry)
+        run: |
+          gcloud builds submit \
+            --tag "${{ vars.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/cloud-run-images/pay-dashboard" \
+            --project="${{ vars.GCP_PROJECT_ID }}"
+
+      - name: Deploy to Cloud Run
+        # ADR-0004: --no-cpu-throttling --max-instances=3 を明示（dashboard も適用済み）
+        # runtime SA は pay-collector を流用（dashboard / collector 共通）
+        run: |
+          gcloud run deploy pay-dashboard \
+            --image "${{ vars.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/cloud-run-images/pay-dashboard" \
+            --platform managed \
+            --region "${{ vars.GCP_REGION }}" \
+            --memory 512Mi \
+            --no-cpu-throttling \
+            --max-instances 3 \
+            --allow-unauthenticated \
+            --service-account "pay-collector@${{ vars.GCP_PROJECT_ID }}.iam.gserviceaccount.com" \
+            --project="${{ vars.GCP_PROJECT_ID }}" \
+            --quiet
+
+      - name: Show deployed revision
+        run: |
+          gcloud run services describe pay-dashboard \
+            --region="${{ vars.GCP_REGION }}" \
+            --project="${{ vars.GCP_PROJECT_ID }}" \
+            --format='value(status.latestCreatedRevisionName,status.url)'
