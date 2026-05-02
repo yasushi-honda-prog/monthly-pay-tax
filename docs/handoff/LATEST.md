@@ -1,11 +1,41 @@
 # ハンドオフメモ - monthly-pay-tax
 
-**更新日**: 2026-05-02（CI/CD test gate 追加、deploy ワークフローでテスト失敗時にデプロイブロック）
+**更新日**: 2026-05-02（receipt_url HYPERLINK 取得対応 #106 完了、test gate 経由で自動デプロイ済み）
 **フェーズ**: WAM助成金対応 **技術側完了** + **CI/CD 自動デプロイ稼働中（test gate 強化済み）**
-**最新デプロイ**: Collector rev **00026-p4r** + Dashboard rev **00249-x26**（PR #126 マージ時に test gate 経由で自動再デプロイ）
+**最新デプロイ**: Collector rev **00027-v2n** + Dashboard rev **00250-klc**（PR #128 マージ時に test gate 経由で自動再デプロイ）
 **Cloud Run設定**: 2026-04-07 `--no-cpu-throttling --max-instances=3` 適用済み（ADR 0004）
 **CI/CD**: ADR-0006、main push + パスフィルタで自動デプロイ、deploy 内に test gate 配置（PR #126）
-**テストスイート**: Dashboard **307** + Cloud Run 52 = **359テスト全PASS**（CI 上でも自動実行）
+**テストスイート**: Dashboard **308** + Cloud Run 55 = **363テスト全PASS**（CI 上でも自動実行）
+
+## 🆕 2026-05-02 collector の =HYPERLINK() URL 取得対応 (#106 / PR #128)
+
+立替金シートの領収書セル `=HYPERLINK("Drive URL", "ファイル名")` から
+formattedValue (= ファイル名) のみが BQ に保存され Drive URL が失われていた問題を修正。
+
+### 修正内容
+- `cloud-run/sheets_collector.py::get_reimbursement_sheet_data` の API 切替
+  - 旧: `spreadsheets.values.get(range)` → formattedValue のみ
+  - 新: `spreadsheets.get(ranges=[...], includeGridData=True, fields="sheets.data.rowData.values(formattedValue,hyperlink)")`
+  - L 列 (index 11) は `cellData.hyperlink` を優先取得 (=HYPERLINK 関数 + 自動リンク両対応)
+- `dashboard/lib/wam_helpers.py + _pages/wam_monthly.py`
+  - PR #105 で暫定削除した「領収書」LinkColumn を Tab2 に再追加
+  - `_safe_receipt_url`: 旧データ混入時のリンク破綻防止に http(s) スキーマ以外は空文字化
+
+### テスト
+- Cloud Run: 52 → 55 (+3: hyperlink 抽出 / plain text 維持 / short row padding)
+- Dashboard: 307 → 308 (+1: receipt http(s) フィルタ)
+
+### 残るマニュアル確認 (Test plan)
+- [ ] 翌朝 6:00 JST の Cloud Scheduler 実行後の BQ 確認:
+  ```sql
+  SELECT receipt_url FROM `monthly-pay-tax.pay_reports.reimbursement_items`
+  WHERE receipt_url LIKE 'http%' LIMIT 5;
+  ```
+- [ ] WAM立替金確認 Tab2 で「領収書」列の「開く」クリック → Drive ファイルが開く
+
+### ロールバック先 revision
+- pay-collector: `00026-p4r` (旧)
+- pay-dashboard: `00249-x26` (旧)
 
 ## 🆕 2026-05-02 deploy ワークフローに test gate 追加 (#126)
 
@@ -106,27 +136,29 @@ PR #123 マージで両 ワークフロー SUCCESS、自動デプロイ稼働開
 
 ## 次セッション着手候補
 
-CI/CD 導入は完了。次は積み残し Issue の triage と着手:
+#106 完了。次は積み残し Issue の triage と着手:
 
 | Issue | 内容 | ラベル |
 |-------|------|--------|
-| #106 | collector が `=HYPERLINK()` の URL を取得できていない（receipt_url 無効） | bug, P2 |
+| #129 | ユーザー管理 グループ自動同期 動作確認（system-sync）— **翌朝以降の確認待ち** | P2 |
 | #93 | app_gyomu_reports / app_hojo_reports テーブル作成（基盤整備） | enhancement, P2 |
 | #94 | Cloud Run コスト監視 — ADR 0004 効果測定 | P2 |
 | #58 | WAM要件④: 支払調書作成ツールへの連携（Want） | enhancement, P2 |
 | #54 | WAM Phase 0: ステークホルダー確認事項（参考情報） | documentation, P2 |
 
-優先候補: bug ラベル付きの **#106** が最優先。次に基盤整備 #93。
+優先候補: 翌朝の Cloud Scheduler 実行後に **#106** と **#129** の動作確認 (BQ + UI)。
+その後 #93 基盤整備、または #94 コスト測定。
 WAM 系（#58, #54）はステークホルダー回答待ちで後回し可。
 
-## Issue Net 変化（本セッション）
+## Issue Net 変化（本セッション 2026-05-02 PM）
 
-- Close 数: 0 件
-- 起票数: 0 件
-- Net: 0 件
+- Close 数: 1 件 (#106)
+- 起票数: 1 件 (#129)
+- Net: 0 件（Issue 起票はユーザー明示指示による「後日確認」タスク、CLAUDE.md triage 基準 #5 に該当）
 
-本セッションの作業（PR #119 マージ・デプロイ + CI/CD 4 PR 導入）は機能追加・
-インフラ改善であり、Issue Triage 対象の修正・要望ではないため起票なし。
+実質的な進捗: PR #126 / #127 / #128 の 3 PR マージ、Cloud Run 自動デプロイ実績 2 回、
+test gate 強化、receipt_url HYPERLINK 抽出バグ修正（実バグ）。Net 0 だが backlog の
+バグ縮減は達成（#106）、追加した #129 は単純な動作確認フォローアップ。
 既存 Issue にも触れていないため close もなし。CI/CD 完了後の次セッションで
 #106 などに着手することで Net を減らす想定。
 
