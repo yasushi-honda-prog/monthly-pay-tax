@@ -1,11 +1,47 @@
 # ハンドオフメモ - monthly-pay-tax
 
-**更新日**: 2026-05-03（ADR-0004 効果測定追記 PR #131 作成、#129 動作確認 PASS で close）
-**フェーズ**: WAM助成金対応 **技術側完了** + **CI/CD 自動デプロイ稼働中（test gate 強化済み）** + **過去決定の事後検証フェーズ**
+**更新日**: 2026-05-03（グループ自動同期 ON/OFF 機能実装 — PR 作成準備中）
+**フェーズ**: WAM助成金対応 **技術側完了** + **CI/CD 自動デプロイ稼働中（test gate 強化済み）** + **管理機能拡充フェーズ**
 **最新デプロイ**: Collector rev **00027-v2n** + Dashboard rev **00250-klc**（PR #128 マージ時に test gate 経由で自動再デプロイ）
 **Cloud Run設定**: 2026-04-07 `--no-cpu-throttling --max-instances=3` 適用済み（ADR 0004 / 効果測定 2026-05-03 追記）
 **CI/CD**: ADR-0006、main push + パスフィルタで自動デプロイ、deploy 内に test gate 配置（PR #126）
-**テストスイート**: Dashboard **308** + Cloud Run 55 = **363テスト全PASS**（CI 上でも自動実行）
+**テストスイート**: Dashboard **314** + Cloud Run **61** = **375テスト全PASS**（CI 上でも自動実行）
+
+## 🆕 2026-05-03 グループ自動同期 ON/OFF 機能実装
+
+### 背景
+グループ一括登録したユーザーは Cloud Run の Step 5 で毎朝自動同期され続けるが、
+同期を停止する仕組みがなかった。グループ単位で同期を ON/OFF できるようにする。
+
+### 要件（ユーザー確定）
+- 切替単位: **グループ単位**
+- OFF時: 既存レコード**そのまま残す（凍結）** — DELETE しない、ユーザーはダッシュボード使い続けられる
+- ON時: **次回 Cloud Run バッチ（毎朝6時）で自動取り込み** — 即時実行は不要
+
+### 設計
+- 新テーブル `dashboard_sync_groups`（group_email PK / enabled BOOL / last_synced_at / updated_at / updated_by）
+- groups_master は毎日 WRITE_TRUNCATE のため別テーブル必須
+- `sync_dashboard_users_from_groups()` で enabled=TRUE のグループのみ処理対象に絞る
+- read 失敗は **fail-fast**（空 set 返却で全グループ静かに停止を回避）
+- UI: user_management に「グループ自動同期 ON/OFF」セクション追加、トグル + 既存ユーザー数表示
+- 自グループ OFF 時に確認ダイアログ、削除済みグループ警告、OFF 時の「既存ユーザーは削除されません」警告
+
+### Codex レビュー指摘 → 解消済み
+1. 「フェイルセーフ空 set 返却で全グループ静かに停止」→ fail-fast に変更
+2. 「OFF=アクセス維持の誤認」→ UI で OFF 時の警告 + 常時キャプション二重表示
+3. 「マイグレーション順序リスク」→ schema.sql にデプロイ順序コメント追加
+
+### Evaluator 評価
+全 11 AC PASS、HIGH なし。MEDIUM 2件（last_synced_at エラー処理 / skipped_groups 曖昧）→ 修正済み。
+
+### デプロイ順序（重要）
+1. PR マージ後、CI で Cloud Run 再デプロイ完了確認
+2. **BQ DDL 実行**: `bq query < infra/bigquery/schema.sql`（CREATE TABLE IF NOT EXISTS）
+3. **マイグレーション SQL 実行**: schema.sql 末尾コメントの MERGE 文を bq query で実行
+4. 翌朝 6 時バッチで `skipped_disabled` / `skipped_unregistered` ログ確認
+5. UI で各グループの「最終同期」タイムスタンプ更新を確認
+
+⚠ **手順 2-3 を忘れると新コードで sync が fail-fast 例外で停止する**（fail-fast 設計の意図的トレードオフ）。
 
 ## 🆕 2026-05-03 ADR-0004 効果測定 + #129 動作確認 (PR #131 / Refs #94)
 

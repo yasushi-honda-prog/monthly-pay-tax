@@ -3,6 +3,7 @@
 import re
 from typing import Optional
 
+import pandas as pd
 import streamlit as st
 from google.cloud import bigquery
 
@@ -13,6 +14,7 @@ from lib.constants import (
     INITIAL_ADMIN_EMAIL,
     GROUPS_MASTER_TABLE,
     MEMBERS_TABLE,
+    SYNC_GROUPS_TABLE,
 )
 
 # --- 認証チェック ---
@@ -66,7 +68,11 @@ def load_group_members(group_email: str):
 
 
 def add_users_by_group(members_df, role: str, group_email: str, progress_callback=None):
-    """グループメンバーを一括登録（既存ユーザーはスキップ）"""
+    """グループメンバーを一括登録（既存ユーザーはスキップ）
+
+    完了時に dashboard_sync_groups にも enabled=TRUE で MERGE し、
+    以降の毎朝バッチで自動同期対象に含まれるようにする。
+    """
     client = get_bq_client()
     added = 0
     total = len(members_df)
@@ -95,7 +101,110 @@ def add_users_by_group(members_df, role: str, group_email: str, progress_callbac
             added += 1
         if progress_callback:
             progress_callback((i + 1) / total, f"{i + 1}/{total} 処理中...")
+    register_sync_group(group_email, email)
     return added
+
+
+def register_sync_group(group_email: str, updated_by: str) -> None:
+    """グループ一括登録時に dashboard_sync_groups へ enabled=TRUE で MERGE
+
+    既に登録済み（enabled の状態問わず）の場合は何もしない（管理者の OFF 設定を尊重）。
+    """
+    client = get_bq_client()
+    merge_query = f"""
+    MERGE `{SYNC_GROUPS_TABLE}` T
+    USING (SELECT @group_email AS group_email) S
+    ON T.group_email = S.group_email
+    WHEN NOT MATCHED THEN
+      INSERT (group_email, enabled, last_synced_at, updated_at, updated_by)
+      VALUES (@group_email, TRUE, NULL, CURRENT_TIMESTAMP(), @updated_by)
+    """
+    job_config = bigquery.QueryJobConfig(
+        query_parameters=[
+            bigquery.ScalarQueryParameter("group_email", "STRING", group_email),
+            bigquery.ScalarQueryParameter("updated_by", "STRING", updated_by),
+        ]
+    )
+    client.query(merge_query, job_config=job_config).result()
+
+
+def set_sync_enabled(group_email: str, enabled: bool, updated_by: str) -> None:
+    """dashboard_sync_groups の enabled を切り替える（無ければ INSERT）"""
+    client = get_bq_client()
+    merge_query = f"""
+    MERGE `{SYNC_GROUPS_TABLE}` T
+    USING (SELECT @group_email AS group_email) S
+    ON T.group_email = S.group_email
+    WHEN MATCHED THEN
+      UPDATE SET enabled = @enabled, updated_at = CURRENT_TIMESTAMP(), updated_by = @updated_by
+    WHEN NOT MATCHED THEN
+      INSERT (group_email, enabled, last_synced_at, updated_at, updated_by)
+      VALUES (@group_email, @enabled, NULL, CURRENT_TIMESTAMP(), @updated_by)
+    """
+    job_config = bigquery.QueryJobConfig(
+        query_parameters=[
+            bigquery.ScalarQueryParameter("group_email", "STRING", group_email),
+            bigquery.ScalarQueryParameter("enabled", "BOOL", enabled),
+            bigquery.ScalarQueryParameter("updated_by", "STRING", updated_by),
+        ]
+    )
+    client.query(merge_query, job_config=job_config).result()
+
+
+def load_sync_groups_overview():
+    """同期設定済みグループ + 既存ユーザー数 + グループ存続確認を一覧で取得
+
+    Returns DataFrame with columns:
+        group_email, enabled, last_synced_at, updated_at, updated_by,
+        group_name (NULL if deleted), user_count (dashboard_users source_group由来), is_orphaned
+    """
+    client = get_bq_client()
+    query = f"""
+    WITH user_counts AS (
+      SELECT source_group AS group_email, COUNT(*) AS user_count
+      FROM `{USERS_TABLE}`
+      WHERE source_group IS NOT NULL
+      GROUP BY source_group
+    )
+    SELECT
+      sg.group_email,
+      sg.enabled,
+      sg.last_synced_at,
+      sg.updated_at,
+      sg.updated_by,
+      gm.group_name,
+      COALESCE(uc.user_count, 0) AS user_count,
+      gm.group_email IS NULL AS is_orphaned
+    FROM `{SYNC_GROUPS_TABLE}` sg
+    LEFT JOIN `{GROUPS_MASTER_TABLE}` gm USING (group_email)
+    LEFT JOIN user_counts uc USING (group_email)
+    ORDER BY sg.enabled DESC, COALESCE(gm.group_name, sg.group_email)
+    """
+    return client.query(query).to_dataframe()
+
+
+def is_user_in_group(user_email: str, group_email: str) -> bool:
+    """指定ユーザーが指定グループに所属しているかを members.groups から判定
+
+    members テーブルは Cloud Run の毎朝バッチで WRITE_TRUNCATE 更新されるため、
+    前回バッチ後に追加されたユーザーは判定漏れる可能性がある（自グループ OFF 警告は
+    ベストエフォート）。
+    """
+    client = get_bq_client()
+    query = f"""
+    SELECT COUNT(*) AS cnt
+    FROM `{MEMBERS_TABLE}`
+    WHERE gws_account = @user_email
+      AND CONCAT(',', `groups`, ',') LIKE CONCAT('%,', @group_email, ',%')
+    """
+    job_config = bigquery.QueryJobConfig(
+        query_parameters=[
+            bigquery.ScalarQueryParameter("user_email", "STRING", user_email),
+            bigquery.ScalarQueryParameter("group_email", "STRING", group_email),
+        ]
+    )
+    rows = list(client.query(query, job_config=job_config).result())
+    return rows[0].cnt > 0 if rows else False
 
 
 EMAIL_PATTERN = re.compile(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$')
@@ -274,6 +383,107 @@ if df_groups is not None and not df_groups.empty:
                     st.rerun()
 else:
     st.info("グループマスターが未登録です")
+
+st.divider()
+
+# --- グループ自動同期 ON/OFF ---
+st.subheader("グループ自動同期 ON/OFF")
+st.caption(
+    "グループ一括登録したグループの自動同期（毎朝6時のバッチでメンバー増減を反映）を切り替えます。"
+    " OFFにしてもユーザーアクセス権は維持されます（凍結）。アクセスを止めるには下の「登録ユーザー一覧」から個別削除してください。"
+)
+
+try:
+    df_sync = load_sync_groups_overview()
+except Exception as e:
+    st.error(f"同期設定の取得に失敗しました: {e}")
+    df_sync = None
+
+if df_sync is None or df_sync.empty:
+    st.info("同期設定済みグループはありません。「グループ一括登録」を実行すると自動でON状態で登録されます。")
+else:
+    # 自グループ OFF 確認ダイアログ
+    @st.dialog("自分の所属グループを OFF にしますか？")
+    def _confirm_self_group_off(group_email: str, group_label: str):
+        st.warning(
+            f"あなたが所属するグループ **{group_label}** の自動同期を OFF にします。"
+            " このグループから抜けてもダッシュボードには残り続けますが、新規メンバーの自動取込も止まります。"
+        )
+        col_ok, col_cancel = st.columns(2)
+        with col_ok:
+            if st.button("OFF にする", type="primary", use_container_width=True, key="self_off_ok"):
+                set_sync_enabled(group_email, False, email)
+                st.success(f"{group_label} を OFF にしました")
+                st.rerun()
+        with col_cancel:
+            if st.button("キャンセル", use_container_width=True, key="self_off_cancel"):
+                st.rerun()
+
+    _self_off_target = st.session_state.pop("self_off_target", None)
+    if _self_off_target is not None:
+        _confirm_self_group_off(_self_off_target[0], _self_off_target[1])
+
+    # ヘッダ
+    h1, h2, h3, h4, h5 = st.columns([4, 1, 2, 2, 1])
+    with h1:
+        st.markdown("**グループ**")
+    with h2:
+        st.markdown("**同期**")
+    with h3:
+        st.markdown("**最終同期**")
+    with h4:
+        st.markdown("**登録済ユーザー**")
+    with h5:
+        st.markdown("**操作**")
+
+    for _, row in df_sync.iterrows():
+        with st.container(border=True):
+            c1, c2, c3, c4, c5 = st.columns([4, 1, 2, 2, 1])
+            with c1:
+                label = row["group_name"] or row["group_email"]
+                if row["is_orphaned"]:
+                    st.markdown(f"⚠️ **{label}** (グループ削除済み)")
+                else:
+                    st.markdown(f"**{label}**")
+                st.caption(row["group_email"])
+            with c2:
+                if row["enabled"]:
+                    st.markdown("🟢 **ON**")
+                else:
+                    st.markdown("⚪ **OFF**")
+            with c3:
+                if row["last_synced_at"] is not None and not pd.isna(row["last_synced_at"]):
+                    st.caption(row["last_synced_at"].strftime("%Y-%m-%d %H:%M"))
+                else:
+                    st.caption("未実行")
+            with c4:
+                count = int(row["user_count"])
+                st.caption(f"{count} 名")
+            with c5:
+                btn_label = "OFFにする" if row["enabled"] else "ONにする"
+                btn_key = f"toggle_{row['group_email']}"
+                if st.button(btn_label, key=btn_key, use_container_width=True):
+                    if row["enabled"] and is_user_in_group(email, row["group_email"]):
+                        # 自グループを OFF にする場合は確認ダイアログ
+                        st.session_state["self_off_target"] = (
+                            row["group_email"],
+                            row["group_name"] or row["group_email"],
+                        )
+                        st.rerun()
+                    else:
+                        new_enabled = not row["enabled"]
+                        set_sync_enabled(row["group_email"], new_enabled, email)
+                        if new_enabled:
+                            st.success(f"{label} を ON にしました（次回バッチで反映）")
+                        else:
+                            st.warning(f"{label} を OFF にしました（既存ユーザーは削除されません）")
+                        st.rerun()
+            if not row["enabled"]:
+                st.caption("⚠️ 同期停止中: 既存ユーザーは削除されません。アクセスを停止するには個別削除してください。")
+            elif row["is_orphaned"]:
+                st.caption("⚠️ groups_master に存在しないグループです（GWS で削除された可能性）")
+
+    st.caption("※ ON/OFF 切替は次回バッチ（翌朝6時 JST）で反映されます。")
 
 st.divider()
 

@@ -89,6 +89,29 @@ CREATE TABLE IF NOT EXISTS `monthly-pay-tax.pay_reports.groups_master` (
   ingested_at TIMESTAMP NOT NULL          -- データ取得日時
 );
 
+-- グループ自動同期設定（dashboard_users のグループベース同期 ON/OFF 制御）
+-- groups_master は毎日 WRITE_TRUNCATE されるため、設定を持てない → 別テーブルで保持
+CREATE TABLE IF NOT EXISTS `monthly-pay-tax.pay_reports.dashboard_sync_groups` (
+  group_email STRING NOT NULL,            -- 同期対象グループメール
+  enabled BOOL NOT NULL,                  -- TRUE=自動同期実行 / FALSE=凍結（既存ユーザーは保持、追加・削除のみ停止）
+  last_synced_at TIMESTAMP,               -- 最終同期反映時刻（バッチ成功時に更新）
+  updated_at TIMESTAMP NOT NULL,          -- 設定最終更新日時
+  updated_by STRING NOT NULL              -- 最終更新者メール（'migration' / 'system-sync' / admin email）
+);
+
+-- マイグレーション (冪等): 既存 dashboard_users.source_group から enabled=TRUE で seed
+-- デプロイ順序: ①このファイルで CREATE TABLE → ②以下 MERGE 実行 → ③Cloud Run 再デプロイ
+-- MERGE `monthly-pay-tax.pay_reports.dashboard_sync_groups` T
+-- USING (
+--   SELECT DISTINCT source_group AS group_email
+--   FROM `monthly-pay-tax.pay_reports.dashboard_users`
+--   WHERE source_group IS NOT NULL
+-- ) S
+-- ON T.group_email = S.group_email
+-- WHEN NOT MATCHED THEN
+--   INSERT (group_email, enabled, last_synced_at, updated_at, updated_by)
+--   VALUES (S.group_email, TRUE, NULL, CURRENT_TIMESTAMP(), 'migration');
+
 -- アプリ入力: 業務報告（Collector管理テーブルとは独立）
 CREATE TABLE IF NOT EXISTS `monthly-pay-tax.pay_reports.app_gyomu_reports` (
   user_email STRING NOT NULL,              -- 入力者GWSメール

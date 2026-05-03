@@ -17,8 +17,9 @@ Cloud Scheduler (0 6 * * * JST, OIDC認証)
     Step 4: Admin Directory API
       → BigQuery pay_reports.{groups_master} (WRITE_TRUNCATE)
       → BigQuery pay_reports.members.groups (UPDATE)
-    Step 5: dashboard_usersグループ同期
+    Step 5: dashboard_usersグループ同期（dashboard_sync_groups で enabled=TRUE のグループのみ）
       → BigQuery pay_reports.dashboard_users (MERGE/DELETE: source_group由来ユーザーの追加・削除)
+      → BigQuery pay_reports.dashboard_sync_groups (last_synced_at 更新)
     Step 6: 立替金シート収集
       → BigQuery pay_reports.reimbursement_items (WRITE_TRUNCATE)
     Step 7: タダメンMマスタ全量取得
@@ -35,7 +36,7 @@ SA鍵ファイルは使わない（ローカル開発時のみ `SA_KEY_PATH` 環
   - `sheets_collector.py` - Sheets API経由のデータ収集（DWD認証含む、立替金シート・タダメンMマスタ収集）
   - `bq_loader.py` - BigQueryへのデータロード（pandas DataFrame経由）
   - `config.py` - GCPプロジェクトID、BQテーブル名、マスタスプレッドシートID等の設定値
-  - `tests/` - ユニットテスト（52テスト: Sheets APIスロットリング、グループ一覧、dashboard_users同期、立替金シート収集、タダメンM収集）
+  - `tests/` - ユニットテスト（61テスト: Sheets APIスロットリング、グループ一覧、dashboard_users同期、グループ自動同期 ON/OFF、立替金シート収集、タダメンM収集）
 - `dashboard/` - Streamlitダッシュボード（マルチページ構成）
   - `app.py` - エントリポイント（認証 + st.navigation ルーター）
   - `_pages/dashboard.py` - 5タブ（月別報酬サマリー/スポンサー別業務委託費/業務報告一覧/グループ別/業務委託費分析）
@@ -144,19 +145,20 @@ BQ接続が必要なためローカル実行での完全な動作確認は困難
 | SA | `pay-collector@monthly-pay-tax.iam.gserviceaccount.com` |
 | Cloud Run URL | `https://pay-collector-209715990891.asia-northeast1.run.app` |
 | BQデータセット | `pay_reports` |
-| BQテーブル | `gyomu_reports`, `hojo_reports`, `members`, `withholding_targets`, `dashboard_users`, `check_logs`, `groups_master`, `reimbursement_items`, `wam_target_projects`, `member_master` |
+| BQテーブル | `gyomu_reports`, `hojo_reports`, `members`, `withholding_targets`, `dashboard_users`, `dashboard_sync_groups`, `check_logs`, `groups_master`, `reimbursement_items`, `wam_target_projects`, `member_master` |
 | BQ VIEWs | `v_gyomu_enriched`, `v_hojo_enriched`, `v_monthly_compensation`, `v_reimbursement_enriched` |
 | AR | `cloud-run-images`（最新2イメージ保持） |
 
 ## BQスキーマ
 
-9テーブル構成。データテーブルはすべてSTRING型 + ingested_at (TIMESTAMP)。
+10テーブル構成。データテーブルはすべてSTRING型 + ingested_at (TIMESTAMP)。
 
 - `gyomu_reports`: source_url, year, date, day_of_week, activity_category, work_category, sponsor, description, unit_price, hours, amount
 - `hojo_reports`: source_url, year, month, hours, compensation, dx_subsidy, reimbursement, total_amount, monthly_complete, dx_receipt, expense_receipt
 - `members`: report_url, member_id, nickname, gws_account, full_name, qualification_allowance, position_rate, corporate_sheet, donation_sheet, qualification_sheet, sheet_number, groups
 - `withholding_targets`: work_category, licensed_member_id（源泉対象リスト: 15業務分類 + 2士業メンバー）
 - `dashboard_users`: email, role, display_name, added_by, source_group, created_at, updated_at（ホワイトリスト + ロール管理、source_group: グループ由来の場合グループメール/NULLなら手動登録）
+- `dashboard_sync_groups`: group_email, enabled, last_synced_at, updated_at, updated_by（グループ自動同期 ON/OFF 制御。enabled=FALSE のグループは Step5 で凍結=既存ユーザー保持・add/remove 停止）
 - `check_logs`: source_url, year, month, status, checker_email, memo, action_log, updated_at（業務チェック管理）
 - `groups_master`: group_email, group_name, ingested_at（Googleグループマスタ: 69グループ）
 - `reimbursement_items`: source_url, nickname, marker, year, date, target_project, category, payment_purpose, payment_amount, advance_amount, from_station, to_station, visit_purpose, receipt_url（立替金シート明細: 2,250行）

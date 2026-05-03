@@ -531,3 +531,156 @@ class TestFilterUsers:
         original_len = len(sample_users_df)
         module_under_test.filter_users(sample_users_df, "admin", "全て")
         assert len(sample_users_df) == original_len
+
+
+class TestSyncGroupHelpers:
+    """グループ自動同期 ON/OFF ヘルパーのテスト"""
+
+    def _build_mock_query(self):
+        """get_bq_client().query().result() の MagicMock チェーン"""
+        mock_result = MagicMock()
+        mock_job = MagicMock()
+        mock_job.result.return_value = mock_result
+        mock_client = MagicMock()
+        mock_client.query.return_value = mock_job
+        return mock_client, mock_job
+
+    def test_register_sync_group_issues_merge_with_enabled_true(self, module_under_test):
+        """AC4: register_sync_group は MERGE 文を発行し enabled=TRUE で初期化する"""
+        mock_client, mock_job = self._build_mock_query()
+        with patch("pages.user_management.get_bq_client", return_value=mock_client):
+            module_under_test.register_sync_group("group-a@tadakayo.jp", "admin@tadakayo.jp")
+
+        mock_client.query.assert_called_once()
+        sql = mock_client.query.call_args[0][0]
+        assert "MERGE" in sql
+        assert "dashboard_sync_groups" in sql
+        # 既存設定を上書きしないため UPDATE 句は無く INSERT のみ
+        assert "WHEN NOT MATCHED THEN" in sql
+        assert "WHEN MATCHED THEN" not in sql
+        # enabled=TRUE が INSERT 部にハードコードされている
+        assert "TRUE" in sql
+
+    def test_set_sync_enabled_to_off_issues_update(self, module_under_test):
+        """AC5: set_sync_enabled は MERGE で UPDATE 経路を持つ"""
+        mock_client, mock_job = self._build_mock_query()
+        with patch("pages.user_management.get_bq_client", return_value=mock_client):
+            module_under_test.set_sync_enabled(
+                "group-a@tadakayo.jp", False, "admin@tadakayo.jp"
+            )
+
+        mock_client.query.assert_called_once()
+        sql = mock_client.query.call_args[0][0]
+        assert "MERGE" in sql
+        assert "WHEN MATCHED THEN" in sql
+        assert "WHEN NOT MATCHED THEN" in sql
+        # enabled パラメータが BOOL として渡される
+        params = mock_client.query.call_args.kwargs["job_config"].query_parameters
+        param_dict = {p.name: p.value for p in params}
+        assert param_dict["enabled"] is False
+        assert param_dict["group_email"] == "group-a@tadakayo.jp"
+
+    def test_load_sync_groups_overview_joins_correctly(self, module_under_test):
+        """AC10: load_sync_groups_overview は groups_master と LEFT JOIN し is_orphaned を返す"""
+        import pandas as pd
+
+        expected_df = pd.DataFrame([
+            {
+                "group_email": "group-a@tadakayo.jp",
+                "enabled": True,
+                "last_synced_at": None,
+                "updated_at": None,
+                "updated_by": "migration",
+                "group_name": "Group A",
+                "user_count": 5,
+                "is_orphaned": False,
+            },
+            {
+                "group_email": "deleted-group@tadakayo.jp",
+                "enabled": False,
+                "last_synced_at": None,
+                "updated_at": None,
+                "updated_by": "admin@tadakayo.jp",
+                "group_name": None,
+                "user_count": 2,
+                "is_orphaned": True,
+            },
+        ])
+
+        mock_client = MagicMock()
+        mock_query_result = MagicMock()
+        mock_query_result.to_dataframe.return_value = expected_df
+        mock_client.query.return_value = mock_query_result
+
+        with patch("pages.user_management.get_bq_client", return_value=mock_client):
+            df = module_under_test.load_sync_groups_overview()
+
+        sql = mock_client.query.call_args[0][0]
+        assert "LEFT JOIN" in sql
+        assert "groups_master" in sql
+        assert "dashboard_sync_groups" in sql
+        assert "is_orphaned" in sql
+        assert "user_count" in sql
+        assert len(df) == 2
+        assert bool(df.iloc[1]["is_orphaned"]) is True
+        assert bool(df.iloc[0]["is_orphaned"]) is False
+
+    def test_add_users_by_group_calls_register_sync_group(self, module_under_test):
+        """AC4: add_users_by_group の最後に register_sync_group が呼ばれる"""
+        import pandas as pd
+
+        members_df = pd.DataFrame([
+            {"gws_account": "alice@tadakayo.jp", "nickname": "alice", "full_name": "Alice"},
+        ])
+
+        mock_client, mock_job = self._build_mock_query()
+        mock_job_result = MagicMock()
+        mock_job_result.num_dml_affected_rows = 1
+        mock_job.result.return_value = mock_job_result
+
+        module_under_test.email = "admin@tadakayo.jp"
+
+        with patch("pages.user_management.get_bq_client", return_value=mock_client), \
+             patch("pages.user_management.register_sync_group") as mock_register:
+            added = module_under_test.add_users_by_group(
+                members_df, "viewer", "group-a@tadakayo.jp"
+            )
+
+        assert added == 1
+        mock_register.assert_called_once_with("group-a@tadakayo.jp", "admin@tadakayo.jp")
+
+    def test_is_user_in_group_returns_true_when_member(self, module_under_test):
+        """AC11 補助: is_user_in_group は members テーブルで CONCAT LIKE 検索する"""
+        mock_client = MagicMock()
+        mock_row = MagicMock()
+        mock_row.cnt = 1
+        mock_job = MagicMock()
+        mock_job.result.return_value = [mock_row]
+        mock_client.query.return_value = mock_job
+
+        with patch("pages.user_management.get_bq_client", return_value=mock_client):
+            result = module_under_test.is_user_in_group(
+                "user@tadakayo.jp", "group-a@tadakayo.jp"
+            )
+
+        assert result is True
+        sql = mock_client.query.call_args[0][0]
+        assert "CONCAT" in sql
+        assert "LIKE" in sql
+        assert "members" in sql
+
+    def test_is_user_in_group_returns_false_when_not_member(self, module_under_test):
+        """is_user_in_group: 所属していなければ False"""
+        mock_client = MagicMock()
+        mock_row = MagicMock()
+        mock_row.cnt = 0
+        mock_job = MagicMock()
+        mock_job.result.return_value = [mock_row]
+        mock_client.query.return_value = mock_job
+
+        with patch("pages.user_management.get_bq_client", return_value=mock_client):
+            result = module_under_test.is_user_in_group(
+                "user@tadakayo.jp", "group-a@tadakayo.jp"
+            )
+
+        assert result is False
