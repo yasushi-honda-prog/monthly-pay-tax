@@ -1,0 +1,131 @@
+## 2026-04-26 ロール権限マトリックス追加 (#117)
+
+architecture.py に新セクション **6.5 ロール権限マトリックス** を追加。
+LATEST.md にアドホック記載していた機密度マッピングを恒久ドキュメント化。
+
+### 追加内容
+1. **ページ × ロール アクセス可否表**: 7ページ × user/checker/admin
+2. **機密情報 × ロール 露出マトリックス**: 各画面・出力ファイルの個人情報露出を可視化（太字で強調）
+3. **設計方針**: checker/admin の役割定義、ロール変更時の更新手順
+
+### 効果
+- セキュリティレビュー時に「どの情報がどのロールに露出するか」一目で確認可
+- ロール設計変更（PR #112→#115 のような）の判断材料が永続化
+- 新規メンバー教育用ドキュメントとして機能
+
+ロールバック先: `pay-dashboard-00245-2br`（保持中）
+
+## 2026-04-26 WAM Tab6 を checker ロールにも解放 (#115)
+
+PR #112 で「Tab6 admin 限定」としていた制限を撤廃し、6タブすべて checker/admin 解放に統一。
+
+### 判断根拠
+- checker は限定的な担当者ロール
+- Tab4 振込CSV / Tab5 支払明細書PDF で **既に氏名・口座情報は checker から取得可能**
+- Tab6 解放で追加されるのは住所・カナ氏名・member_id のみ
+- 主要個人情報（氏名・口座）が解放済の状態で、住所だけ admin 限定にする実効性は限定的
+
+### 機密度マッピング（最終形）
+| 情報 | 露出箇所 | アクセス権 |
+|------|---------|----------|
+| 氏名（フルネーム） | Tab4 振込CSV / Tab5 PDF / Tab6 CSV | checker / admin |
+| 口座情報 | Tab4 振込CSV | checker / admin |
+| 住所・カナ氏名 | Tab6 CSV のみ | **checker / admin（本PRで解放）** |
+| ニックネーム・金額 | 全タブ | 全ロール（user 含む） |
+
+### 変更
+- `wam_monthly.py`: tabs() の role 分岐削除、Tab6 ガード撤去
+- `architecture.py` / `help.py` / `CLAUDE.md`: Tab6 admin 限定の注釈削除
+
+ロールバック先: `pay-dashboard-00244-tps`（保持中）
+
+## 2026-04-26 ユーザー管理画面 フィルタ・削除確認ダイアログ追加 (#113)
+
+### フィルタ機能
+- ロール（admin/checker/viewer/user）・グループ（source_group）の絞り込み
+- 「(個別登録のみ)」選択で source_group が NULL のユーザーを抽出
+- 表示件数キャプション「N / 全 M 件」
+
+### 削除確認ダイアログ
+- `@st.dialog` ベース（Streamlit 1.55）
+- 削除ボタン押下 → モーダル表示 →「削除を実行（OK）」or「キャンセル」
+- ESC/×で閉じても session_state に残らない**ワンショット消費パターン**を採用（レビュー指摘 silent-failure-hunter 対応）
+
+### テスト追加
+- `TestFilterUsers` クラス 9テスト（ロール/グループ単独・複合・(個別登録のみ)・元 DataFrame 不変）
+- Dashboard tests: 259 → **268 passed** (+9)
+
+ロールバック先: `pay-dashboard-00243-zr7`（保持中）
+
+## 2026-04-26 WAM立替金確認を checker 解放 (#112)
+
+WAM立替金確認ページを admin 限定 → **checker/admin 解放**（β案）。
+※ 同日 #115 で Tab6 も追加解放され、最終的に6タブすべて checker/admin 可となった。
+
+### Tab1〜Tab5: checker/admin 表示（#112）
+- PJ別サマリー / メンバー別明細 / 領収書添付状況 / 月別報酬・振込確認 / 支払明細書
+
+### Tab6: 当初 admin 限定 → #115 で checker 解放
+- 年間支払調書データ
+
+### 二重防御（現行）
+1. ナビゲーションレベル: `app.py` で `wam_monthly` を `checker_pages` に配置
+2. ページレベル: `require_checker(email, role)`
+
+### ドキュメント同期
+- `architecture.py` Mermaid: ロール表記更新（Tab1-5 / Tab6 分離）
+- `help.py`: ページバッジ「checker / admin」、FAQ ロール説明更新
+- `CLAUDE.md`: ページ構成テーブル・ファイル説明更新
+
+ロールバック先: `pay-dashboard-00243-zr7`（保持中）
+
+## 2026-04-26 architecture/help 同期 (#110)
+
+未マージのまま残っていた `docs/add-wam-help-guide` (c423875) の内容を取り込み、
+今回セッションの変更（PR #103 Tab2 URL列追加）も反映。
+
+- `architecture.py`: ページ数表記 7→8（実体と整合）、ラベル `支払明細書PDF → 支払明細書`
+- `help.py`: WAM立替金確認の操作ガイド・FAQ・用語集を追加
+  + メンバー別明細タブの説明に「立替金シートURL」「URLクリックで原本シート表示」を追記
+- `docs/add-wam-help-guide` ブランチは本PRで吸収のため delete 済み
+
+## 2026-04-26 admin_settings BQテーブル一覧拡充 (#108)
+
+admin_settings ページの「BigQuery テーブル情報」一覧に CLAUDE.md 記載の10テーブル全て表示。
+立替金・タダメンマスタ等のデータ収録タイミングが admin から確認可能に。
+
+追加テーブル:
+- `reimbursement_items`（立替金シート、約2,300行、毎朝06:21更新）
+- `member_master`（タダメンMマスタ、244件、毎朝06:21更新）
+- `wam_target_projects`（WAM対象PJマスタ、4件、変更時のみ）
+
+ロールバック先: `pay-dashboard-00239-j5z` / `00238-4cx`（保持中）
+
+## 2026-04-25 WAM Tab2 リンク列追加 (#103) → 領収書列削除 (#105)
+
+### #103: URL/領収書 LinkColumn 追加
+WAM立替金確認 Tab2「メンバー別明細」に「URL」（立替金シート）と「領収書」の2列を追加し、
+`st.column_config.LinkColumn(display_text="開く")` でクリッカブル化。
+- 新規 `dashboard/lib/wam_helpers.py`: Tab2 の DF 構築ヘルパーを分離（test/prod 共通化）
+- CSV出力は既存仕様維持（URL列を含めない）
+
+### #105: 領収書列を暫定削除（バグ修正）
+admin 動作確認で「領収書リンクが機能しない」と判明。
+原因: collector が `=HYPERLINK("url", "ファイル名")` の `formattedValue` を取得しており、
+BQ `receipt_url` には **ファイル名のみ** が入っていた（URL は失われている）。
+
+→ Tab2 から領収書列を削除（暫定）。`source_url`（立替金シート、正規URL）は維持。
+
+### 中期対応: Issue #106
+collector で `=HYPERLINK()` の URL を取得するロジック追加（推奨: Sheets API `cellData.hyperlink` 属性）。
+完了後に Tab2 に領収書列を再追加して復活。
+
+ロールバック先: `pay-dashboard-00238-4cx` / `pay-dashboard-00237-9xs`（保持中）
+
+## 2026-04-24 行政事業分類分割（ケアプー/神奈川DX）
+
+業務委託費分析タブの「行政事業」分類を、スポンサーフィールドを基に2分類に分割。
+- `sponsor == "神奈川県DX"` → 「行政事業（神奈川DX）」
+- その他（ケアプー事業・移動手当等）→ 「行政事業（ケアプー：ケアプランデータ連携システムを広め隊）」
+- 対象ファイル: `dashboard/_pages/dashboard.py`（_COST_GROUP_MAP / _COST_GROUP_EXCLUDE_NONPROFIT / _COST_COLOR_DOMAIN + Tab5振り替えロジック）
+
