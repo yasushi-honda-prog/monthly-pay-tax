@@ -36,12 +36,13 @@
 
 ### デプロイ順序（重要）
 1. PR マージ後、CI で Cloud Run 再デプロイ完了確認
-2. **BQ DDL 実行**: `bq query < infra/bigquery/schema.sql`（CREATE TABLE IF NOT EXISTS）
-3. **マイグレーション SQL 実行**: schema.sql 末尾コメントの MERGE 文を bq query で実行
-4. 翌朝 6 時バッチで `skipped_disabled` / `skipped_unregistered` ログ確認
+2. **BQ DDL 実行**: `bq query --use_legacy_sql=false --project_id=monthly-pay-tax < infra/bigquery/schema.sql` (CREATE TABLE IF NOT EXISTS のみ実行)
+3. **マイグレーション seed**: `bq query --use_legacy_sql=false --project_id=monthly-pay-tax < infra/bigquery/migrations/2026-05-03_dashboard_sync_groups_seed.sql`
+4. 翌朝 6 時バッチで `skipped_disabled` / `skipped_unregistered` ログ確認、`dashboard_users_sync.status` が "failed" でないことを確認
 5. UI で各グループの「最終同期」タイムスタンプ更新を確認
 
-⚠ **手順 2-3 を忘れると新コードで sync が fail-fast 例外で停止する**（fail-fast 設計の意図的トレードオフ）。
+⚠ **手順 2-3 を忘れると Step 5 が fail-fast 例外で停止する**（fail-fast 設計の意図的トレードオフ）。
+ただし main.py 側で error ログ + sync_result.status=failed を返すため、Cloud Logging で検知可能。
 
 ## 🆕 2026-05-03 ADR-0004 効果測定 + #129 動作確認 (PR #131 / Refs #94)
 

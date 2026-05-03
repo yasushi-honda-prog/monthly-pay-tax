@@ -580,6 +580,42 @@ class TestSyncGroupHelpers:
         assert param_dict["enabled"] is False
         assert param_dict["group_email"] == "group-a@tadakayo.jp"
 
+    def test_set_sync_enabled_to_on_passes_bool_true(self, module_under_test):
+        """T3: set_sync_enabled(enabled=True) も BOOL=True パラメータを正しく渡す
+
+        OFF→ON 復帰経路の検証。文字列 "True" 等への退化を防ぐ。
+        """
+        mock_client, _ = self._build_mock_query()
+        with patch("pages.user_management.get_bq_client", return_value=mock_client):
+            module_under_test.set_sync_enabled(
+                "group-a@tadakayo.jp", True, "admin@tadakayo.jp"
+            )
+
+        params = mock_client.query.call_args.kwargs["job_config"].query_parameters
+        param_dict = {p.name: p.value for p in params}
+        assert param_dict["enabled"] is True
+        # 型も BOOL であること
+        param_types = {p.name: p.type_ for p in params}
+        assert param_types["enabled"] == "BOOL"
+
+    def test_register_sync_group_does_not_overwrite_existing_disabled(self, module_under_test):
+        """T4: register_sync_group は既存 enabled=FALSE 設定を上書きしない
+
+        管理者が OFF にしたグループが、後から「グループ一括登録」を実行されて
+        勝手に ON に戻ってしまうのを防ぐ重要不変条件。
+        SQL 文字列レベルで WHEN MATCHED 句が無いことを確認（動作レベル検証は BQ 統合テスト範囲）。
+        """
+        mock_client, _ = self._build_mock_query()
+        with patch("pages.user_management.get_bq_client", return_value=mock_client):
+            module_under_test.register_sync_group("group-a@tadakayo.jp", "admin@tadakayo.jp")
+
+        sql = mock_client.query.call_args[0][0]
+        assert "WHEN MATCHED THEN" not in sql, (
+            "register_sync_group に WHEN MATCHED 句があると "
+            "管理者の OFF 設定を一括登録で上書きしてしまう"
+        )
+        assert "WHEN NOT MATCHED THEN" in sql
+
     def test_load_sync_groups_overview_joins_correctly(self, module_under_test):
         """AC10: load_sync_groups_overview は groups_master と LEFT JOIN し is_orphaned を返す"""
         import pandas as pd
@@ -626,7 +662,11 @@ class TestSyncGroupHelpers:
         assert bool(df.iloc[0]["is_orphaned"]) is False
 
     def test_add_users_by_group_calls_register_sync_group(self, module_under_test):
-        """AC4: add_users_by_group の最後に register_sync_group が呼ばれる"""
+        """AC4: add_users_by_group はループ前に register_sync_group を呼ぶ
+
+        ループ途中で例外が発生しても sync_groups への登録が確実に完了しているよう、
+        register_sync_group は冪等な MERGE WHEN NOT MATCHED でループ前に実行される。
+        """
         import pandas as pd
 
         members_df = pd.DataFrame([

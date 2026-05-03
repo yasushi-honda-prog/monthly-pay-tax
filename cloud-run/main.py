@@ -52,7 +52,10 @@ def run_consolidation():
         except Exception as grp_err:
             logger.warning("グループ情報更新スキップ（本体処理は完了）: %s", grp_err, exc_info=True)
 
-        # Step 5: dashboard_usersグループベース自動同期（失敗しても本体は成功扱い）
+        # Step 5: dashboard_usersグループベース自動同期
+        # 失敗時は results["dashboard_users_sync"]["status"] = "failed" を残し、
+        # Step 6/7 は継続するが、サマリーログから failed を可視化する。
+        # (bq_loader 側 read 関数は意図的に fail-fast 設計のため、ここで握り潰さない)
         try:
             logger.info("--- dashboard_usersグループ同期開始 ---")
             group_users = bq_loader.read_group_based_users()
@@ -65,14 +68,24 @@ def run_consolidation():
                 sync_result = bq_loader.sync_dashboard_users_from_groups(group_members_map)
                 results["dashboard_users_sync"] = sync_result
                 logger.info(
-                    "--- dashboard_usersグループ同期完了 (追加: %d, 削除: %d) ---",
+                    "--- dashboard_usersグループ同期完了 (追加: %d, 削除: %d, 凍結: %d, 未登録: %d) ---",
                     sync_result["added"],
                     sync_result["removed"],
+                    sync_result.get("skipped_disabled", 0),
+                    sync_result.get("skipped_unregistered", 0),
                 )
             else:
                 logger.info("--- dashboard_usersグループ同期: 対象グループなし ---")
         except Exception as sync_err:
-            logger.warning("dashboard_usersグループ同期スキップ: %s", sync_err, exc_info=True)
+            logger.error(
+                "dashboard_usersグループ同期失敗 (Step 6/7 は継続): %s",
+                sync_err, exc_info=True,
+            )
+            results["dashboard_users_sync"] = {
+                "status": "failed",
+                "error_type": type(sync_err).__name__,
+                "error": str(sync_err),
+            }
 
         # Step 6: 立替金シート収集（失敗しても本体は成功扱い）
         try:
@@ -139,7 +152,10 @@ def update_groups():
         )
 
         # dashboard_usersグループ同期
-        sync_result = {"added": 0, "removed": 0}
+        sync_result = {
+            "added": 0, "removed": 0,
+            "skipped_disabled": 0, "skipped_unregistered": 0,
+        }
         try:
             group_users = bq_loader.read_group_based_users()
             if group_users:
@@ -150,12 +166,19 @@ def update_groups():
                     group_members_map[group_email] = members_list
                 sync_result = bq_loader.sync_dashboard_users_from_groups(group_members_map)
                 logger.info(
-                    "dashboard_usersグループ同期完了 (追加: %d, 削除: %d)",
+                    "dashboard_usersグループ同期完了 (追加: %d, 削除: %d, 凍結: %d, 未登録: %d)",
                     sync_result["added"],
                     sync_result["removed"],
+                    sync_result.get("skipped_disabled", 0),
+                    sync_result.get("skipped_unregistered", 0),
                 )
         except Exception as sync_err:
-            logger.warning("dashboard_usersグループ同期スキップ: %s", sync_err, exc_info=True)
+            logger.error("dashboard_usersグループ同期失敗: %s", sync_err, exc_info=True)
+            sync_result = {
+                "status": "failed",
+                "error_type": type(sync_err).__name__,
+                "error": str(sync_err),
+            }
 
         elapsed = round(time.time() - start, 1)
         summary = {

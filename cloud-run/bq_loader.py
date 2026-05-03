@@ -178,7 +178,8 @@ def _update_last_synced_at(group_email: str) -> None:
         client.query(query, job_config=job_config).result()
     except Exception as exc:
         logger.warning(
-            "last_synced_at 更新失敗 (group=%s, 同期処理は継続): %s", group_email, exc
+            "last_synced_at 更新失敗 (group=%s, 同期処理は継続): %s",
+            group_email, exc, exc_info=True,
         )
 
 

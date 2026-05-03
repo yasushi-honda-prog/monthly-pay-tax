@@ -370,3 +370,41 @@ class TestSyncToggleSemantics:
         result = read_all_sync_groups()
 
         assert result == {"group-a@tadakayo.jp", "group-b@tadakayo.jp", "group-c@tadakayo.jp"}
+
+    def test_update_last_synced_at_swallows_exception(self, mock_bq_client):
+        """T1: _update_last_synced_at は内部 BQ 例外を吸収して呼出元に伝播させない
+
+        last_synced_at は UI 表示用補助情報。書込失敗で sync 全体を止めると
+        翌朝バッチが連鎖停止する事故になる。意図的非対称（read=fail-fast / write=warning + 続行）
+        の責務契約が崩れていないか検証。
+        """
+        from bq_loader import _update_last_synced_at
+
+        mock_bq_client.query.side_effect = Exception("BQ UPDATE failed")
+
+        # 例外が呼出元に伝播しないこと
+        _update_last_synced_at("group-a@tadakayo.jp")
+
+        # 実際に BQ 呼出は試みている
+        mock_bq_client.query.assert_called_once()
+
+    def test_sync_propagates_fail_fast_from_read_enabled(self, mock_bq_client):
+        """T2: sync_dashboard_users_from_groups は read_enabled_sync_groups の例外を伝播する
+
+        単体の read_enabled_sync_groups テスト (test_read_enabled_sync_groups_propagates_exception)
+        だけでは「sync 経由で実際に伝播するか」が検証できない。
+        将来 try/except で握り潰す変更が混入したら全グループ凍結=見かけ上正常を検出すべき。
+        """
+        from bq_loader import sync_dashboard_users_from_groups
+
+        with patch(
+            "bq_loader.read_enabled_sync_groups",
+            side_effect=Exception("Table not found: dashboard_sync_groups"),
+        ):
+            with pytest.raises(Exception, match="Table not found"):
+                sync_dashboard_users_from_groups({"group-a@tadakayo.jp": ["alice@tadakayo.jp"]})
+
+        # DELETE / MERGE が一切呼ばれていないこと（fail-fast = 副作用ゼロ）
+        query_call_strs = [str(c) for c in mock_bq_client.query.call_args_list]
+        assert not any("DELETE FROM" in s for s in query_call_strs)
+        assert not any("WHEN NOT MATCHED THEN" in s for s in query_call_strs)

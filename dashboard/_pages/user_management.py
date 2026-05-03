@@ -68,11 +68,10 @@ def load_group_members(group_email: str):
 
 
 def add_users_by_group(members_df, role: str, group_email: str, progress_callback=None):
-    """グループメンバーを一括登録（既存ユーザーはスキップ）
-
-    完了時に dashboard_sync_groups にも enabled=TRUE で MERGE し、
-    以降の毎朝バッチで自動同期対象に含まれるようにする。
-    """
+    """グループメンバーを一括登録（既存ユーザーはスキップ）"""
+    # ループ前に sync_groups を冪等登録：途中失敗してもユーザー追加分が
+    # 「未登録グループ」扱いになり翌朝バッチで取り残される事故を防ぐ
+    register_sync_group(group_email, email)
     client = get_bq_client()
     added = 0
     total = len(members_df)
@@ -101,7 +100,6 @@ def add_users_by_group(members_df, role: str, group_email: str, progress_callbac
             added += 1
         if progress_callback:
             progress_callback((i + 1) / total, f"{i + 1}/{total} 処理中...")
-    register_sync_group(group_email, email)
     return added
 
 
