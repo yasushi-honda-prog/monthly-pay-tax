@@ -1,11 +1,49 @@
 # ハンドオフメモ - monthly-pay-tax
 
-**更新日**: 2026-05-02（receipt_url HYPERLINK 取得対応 #106 完了、test gate 経由で自動デプロイ済み）
-**フェーズ**: WAM助成金対応 **技術側完了** + **CI/CD 自動デプロイ稼働中（test gate 強化済み）**
+**更新日**: 2026-05-03（ADR-0004 効果測定追記 PR #131 作成、#129 動作確認 PASS で close）
+**フェーズ**: WAM助成金対応 **技術側完了** + **CI/CD 自動デプロイ稼働中（test gate 強化済み）** + **過去決定の事後検証フェーズ**
 **最新デプロイ**: Collector rev **00027-v2n** + Dashboard rev **00250-klc**（PR #128 マージ時に test gate 経由で自動再デプロイ）
-**Cloud Run設定**: 2026-04-07 `--no-cpu-throttling --max-instances=3` 適用済み（ADR 0004）
+**Cloud Run設定**: 2026-04-07 `--no-cpu-throttling --max-instances=3` 適用済み（ADR 0004 / 効果測定 2026-05-03 追記）
 **CI/CD**: ADR-0006、main push + パスフィルタで自動デプロイ、deploy 内に test gate 配置（PR #126）
 **テストスイート**: Dashboard **308** + Cloud Run 55 = **363テスト全PASS**（CI 上でも自動実行）
+
+## 🆕 2026-05-03 ADR-0004 効果測定 + #129 動作確認 (PR #131 / Refs #94)
+
+### ADR-0004 効果測定（PR #131）
+2026-04-02〜2026-05-02 (30日) の Cloud Monitoring メトリクス (`billable_instance_time`, `request_count`)
+から理論コストを算出し、ADR-0004 末尾に「## 効果測定 (2026-05-03、Issue #94)」セクション追加。
+
+**主な結果**:
+- pay-dashboard 月コスト見込み: **¥3,761**（理論値）
+- 適用前 (3月実績) ¥4,536 から **17% 削減**を確認
+- ADR-0004 期待値 ¥3,400 に対しては **+11% 超過**
+- 月¥3,000 予算閾値に対しては **+25% 超過**
+
+**未達項目**（残課題に追記）:
+- 予算アラート設定: 課金アカウント `013C90-D4C0A0-A391D6` への billing.admin 権限と
+  `billingbudgets.googleapis.com` API 有効化が必要（`yasushi-honda@tadakayo.jp` には未付与）
+- BQ Billing export 未設定 → 実コストではなく公開単価ベースの**理論値**で評価
+- WebSocket idle 課金: 業務時間外接続の頻度測定が必要
+
+→ Issue #94 は部分達成のため `Refs #94`（close せず）。完全完了は予算アラート設定後。
+
+### #129 動作確認 PASS で close
+2026-05-03 06:21 JST バッチ実行ログで `dashboard_users_sync: {added: 0, removed: 0}` を確認。
+Step 5 は毎朝正常実行されており、グループメンバー変動がなかったため MERGE NoOp。
+機能正常性は cloud-run/tests/ でカバー済みのため close。
+
+実イベント観測（追加/削除発生時の挙動）は運用上自然に発生したタイミングで検証する方針。
+
+### 環境設定整備
+- `.envrc` に `export GH_TOKEN="$(gh auth token 2>/dev/null)"` を追記
+  → `cd` するだけで GH_TOKEN が解決され、CI 系操作が `gh` 経由でシームレスに動作
+- 既存の `GH_CONFIG_DIR=$(pwd)/.gh` 方式は維持（プロジェクトローカル gh 認証）
+- `.envrc` は `.gitignore` 済み（コミットなし）
+
+### 観測した未解決事項
+- 今朝 06:00 JST バッチは **rev 26** で実行（rev 27 = PR #128 修正は 07:13 JST デプロイのため）
+- → **#106 の最終検証は明朝 5/4 06:00 JST バッチ (rev 27 実行) 待ち**
+- BQ で `receipt_url LIKE 'http%'` の件数が現状 5/1223 → 明朝改善見込み
 
 ## 🆕 2026-05-02 collector の =HYPERLINK() URL 取得対応 (#106 / PR #128)
 
@@ -136,21 +174,35 @@ PR #123 マージで両 ワークフロー SUCCESS、自動デプロイ稼働開
 
 ## 次セッション着手候補
 
-#106 完了。次は積み残し Issue の triage と着手:
+#129 close、PR #131 作成済。次は:
 
-| Issue | 内容 | ラベル |
-|-------|------|--------|
-| #129 | ユーザー管理 グループ自動同期 動作確認（system-sync）— **翌朝以降の確認待ち** | P2 |
-| #93 | app_gyomu_reports / app_hojo_reports テーブル作成（基盤整備） | enhancement, P2 |
-| #94 | Cloud Run コスト監視 — ADR 0004 効果測定 | P2 |
-| #58 | WAM要件④: 支払調書作成ツールへの連携（Want） | enhancement, P2 |
-| #54 | WAM Phase 0: ステークホルダー確認事項（参考情報） | documentation, P2 |
+| Issue | 内容 | ラベル | 状態 |
+|-------|------|--------|------|
+| #94 | Cloud Run コスト監視 — ADR 0004 効果測定 | P2 | 🔶 部分達成 (PR #131 マージ + 予算アラート設定で完了) |
+| #93 | app_gyomu_reports / app_hojo_reports テーブル作成（基盤整備） | enhancement, P2 | 報告入力 UI 確定後に着手 |
+| #58 | WAM要件④: 支払調書作成ツールへの連携（Want） | enhancement, P2 | 外部ツール所在確認待ち |
+| #54 | WAM Phase 0: ステークホルダー確認事項（参考情報） | documentation, P2 | 回答待ち |
 
-優先候補: 翌朝の Cloud Scheduler 実行後に **#106** と **#129** の動作確認 (BQ + UI)。
-その後 #93 基盤整備、または #94 コスト測定。
-WAM 系（#58, #54）はステークホルダー回答待ちで後回し可。
+### 即着手可能
+1. **PR #131 マージ** — 番号単位の明示認可後 `gh pr merge 131 --squash --delete-branch`
+2. **#106 最終検証** — 明朝 5/4 06:00 JST バッチ (rev 27 実行) 後に BQ + WAM Tab2 確認
+3. **#94 残作業** — 課金アカウントへの billing.admin 権限取得 + 予算アラート設定（ユーザー側 GCP コンソール操作）
 
-## Issue Net 変化（本セッション 2026-05-02 PM）
+### 中期着手
+- **#93** — 報告入力機能の UI 仕様が確定したら DDL 実行
+- **#58** — 外部ツール所在確認後に CSV 連携フォーマット決定
+
+## Issue Net 変化（本セッション 2026-05-03 朝）
+
+- Close 数: 1 件 (#129 — 動作確認 PASS)
+- 起票数: 0 件
+- Net: **-1 件**（前進）
+
+実質的な進捗: PR #131 作成（ADR-0004 効果測定の事後検証）、#129 動作確認消化、
+`.envrc` GH_TOKEN 追記で開発環境整備。テーマは「**過去のリリース・決定の後始末**」
+（accountability + 運用負債の解消）。新機能・バグ修正・リファクタは含まない。
+
+## Issue Net 変化（前セッション 2026-05-02 PM）
 
 - Close 数: 1 件 (#106)
 - 起票数: 1 件 (#129)
@@ -364,7 +416,7 @@ architecture.py / help.py / CLAUDE.md を現在のシステム状態に完全同
 |---|---------|--------|-----------|
 | #58 | 支払調書 外部ツール連携 | Want/P2 | 外部ツール所在未確認 |
 | #93 | app_gyomu/hojo_reports テーブル作成 | P2 | なし（UIが未定） |
-| #94 | Cloud Run コスト監視 | P2 | なし |
+| #94 | Cloud Run コスト監視 | P2 | 課金アカウント billing.admin 権限取得待ち（部分達成 PR #131 作成済） |
 | #54 | Phase 0 ステークホルダー確認 | P2 | 回答待ち |
 
 ## デプロイ現況
