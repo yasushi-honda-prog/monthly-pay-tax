@@ -36,7 +36,7 @@ SA鍵ファイルは使わない（ローカル開発時のみ `SA_KEY_PATH` 環
   - `sheets_collector.py` - Sheets API経由のデータ収集（DWD認証含む、立替金シート・タダメンMマスタ収集）
   - `bq_loader.py` - BigQueryへのデータロード（pandas DataFrame経由）
   - `config.py` - GCPプロジェクトID、BQテーブル名、マスタスプレッドシートID等の設定値
-  - `tests/` - ユニットテスト（61テスト: Sheets APIスロットリング、グループ一覧、dashboard_users同期、グループ自動同期 ON/OFF、立替金シート収集、タダメンM収集）
+  - `tests/` - ユニットテスト（63テスト: Sheets APIスロットリング、グループ一覧、dashboard_users同期、グループ自動同期 ON/OFF、立替金シート収集、タダメンM収集）
 - `dashboard/` - Streamlitダッシュボード（マルチページ構成）
   - `app.py` - エントリポイント（認証 + st.navigation ルーター）
   - `_pages/dashboard.py` - 5タブ（月別報酬サマリー/スポンサー別業務委託費/業務報告一覧/グループ別/業務委託費分析）
