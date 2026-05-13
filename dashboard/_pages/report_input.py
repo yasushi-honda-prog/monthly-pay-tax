@@ -251,6 +251,83 @@ def _get_field(row, field: str, default=0.0) -> float:
 
 
 # ====================================================================
+# ドラフト仕様 / 現状アーキテクチャ（admin 向けメモ）
+# ※ このページが正式採用されない場合は本セクションごと削除可
+# ====================================================================
+
+with st.expander("📐 ドラフト仕様 / 現状アーキテクチャ（クリックで展開）", expanded=False):
+    st.markdown("#### 1. このページの位置づけ")
+    st.markdown(
+        "- **UI 提案ドラフト**（admin 限定プレビュー）。実運用前の意匠・項目構成レビュー用。\n"
+        "- 保存ボタンは **dry-run** 化されており、入力値は `logger.info` のみ。"
+        "BigQuery への書き込みは一切行わない。\n"
+        "- 採用判断後に DB 連携を有効化、または **本ページごと廃止** の二択。"
+    )
+
+    st.markdown("#### 2. 現状の処理フロー（dry-run）")
+    st.graphviz_chart(
+        """
+        digraph G {
+            rankdir=LR;
+            node [shape=box, style=rounded, fontname="Helvetica"];
+            user [label="admin\\n(tadakayo.jp)", shape=oval];
+            form [label="(仮) 報告入力フォーム\\n業務 / 補助 タブ"];
+            save [label="_save_gyomu / _save_hojo\\n(dry-run)", style="rounded,filled", fillcolor="#fff4cc"];
+            log [label="Cloud Run ログ\\n[DRY-RUN] ...", shape=cylinder];
+            bq [label="BigQuery\\napp_gyomu_reports / app_hojo_reports", shape=cylinder, style="rounded,dashed", color=gray];
+            user -> form -> save -> log;
+            save -> bq [style=dashed, color=gray, label="未接続"];
+        }
+        """
+    )
+
+    st.markdown("#### 3. 採用時の処理フロー（参考）")
+    st.graphviz_chart(
+        """
+        digraph G {
+            rankdir=LR;
+            node [shape=box, style=rounded, fontname="Helvetica"];
+            user [label="入力者\\n(全ロール)", shape=oval];
+            form [label="報告入力フォーム"];
+            save [label="_save_gyomu / _save_hojo\\n(MERGE)", style="rounded,filled", fillcolor="#d4edda"];
+            bq [label="BigQuery\\napp_gyomu_reports / app_hojo_reports", shape=cylinder];
+            view [label="v_gyomu_enriched 等\\n(集計ビュー)\\n※ UNION 拡張が必要", shape=cylinder, style="rounded,dashed"];
+            dash [label="ダッシュボード\\n月別報酬 / グループ別 等"];
+            user -> form -> save -> bq -> view -> dash;
+        }
+        """
+    )
+
+    st.markdown("#### 4. 入力項目サマリ")
+    st.markdown(
+        f"- **業務マスタ**: {len(GYOMU_MASTER)} 種別（活動分類 {len(ACTIVITY_CATEGORIES)} カテゴリに分類）\n"
+        f"- **スポンサーリスト**: {len(SPONSOR_LIST)} 件 + 手入力可\n"
+        f"- **隊（チーム）**: {len(TEAM_LIST)} 隊\n"
+        "- **業務報告（日次）**: 日付 / 隊 / 活動分類 / 業務分類 / スポンサー / 業務内容 / 単価 / 時間(距離) / 金額\n"
+        "- **補助報告（月次）**: 時間 / 報酬 / DX補助 / 立替 / 総額(自動) / 完了フラグ / 領収書メモ × 2"
+    )
+
+    st.markdown("#### 5. dry-run 解除の手順（採用時）")
+    st.markdown(
+        "1. `dashboard/_pages/report_input.py` 内の `DRY_RUN = True` を `False` に変更（または条件分岐を導入）\n"
+        "2. `_save_gyomu` / `_save_hojo` / `_delete_gyomu` 内に `client.query(...).result()` 呼び出しを復活\n"
+        "3. UI トースト文言を保存成功表現に戻す\n"
+        "4. `dashboard/tests/test_pages_report_input.py` を BQ 呼び出し検証に戻す\n"
+        "5. ナビ配置を `admin_pages` → `user_pages` に戻し、`require_admin` → `require_user` に変更\n"
+        "6. ページタイトル「(仮) 報告入力」を「報告入力」に戻す"
+    )
+
+    st.markdown("#### 6. 不採用時の削除対象")
+    st.markdown(
+        "- `dashboard/_pages/report_input.py` （本ファイル全体）\n"
+        "- `dashboard/tests/test_pages_report_input.py` （関連テスト）\n"
+        "- `dashboard/app.py` の `admin_pages` から該当 `st.Page(...)` 行\n"
+        "- `dashboard/lib/constants.py` の `APP_GYOMU_TABLE` / `APP_HOJO_TABLE`（他で未使用なら）\n"
+        "- BigQuery テーブル `pay_reports.app_gyomu_reports` / `app_hojo_reports`（残しても害なし、不要なら DROP）\n"
+        "- `infra/bigquery/schema.sql` の対応 DDL（テーブル DROP と整合）"
+    )
+
+# ====================================================================
 # サイドバー
 # ====================================================================
 
