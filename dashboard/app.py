@@ -51,10 +51,6 @@ base_pages = [
     st.Page("_pages/dashboard.py", title="ダッシュボード", icon=":material/bar_chart:", default=True),
 ]
 
-user_pages = [
-    st.Page("_pages/report_input.py", title="報告入力", icon=":material/edit:"),
-]
-
 checker_pages = [
     st.Page("_pages/check_management.py", title="業務チェック", icon=":material/fact_check:"),
     st.Page("_pages/wam_monthly.py", title="WAM立替金確認", icon=":material/receipt_long:"),
@@ -66,18 +62,17 @@ utility_pages = [
 ]
 
 admin_pages = [
+    st.Page("_pages/report_input.py", title="(仮) 報告入力", icon=":material/edit_note:"),
     st.Page("_pages/user_management.py", title="ユーザー管理", icon=":material/manage_accounts:"),
     st.Page("_pages/admin_settings.py", title="管理設定", icon=":material/settings:"),
 ]
 
 if role == "admin":
-    nav = st.navigation(base_pages + user_pages + checker_pages + utility_pages + admin_pages)
+    nav = st.navigation(base_pages + checker_pages + utility_pages + admin_pages)
 elif role == "checker":
-    nav = st.navigation(base_pages + user_pages + checker_pages + utility_pages)
-elif role == "user":
-    nav = st.navigation(base_pages + user_pages + utility_pages)
+    nav = st.navigation(base_pages + checker_pages + utility_pages)
 else:
-    nav = st.navigation(base_pages + user_pages + utility_pages)
+    nav = st.navigation(base_pages + utility_pages)
 
 # ユーザー情報をsession_stateに保存（各ページで参照）
 st.session_state["user_email"] = email
