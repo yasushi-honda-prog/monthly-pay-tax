@@ -56,16 +56,11 @@ class TestWeekdayJp:
 
 
 class TestSaveGyomu:
-    """_save_gyomu() のテスト"""
+    """_save_gyomu() のテスト（dry-run: BQ 書き込みなし、logger.info のみ）"""
 
-    def test_save_gyomu_calls_bq(self, module_under_test):
-        """BQクエリが正しく呼ばれる"""
+    def test_save_gyomu_does_not_call_bq(self, module_under_test):
+        """dry-run のため BQ クライアントは呼ばれない"""
         with patch("pages.report_input.get_bq_client") as mock_get_bq:
-            mock_client = MagicMock()
-            mock_result = MagicMock()
-            mock_client.query.return_value = mock_result
-            mock_get_bq.return_value = mock_client
-
             module_under_test._save_gyomu(
                 user_email="test@tadakayo.jp",
                 report_date=date(2026, 3, 28),
@@ -78,52 +73,36 @@ class TestSaveGyomu:
                 hours=2.0,
                 amount=3000.0,
             )
+            mock_get_bq.assert_not_called()
 
-            mock_client.query.assert_called_once()
-            call_args = mock_client.query.call_args
-            query_str = call_args[0][0]
-            assert "MERGE" in query_str
-            assert "app_gyomu_reports" in query_str
-
-    def test_save_gyomu_day_of_week(self, module_under_test):
-        """曜日がdateから正しく導出される"""
-        with patch("pages.report_input.get_bq_client") as mock_get_bq:
-            mock_client = MagicMock()
-            mock_result = MagicMock()
-            mock_client.query.return_value = mock_result
-            mock_get_bq.return_value = mock_client
-
-            # 2026-03-28 は土曜日
+    def test_save_gyomu_logs_dry_run(self, module_under_test, caplog):
+        """dry-run ログに [DRY-RUN] プレフィックスとペイロード詳細が出る"""
+        with caplog.at_level("INFO", logger="pages.report_input"):
             module_under_test._save_gyomu(
                 user_email="test@tadakayo.jp",
                 report_date=date(2026, 3, 28),
-                team="",
-                activity_category="テスト",
-                work_category="テスト",
+                team="チームA",
+                activity_category="タダスク",
+                work_category="講師",
                 sponsor="",
-                description="テスト",
-                unit_price=0,
-                hours=1.0,
-                amount=0,
+                description="土曜講座",
+                unit_price=1500.0,
+                hours=2.0,
+                amount=3000.0,
             )
-
-            call_args = mock_client.query.call_args
-            job_config = call_args[1]["job_config"]
-            params = {p.name: p.value for p in job_config.query_parameters}
-            assert params["dow"] == "土"
+        assert any("[DRY-RUN]" in r.message and "_save_gyomu" in r.message for r in caplog.records)
+        # 曜日（2026-03-28 は土曜）と email が payload に含まれる
+        joined = " ".join(r.message for r in caplog.records)
+        assert "test@tadakayo.jp" in joined
+        assert "'day_of_week': '土'" in joined
 
 
 class TestSaveHojo:
-    """_save_hojo() のテスト"""
+    """_save_hojo() のテスト（dry-run）"""
 
-    def test_save_hojo_calls_bq(self, module_under_test):
-        """BQクエリが正しく呼ばれる"""
+    def test_save_hojo_does_not_call_bq(self, module_under_test):
+        """dry-run のため BQ クライアントは呼ばれない"""
         with patch("pages.report_input.get_bq_client") as mock_get_bq:
-            mock_client = MagicMock()
-            mock_result = MagicMock()
-            mock_client.query.return_value = mock_result
-            mock_get_bq.return_value = mock_client
-
             module_under_test._save_hojo(
                 user_email="test@tadakayo.jp",
                 year=2026, month=3,
@@ -133,21 +112,11 @@ class TestSaveHojo:
                 monthly_complete=True,
                 dx_receipt="領収書A", expense_receipt="領収書B",
             )
+            mock_get_bq.assert_not_called()
 
-            mock_client.query.assert_called_once()
-            call_args = mock_client.query.call_args
-            query_str = call_args[0][0]
-            assert "MERGE" in query_str
-            assert "app_hojo_reports" in query_str
-
-    def test_save_hojo_parameters(self, module_under_test):
-        """パラメータが正しく渡される"""
-        with patch("pages.report_input.get_bq_client") as mock_get_bq:
-            mock_client = MagicMock()
-            mock_result = MagicMock()
-            mock_client.query.return_value = mock_result
-            mock_get_bq.return_value = mock_client
-
+    def test_save_hojo_logs_payload(self, module_under_test, caplog):
+        """dry-run ログにペイロードが含まれる"""
+        with caplog.at_level("INFO", logger="pages.report_input"):
             module_under_test._save_hojo(
                 user_email="test@tadakayo.jp",
                 year=2026, month=3,
@@ -157,39 +126,40 @@ class TestSaveHojo:
                 monthly_complete=False,
                 dx_receipt="", expense_receipt="",
             )
-
-            call_args = mock_client.query.call_args
-            job_config = call_args[1]["job_config"]
-            params = {p.name: p.value for p in job_config.query_parameters}
-            assert params["email"] == "test@tadakayo.jp"
-            assert params["year"] == 2026
-            assert params["month"] == 3
-            assert params["compensation"] == 50000.0
-            assert params["monthly_complete"] is False
+        joined = " ".join(r.message for r in caplog.records)
+        assert "[DRY-RUN]" in joined
+        assert "_save_hojo" in joined
+        assert "'compensation': 50000.0" in joined
+        assert "'monthly_complete': False" in joined
 
 
 class TestDeleteGyomu:
-    """_delete_gyomu() のテスト"""
+    """_delete_gyomu() のテスト（dry-run）"""
 
-    def test_delete_gyomu_calls_bq(self, module_under_test):
-        """DELETE文が正しく呼ばれる"""
+    def test_delete_gyomu_does_not_call_bq(self, module_under_test):
+        """dry-run のため BQ クライアントは呼ばれない"""
         with patch("pages.report_input.get_bq_client") as mock_get_bq:
-            mock_client = MagicMock()
-            mock_result = MagicMock()
-            mock_client.query.return_value = mock_result
-            mock_get_bq.return_value = mock_client
-
             module_under_test._delete_gyomu(
                 user_email="test@tadakayo.jp",
                 report_date=date(2026, 3, 28),
                 work_category="テスト",
                 description="テスト内容",
             )
+            mock_get_bq.assert_not_called()
 
-            mock_client.query.assert_called_once()
-            call_args = mock_client.query.call_args
-            query_str = call_args[0][0]
-            assert "DELETE" in query_str
+    def test_delete_gyomu_logs_dry_run(self, module_under_test, caplog):
+        """dry-run ログに [DRY-RUN] と DELETE 対象テーブルが出る"""
+        with caplog.at_level("INFO", logger="pages.report_input"):
+            module_under_test._delete_gyomu(
+                user_email="test@tadakayo.jp",
+                report_date=date(2026, 3, 28),
+                work_category="テスト",
+                description="テスト内容",
+            )
+        joined = " ".join(r.message for r in caplog.records)
+        assert "[DRY-RUN]" in joined
+        assert "_delete_gyomu" in joined
+        assert "app_gyomu_reports" in joined
 
 
 class TestModuleImport:

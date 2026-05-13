@@ -190,111 +190,50 @@ def _load_user_hojo(user_email: str, year: int, month: int) -> pd.DataFrame:
 # 保存処理
 # ====================================================================
 
+# ※ 現状はドラフト位置づけのため、保存処理は dry-run 化（BQ 書き込み無し / ログ出力のみ）。
+#    BQ 連携を再開する際は DRY_RUN を False にし、UI 文言とテストを併せて見直す。
+DRY_RUN = True
+
+
 def _save_gyomu(user_email: str, report_date: date, team: str,
                 activity_category: str, work_category: str,
                 sponsor: str, description: str,
                 unit_price: float, hours: float, amount: float):
-    """業務報告を保存（MERGE）"""
-    client = get_bq_client()
-    query = f"""
-    MERGE `{APP_GYOMU_TABLE}` T
-    USING (SELECT @email AS user_email, @date AS date,
-                  @work_category AS work_category, @description AS description) S
-    ON T.user_email = S.user_email AND T.date = S.date
-       AND T.work_category = S.work_category AND T.description = S.description
-    WHEN MATCHED THEN UPDATE SET
-        year = @year, month = @month, day_of_week = @dow,
-        team = @team, activity_category = @activity_category, sponsor = @sponsor,
-        unit_price = @unit_price, hours = @hours, amount = @amount,
-        updated_at = CURRENT_TIMESTAMP()
-    WHEN NOT MATCHED THEN INSERT
-        (user_email, date, year, month, day_of_week,
-         team, activity_category, work_category, sponsor, description,
-         unit_price, hours, amount, created_at, updated_at)
-    VALUES
-        (@email, @date, @year, @month, @dow,
-         @team, @activity_category, @work_category, @sponsor, @description,
-         @unit_price, @hours, @amount, CURRENT_TIMESTAMP(), CURRENT_TIMESTAMP())
-    """
+    """業務報告を保存（dry-run: BQ 書き込みせずログのみ）"""
     dow = WEEKDAY_JP[report_date.weekday()]
-    job_config = bigquery.QueryJobConfig(query_parameters=[
-        bigquery.ScalarQueryParameter("email", "STRING", user_email),
-        bigquery.ScalarQueryParameter("date", "DATE", report_date),
-        bigquery.ScalarQueryParameter("year", "INT64", report_date.year),
-        bigquery.ScalarQueryParameter("month", "INT64", report_date.month),
-        bigquery.ScalarQueryParameter("dow", "STRING", dow),
-        bigquery.ScalarQueryParameter("team", "STRING", team),
-        bigquery.ScalarQueryParameter("activity_category", "STRING", activity_category),
-        bigquery.ScalarQueryParameter("work_category", "STRING", work_category),
-        bigquery.ScalarQueryParameter("sponsor", "STRING", sponsor),
-        bigquery.ScalarQueryParameter("description", "STRING", description),
-        bigquery.ScalarQueryParameter("unit_price", "FLOAT64", unit_price),
-        bigquery.ScalarQueryParameter("hours", "FLOAT64", hours),
-        bigquery.ScalarQueryParameter("amount", "FLOAT64", amount),
-    ])
-    client.query(query, job_config=job_config).result()
-    _load_user_gyomu.clear()
+    payload = {
+        "user_email": user_email, "date": report_date.isoformat(),
+        "year": report_date.year, "month": report_date.month, "day_of_week": dow,
+        "team": team, "activity_category": activity_category,
+        "work_category": work_category, "sponsor": sponsor, "description": description,
+        "unit_price": unit_price, "hours": hours, "amount": amount,
+    }
+    logger.info("[DRY-RUN] _save_gyomu would MERGE into %s: %s", APP_GYOMU_TABLE, payload)
 
 
 def _save_hojo(user_email: str, year: int, month: int,
                hours: float, compensation: float, dx_subsidy: float,
                reimbursement: float, total_amount: float,
                monthly_complete: bool, dx_receipt: str, expense_receipt: str):
-    """補助報告を保存（MERGE）"""
-    client = get_bq_client()
-    query = f"""
-    MERGE `{APP_HOJO_TABLE}` T
-    USING (SELECT @email AS user_email, @year AS year, @month AS month) S
-    ON T.user_email = S.user_email AND T.year = S.year AND T.month = S.month
-    WHEN MATCHED THEN UPDATE SET
-        hours = @hours, compensation = @compensation,
-        dx_subsidy = @dx_subsidy, reimbursement = @reimbursement,
-        total_amount = @total_amount, monthly_complete = @monthly_complete,
-        dx_receipt = @dx_receipt, expense_receipt = @expense_receipt,
-        updated_at = CURRENT_TIMESTAMP()
-    WHEN NOT MATCHED THEN INSERT
-        (user_email, year, month, hours, compensation, dx_subsidy,
-         reimbursement, total_amount, monthly_complete,
-         dx_receipt, expense_receipt, created_at, updated_at)
-    VALUES
-        (@email, @year, @month, @hours, @compensation, @dx_subsidy,
-         @reimbursement, @total_amount, @monthly_complete,
-         @dx_receipt, @expense_receipt, CURRENT_TIMESTAMP(), CURRENT_TIMESTAMP())
-    """
-    job_config = bigquery.QueryJobConfig(query_parameters=[
-        bigquery.ScalarQueryParameter("email", "STRING", user_email),
-        bigquery.ScalarQueryParameter("year", "INT64", year),
-        bigquery.ScalarQueryParameter("month", "INT64", month),
-        bigquery.ScalarQueryParameter("hours", "FLOAT64", hours),
-        bigquery.ScalarQueryParameter("compensation", "FLOAT64", compensation),
-        bigquery.ScalarQueryParameter("dx_subsidy", "FLOAT64", dx_subsidy),
-        bigquery.ScalarQueryParameter("reimbursement", "FLOAT64", reimbursement),
-        bigquery.ScalarQueryParameter("total_amount", "FLOAT64", total_amount),
-        bigquery.ScalarQueryParameter("monthly_complete", "BOOL", monthly_complete),
-        bigquery.ScalarQueryParameter("dx_receipt", "STRING", dx_receipt),
-        bigquery.ScalarQueryParameter("expense_receipt", "STRING", expense_receipt),
-    ])
-    client.query(query, job_config=job_config).result()
-    _load_user_hojo.clear()
+    """補助報告を保存（dry-run: BQ 書き込みせずログのみ）"""
+    payload = {
+        "user_email": user_email, "year": year, "month": month,
+        "hours": hours, "compensation": compensation,
+        "dx_subsidy": dx_subsidy, "reimbursement": reimbursement,
+        "total_amount": total_amount, "monthly_complete": monthly_complete,
+        "dx_receipt": dx_receipt, "expense_receipt": expense_receipt,
+    }
+    logger.info("[DRY-RUN] _save_hojo would MERGE into %s: %s", APP_HOJO_TABLE, payload)
 
 
 def _delete_gyomu(user_email: str, report_date: date,
                   work_category: str, description: str):
-    """業務報告を削除（UI側の削除ボタンは今後実装予定）"""
-    client = get_bq_client()
-    query = f"""
-    DELETE FROM `{APP_GYOMU_TABLE}`
-    WHERE user_email = @email AND date = @date
-      AND work_category = @work_category AND description = @description
-    """
-    job_config = bigquery.QueryJobConfig(query_parameters=[
-        bigquery.ScalarQueryParameter("email", "STRING", user_email),
-        bigquery.ScalarQueryParameter("date", "DATE", report_date),
-        bigquery.ScalarQueryParameter("work_category", "STRING", work_category),
-        bigquery.ScalarQueryParameter("description", "STRING", description),
-    ])
-    client.query(query, job_config=job_config).result()
-    _load_user_gyomu.clear()
+    """業務報告を削除（dry-run: BQ 書き込みせずログのみ）"""
+    payload = {
+        "user_email": user_email, "date": report_date.isoformat(),
+        "work_category": work_category, "description": description,
+    }
+    logger.info("[DRY-RUN] _delete_gyomu would DELETE from %s: %s", APP_GYOMU_TABLE, payload)
 
 
 # ====================================================================
@@ -405,11 +344,10 @@ with tab_gyomu:
                 try:
                     _save_gyomu(email, report_date, sel_team, sel_ac, sel_wc,
                                 sel_sp, description.strip(), unit_price, hours_val, amount)
-                    st.toast("業務報告を保存しました")
-                    st.rerun()
+                    st.toast("(dry-run) 入力値を受理しました。DB には保存していません。", icon="🧪")
                 except Exception as exc:
-                    logger.error("業務報告保存失敗: %s", exc, exc_info=True)
-                    st.error(f"保存に失敗しました: {exc}")
+                    logger.error("業務報告 dry-run 処理失敗: %s", exc, exc_info=True)
+                    st.error(f"処理に失敗しました: {exc}")
 
     # --- 入力済みデータ一覧 ---
     st.divider()
@@ -492,8 +430,7 @@ with tab_hojo:
                 _save_hojo(email, selected_year, selected_month,
                            h_hours, h_compensation, h_dx, h_reimb, h_total,
                            h_complete, h_dx_receipt.strip(), h_exp_receipt.strip())
-                st.toast("補助報告を保存しました")
-                st.rerun()
+                st.toast("(dry-run) 入力値を受理しました。DB には保存していません。", icon="🧪")
             except Exception as exc:
-                logger.error("補助報告保存失敗: %s", exc, exc_info=True)
-                st.error(f"保存に失敗しました: {exc}")
+                logger.error("補助報告 dry-run 処理失敗: %s", exc, exc_info=True)
+                st.error(f"処理に失敗しました: {exc}")
