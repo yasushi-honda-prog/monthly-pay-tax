@@ -1,7 +1,7 @@
-"""報告入力（業務報告・補助報告のアプリ入力プロトタイプ）
+"""（仮）報告入力（UI 提案ドラフト / admin 限定プレビュー）
 
-メンバーが直接ダッシュボードから業務報告（日次）・補助報告（月次）を入力する。
-データはCollector管理テーブルとは独立したapp_*テーブルに保存。
+業務報告（日次）・補助報告（月次）の UI プロトタイプ。
+現状はドラフト位置づけで、DB への保存は接続されていない（admin 内部レビュー用）。
 """
 
 import logging
@@ -11,20 +11,21 @@ import pandas as pd
 import streamlit as st
 from google.cloud import bigquery
 
-from lib.auth import require_user
+from lib.auth import require_admin
 from lib.bq_client import get_bq_client
 from lib.constants import APP_GYOMU_TABLE, APP_HOJO_TABLE
 from lib.ui_helpers import render_sidebar_year_month
 
 logger = logging.getLogger(__name__)
 
-# --- 認証チェック ---
+# --- 認証チェック（admin 限定: UI 提案ドラフトのため） ---
 email = st.session_state.get("user_email", "")
 role = st.session_state.get("user_role", "")
-require_user(email, role)
+require_admin(email, role)
 
-st.header("報告入力")
-st.caption("業務報告（日次）・補助報告（月次）を入力します")
+st.header("(仮) 報告入力")
+st.caption("UI 提案ドラフト（admin プレビュー）｜ 業務報告（日次）・補助報告（月次）")
+st.warning("このページは UI 提案のドラフトです。保存先 DB はまだ接続されていません。", icon=":material/info:")
 
 WEEKDAY_JP = ["月", "火", "水", "木", "金", "土", "日"]
 

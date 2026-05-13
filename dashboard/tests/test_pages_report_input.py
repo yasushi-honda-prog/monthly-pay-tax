@@ -13,21 +13,21 @@ sys.path.insert(0, str(dashboard_dir))
 
 
 @pytest.fixture
-def mock_auth_require_user():
-    """auth.require_user() のモック"""
-    with patch("lib.auth.require_user", return_value=None) as mock_fn:
+def mock_auth_require_admin():
+    """auth.require_admin() のモック"""
+    with patch("lib.auth.require_admin", return_value=None) as mock_fn:
         yield mock_fn
 
 
 @pytest.fixture
-def module_under_test(mock_streamlit, mock_auth_require_user):
+def module_under_test(mock_streamlit, mock_auth_require_admin):
     """report_input モジュールを動的にインポート"""
     if "pages.report_input" in sys.modules:
         del sys.modules["pages.report_input"]
 
     import importlib
 
-    mock_streamlit.session_state = {"user_email": "test@tadakayo.jp", "user_role": "user"}
+    mock_streamlit.session_state = {"user_email": "test@tadakayo.jp", "user_role": "admin"}
 
     with patch("lib.bq_client.get_bq_client") as mock_get_bq:
         mock_client = MagicMock()
@@ -195,12 +195,12 @@ class TestDeleteGyomu:
 class TestModuleImport:
     """モジュールインポートのテスト"""
 
-    def test_require_user_called(self, mock_streamlit, mock_auth_require_user):
-        """require_user()がモジュールロード時に呼ばれる"""
+    def test_require_admin_called(self, mock_streamlit, mock_auth_require_admin):
+        """require_admin()がモジュールロード時に呼ばれる（admin 限定ドラフトのため）"""
         if "pages.report_input" in sys.modules:
             del sys.modules["pages.report_input"]
 
-        mock_streamlit.session_state = {"user_email": "test@tadakayo.jp", "user_role": "user"}
+        mock_streamlit.session_state = {"user_email": "test@tadakayo.jp", "user_role": "admin"}
 
         with patch("lib.bq_client.get_bq_client") as mock_get_bq:
             mock_client = MagicMock()
@@ -213,4 +213,4 @@ class TestModuleImport:
             import importlib
             importlib.import_module("pages.report_input")
 
-        mock_auth_require_user.assert_called_once()
+        mock_auth_require_admin.assert_called_once()
