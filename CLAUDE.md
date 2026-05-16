@@ -32,11 +32,11 @@ SA鍵ファイルは使わない（ローカル開発時のみ `SA_KEY_PATH` 環
 ## ディレクトリ構成
 
 - `cloud-run/` - Cloud Runアプリケーション（本体）
-  - `main.py` - Flaskエントリポイント（`POST /` バッチ実行 Step1-7、`POST /update-groups`、`GET /health`）
+  - `main.py` - Flaskエントリポイント（`POST /` バッチ実行 Step1-7、`POST /update-groups`、`POST /sync/main-reports`（Step1-3手動同期）、`POST /sync/reimbursement`（Step6手動同期）、`POST /sync/member-master`（Step7手動同期）、`GET /health`）
   - `sheets_collector.py` - Sheets API経由のデータ収集（DWD認証含む、立替金シート・タダメンMマスタ収集）
   - `bq_loader.py` - BigQueryへのデータロード（pandas DataFrame経由）
   - `config.py` - GCPプロジェクトID、BQテーブル名、マスタスプレッドシートID等の設定値
-  - `tests/` - ユニットテスト（63テスト: Sheets APIスロットリング、グループ一覧、dashboard_users同期、グループ自動同期 ON/OFF、立替金シート収集、タダメンM収集）
+  - `tests/` - ユニットテスト（70テスト: Sheets APIスロットリング、グループ一覧、dashboard_users同期、グループ自動同期 ON/OFF、立替金シート収集、タダメンM収集、手動同期エンドポイント）
 - `dashboard/` - Streamlitダッシュボード（マルチページ構成）
   - `app.py` - エントリポイント（認証 + st.navigation ルーター）
   - `_pages/dashboard.py` - 5タブ（月別報酬サマリー/スポンサー別業務委託費/業務報告一覧/グループ別/業務委託費分析）
@@ -46,7 +46,7 @@ SA鍵ファイルは使わない（ローカル開発時のみ `SA_KEY_PATH` 環
   - `_pages/architecture.py` - Mermaidアーキテクチャ図
   - `_pages/operations_docs.py` - 運用ドキュメント（`docs/operations/*.md` を frontmatter解析 + Mermaid自動レンダリング）
   - `_pages/user_management.py` - ユーザー管理（admin専用、BQ DML）
-  - `_pages/admin_settings.py` - 管理設定（admin専用）
+  - `_pages/admin_settings.py` - 管理設定（admin専用、キャッシュ制御 / BQテーブル情報 / 手動同期ボタン4種（メイン報告 / 立替金 / タダメンM / グループ情報）/ ユーザー統計 / システム情報）
   - `_pages/help.py` - ヘルプ/マニュアル
   - `lib/auth.py` - Streamlit OIDC認証 + BQホワイトリスト照合
   - `lib/bq_client.py` - 共有BQクライアント
@@ -55,6 +55,7 @@ SA鍵ファイルは使わない（ローカル開発時のみ `SA_KEY_PATH` 環
   - `lib/constants.py` - 定数
   - `lib/mermaid_renderer.py` - Mermaid図レンダリング共通モジュール（dark/lightテーマ対応）
   - `lib/ui_helpers.py` - 共通UIユーティリティ（KPI表示・数値変換・年月セレクタ）
+  - `lib/cloud_run_client.py` - pay-collector への OIDC 認証付き呼び出しヘルパ（admin_settings の手動同期ボタンから利用）
 - `docs/operations/` - 運用ドキュメント（業務報告シート構造変更等の記録、Markdown + frontmatter + Mermaid。dashboardの「運用ドキュメント」ページから閲覧可能）
 - `コード.js` - 旧GASコード（参照用、稼働していない）
 - `infra/bigquery/schema.sql` - BQテーブルスキーマ定義（dashboard_users, check_logs含む）
@@ -66,10 +67,10 @@ SA鍵ファイルは使わない（ローカル開発時のみ `SA_KEY_PATH` 環
 ## テスト
 
 ```bash
-# Dashboard テスト（330テスト）— プロジェクトルートから実行可能
+# Dashboard テスト（333テスト）— プロジェクトルートから実行可能
 python3 -m pytest dashboard/tests/ -q
 
-# Cloud Run テスト（63テスト）— プロジェクトルートから実行可能
+# Cloud Run テスト（70テスト）— プロジェクトルートから実行可能
 python3 -m pytest cloud-run/tests/ -q
 
 # 全テスト一括
@@ -113,14 +114,36 @@ gcloud run deploy pay-collector \
 gcloud builds submit --tag asia-northeast1-docker.pkg.dev/monthly-pay-tax/cloud-run-images/pay-dashboard
 gcloud run deploy pay-dashboard \
   --image asia-northeast1-docker.pkg.dev/monthly-pay-tax/cloud-run-images/pay-dashboard \
-  --platform managed --region asia-northeast1 --memory 512Mi \
+  --platform managed --region asia-northeast1 --memory 512Mi --timeout 900 \
   --no-cpu-throttling --max-instances 3 \
   --allow-unauthenticated
 ```
 
 - Collector: メモリ2GiB必須（190件巡回で512MBはOOM）。gunicornは1worker/1thread/1800sタイムアウト。
-- Dashboard: 512MiB。`--no-allow-unauthenticated` にするとブラウザから403になるので注意。
+- Dashboard: 512MiB / `--timeout 900`（管理画面の手動同期 `/sync/main-reports` 約4分待機対応）。`--no-allow-unauthenticated` にするとブラウザから403になるので注意。
 - 両サービスとも ADR-0004 で `--no-cpu-throttling --max-instances 3` 適用。
+
+### 手動同期エンドポイント（admin 画面から呼び出し）
+
+CI 自動デプロイ後、`pay-dashboard` の admin 画面「手動同期」セクションから以下の Cloud Run エンドポイントを呼び出せる:
+
+| ボタン | エンドポイント | 想定所要時間 | 対象テーブル |
+|---|---|---|---|
+| メイン報告 | `POST /sync/main-reports` | 約 4 分 | gyomu_reports / hojo_reports / members |
+| 立替金 | `POST /sync/reimbursement` | 約 1 分 | reimbursement_items |
+| タダメンM | `POST /sync/member-master` | 数十秒 | member_master |
+| グループ情報 | `POST /update-groups`（既存） | 約 2 分 | members / groups_master / dashboard_users |
+
+**IAM 権限**: dashboard / pay-collector は共通の `pay-collector@` SA で動作するため、SA 自身に `roles/run.invoker` 付与が必須:
+
+```bash
+gcloud run services add-iam-policy-binding pay-collector \
+  --member="serviceAccount:pay-collector@monthly-pay-tax.iam.gserviceaccount.com" \
+  --role="roles/run.invoker" \
+  --region=asia-northeast1 --project=monthly-pay-tax
+```
+
+実装は WRITE_TRUNCATE で毎朝バッチと同じ。同時実行ロックは設けていない（朝6時バッチと手動操作の時間帯衝突は実運用上稀、WRITE_TRUNCATE で最新が勝つ前提）。
 
 ### ロールバック
 

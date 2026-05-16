@@ -86,12 +86,14 @@ jobs:
       - name: Deploy to Cloud Run
         # ADR-0004: --no-cpu-throttling --max-instances=3 を明示（dashboard も適用済み）
         # runtime SA は pay-collector を流用（dashboard / collector 共通）
+        # --timeout 900: 管理画面の手動同期で /sync/main-reports (~4 分) を待機するため
         run: |
           gcloud run deploy pay-dashboard \
             --image "${{ vars.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/cloud-run-images/pay-dashboard" \
             --platform managed \
             --region "${{ vars.GCP_REGION }}" \
             --memory 512Mi \
+            --timeout 900 \
             --no-cpu-throttling \
             --max-instances 3 \
             --allow-unauthenticated \
