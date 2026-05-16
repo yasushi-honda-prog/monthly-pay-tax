@@ -58,6 +58,7 @@ checker_pages = [
 
 utility_pages = [
     st.Page("_pages/architecture.py", title="アーキテクチャ", icon=":material/account_tree:"),
+    st.Page("_pages/operations_docs.py", title="運用ドキュメント", icon=":material/menu_book:"),
     st.Page("_pages/help.py", title="ヘルプ", icon=":material/help_outline:"),
 ]
 
