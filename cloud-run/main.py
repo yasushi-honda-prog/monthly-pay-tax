@@ -196,6 +196,112 @@ def update_groups():
         return jsonify({"status": "error", "message": str(e)}), 500
 
 
+@app.route("/sync/main-reports", methods=["POST"])
+def sync_main_reports():
+    """Step 1-4 の手動同期: 業務報告 / 補助報告 / メンバー (グループ情報復元込み)
+
+    Dashboard 管理画面の「メイン報告を同期」ボタンから呼び出す。
+    Step 1-3 (run_collection) は members.groups を空文字で埋めるため、
+    続けて Step 4 (update_member_groups_from_bq) で復元しないと
+    dashboard のグループ別表示が壊れる。
+    約 330 秒 (217 秒 + 120 秒)。WRITE_TRUNCATE で全件置換。
+    """
+    start = time.time()
+    logger.info("--- 手動同期: メイン報告 開始 ---")
+    try:
+        # Step 1-3: 業務報告 / 補助報告 / メンバー (groups 空) を BQ へ
+        all_data = sheets_collector.run_collection()
+        results = bq_loader.load_all(all_data)
+
+        # Step 4: members.groups を Admin SDK で復元 + groups_master 更新
+        logger.info("--- 手動同期: メイン報告 グループ情報復元 ---")
+        updated_members, groups_master = sheets_collector.update_member_groups_from_bq()
+        results[bq_loader.config.BQ_TABLE_MEMBERS] = bq_loader.load_to_bigquery(
+            bq_loader.config.BQ_TABLE_MEMBERS, updated_members
+        )
+        results[bq_loader.config.BQ_TABLE_GROUPS_MASTER] = bq_loader.load_to_bigquery(
+            bq_loader.config.BQ_TABLE_GROUPS_MASTER, groups_master
+        )
+
+        elapsed = round(time.time() - start, 1)
+        summary = {
+            "status": "success",
+            "endpoint": "/sync/main-reports",
+            "elapsed_seconds": elapsed,
+            "tables": results,
+        }
+        logger.info("--- 手動同期: メイン報告 完了 (%s秒) ---", elapsed)
+        return jsonify(summary), 200
+    except Exception as e:
+        elapsed = round(time.time() - start, 1)
+        logger.error("手動同期: メイン報告 エラー (%s秒): %s", elapsed, e, exc_info=True)
+        return jsonify({
+            "status": "error",
+            "endpoint": "/sync/main-reports",
+            "elapsed_seconds": elapsed,
+            "message": str(e),
+        }), 500
+
+
+@app.route("/sync/reimbursement", methods=["POST"])
+def sync_reimbursement():
+    """Step 6 の手動同期: 立替金シート"""
+    start = time.time()
+    logger.info("--- 手動同期: 立替金 開始 ---")
+    try:
+        reimbursement_data = sheets_collector.run_reimbursement_collection()
+        results = bq_loader.load_all(reimbursement_data)
+        elapsed = round(time.time() - start, 1)
+        summary = {
+            "status": "success",
+            "endpoint": "/sync/reimbursement",
+            "elapsed_seconds": elapsed,
+            "tables": results,
+        }
+        logger.info("--- 手動同期: 立替金 完了 (%s秒) ---", elapsed)
+        return jsonify(summary), 200
+    except Exception as e:
+        elapsed = round(time.time() - start, 1)
+        logger.error("手動同期: 立替金 エラー (%s秒): %s", elapsed, e, exc_info=True)
+        return jsonify({
+            "status": "error",
+            "endpoint": "/sync/reimbursement",
+            "elapsed_seconds": elapsed,
+            "message": str(e),
+        }), 500
+
+
+@app.route("/sync/member-master", methods=["POST"])
+def sync_member_master():
+    """Step 7 の手動同期: タダメンMマスタ"""
+    start = time.time()
+    logger.info("--- 手動同期: タダメンM 開始 ---")
+    try:
+        service = sheets_collector._build_sheets_service()
+        member_master_data = sheets_collector.collect_member_master(service)
+        count = bq_loader.load_to_bigquery(
+            bq_loader.config.BQ_TABLE_MEMBER_MASTER, member_master_data
+        )
+        elapsed = round(time.time() - start, 1)
+        summary = {
+            "status": "success",
+            "endpoint": "/sync/member-master",
+            "elapsed_seconds": elapsed,
+            "tables": {bq_loader.config.BQ_TABLE_MEMBER_MASTER: count},
+        }
+        logger.info("--- 手動同期: タダメンM 完了 (%s秒) ---", elapsed)
+        return jsonify(summary), 200
+    except Exception as e:
+        elapsed = round(time.time() - start, 1)
+        logger.error("手動同期: タダメンM エラー (%s秒): %s", elapsed, e, exc_info=True)
+        return jsonify({
+            "status": "error",
+            "endpoint": "/sync/member-master",
+            "elapsed_seconds": elapsed,
+            "message": str(e),
+        }), 500
+
+
 @app.route("/health", methods=["GET"])
 def health():
     """ヘルスチェック"""

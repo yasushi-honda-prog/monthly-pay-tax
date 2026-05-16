@@ -9,6 +9,7 @@ JST = timezone(timedelta(hours=9))
 
 from lib.auth import require_admin, clear_role_cache
 from lib.bq_client import get_bq_client, load_data
+from lib.cloud_run_client import invoke_collector
 from lib.constants import PROJECT_ID, DATASET, USERS_TABLE
 
 # --- 認証チェック ---
@@ -98,6 +99,43 @@ try:
         st.info("登録ユーザーがいません")
 except Exception as e:
     st.error(f"ユーザー統計の取得に失敗しました: {e}")
+
+
+# === 手動同期 ===
+st.subheader("手動同期")
+st.markdown(
+    "Cloud Run pay-collector を直接呼び出して BigQuery を今すぐ最新化します。"
+    "通常は毎朝 6 時のバッチで自動更新されます。同期完了後、上の「BigQuery テーブル情報」をリロードすると最終更新時刻を確認できます。"
+)
+st.warning(
+    "「メイン報告」は約 5.5 分かかります（Step 1-3 + グループ情報復元）。"
+    "同期中はタブを閉じず、他のボタンも押さないでください。"
+)
+
+_SYNC_BUTTONS = [
+    ("メイン報告（業務 / 補助 / メンバー + グループ）", "/sync/main-reports", "main_reports", "約 5.5 分"),
+    ("立替金シート", "/sync/reimbursement", "reimbursement", "約 1 分"),
+    ("タダメンMマスタ", "/sync/member-master", "member_master", "数十秒"),
+    ("グループ情報のみ（dashboard_users 含む）", "/update-groups", "groups", "約 2 分"),
+]
+
+for label, endpoint, btn_key, eta in _SYNC_BUTTONS:
+    btn_col, eta_col = st.columns([3, 2])
+    with btn_col:
+        clicked = st.button(label, key=f"sync_btn_{btn_key}", use_container_width=True)
+    with eta_col:
+        st.caption(f"目安: {eta} / endpoint: `{endpoint}`")
+    if clicked:
+        with st.spinner(f"{label} を同期中..."):
+            try:
+                result = invoke_collector(endpoint)
+                elapsed = result.get("elapsed_seconds", "?")
+                # BQ 更新済みデータを dashboard が即座に表示できるよう、データキャッシュをクリア
+                st.cache_data.clear()
+                st.success(f"{label}: 完了（{elapsed} 秒、データキャッシュもクリア済）")
+                st.json(result)
+            except Exception as exc:
+                st.error(f"{label}: 失敗 — {exc}")
 
 
 # === システム情報 ===
