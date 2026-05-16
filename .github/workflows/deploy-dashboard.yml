@@ -66,9 +66,11 @@ jobs:
         # operations_docs ページが /app/docs/operations を参照するため、
         # build context (dashboard/) に docs/operations をコピー。
         # ローカル開発では repo_root/docs/operations を参照（_resolve_docs_dir で両対応）。
+        # 冪等性確保: 既存 dashboard/docs/operations を事前に削除（再 build や self-hosted runner 対策）
         run: |
+          rm -rf docs/operations
           mkdir -p docs
-          cp -r ../docs/operations docs/operations
+          cp -R ../docs/operations docs/operations
 
       - name: Cloud Build (Docker push to Artifact Registry)
         # --default-buckets-behavior=REGIONAL_USER_OWNED_BUCKET:

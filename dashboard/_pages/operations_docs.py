@@ -55,8 +55,12 @@ class DocEntry:
 def _parse_frontmatter(text: str) -> tuple[dict, str]:
     """Markdown 先頭の YAML frontmatter を解析し、(meta, body) を返す。
 
-    YAML パーサ非依存の軽量実装。`key: value` 形式のみ対応。
-    リスト値は `[a, b, c]` または角括弧なしのカンマ区切りを許容。
+    YAML パーサ非依存の軽量実装。対応形式は以下に限定:
+    - スカラー値: `key: value`（quoted不可、インラインコメント不可、複数行不可）
+    - リスト値: `key: [a, b, c]` 形式のみ（角括弧なしカンマ区切り・ブロックリスト非対応）
+
+    上記以外の YAML 機能が必要になった場合は PyYAML 導入を検討。
+    フォーマット仕様は docs/operations/README.md に記載。
     """
     match = FRONTMATTER_RE.match(text)
     if not match:
