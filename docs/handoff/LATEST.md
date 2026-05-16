@@ -1,11 +1,80 @@
 # ハンドオフメモ - monthly-pay-tax
 
-**更新日**: 2026-05-16（PR #139 マージ完了 + 運用ドキュメント基盤導入 + 業務報告シート「活動分類」rename 計画書配置）
-**フェーズ**: WAM助成金対応 **技術側完了** + **CI/CD 自動デプロイ稼働中** + **管理機能拡充フェーズ完了** + **報告入力 UI ドラフト整備** + **運用ドキュメント基盤稼働**
-**最新デプロイ**: PR #139 (89ec1ca) Dashboard デプロイ完了（2026-05-16 14:18 UTC、リビジョン `pay-dashboard-00256-gwh`）
-**Cloud Run設定**: 2026-04-07 `--no-cpu-throttling --max-instances=3` 適用済み（ADR 0004 / 効果測定 2026-05-03 追記）
+**更新日**: 2026-05-17（PR #141 マージ完了 + admin 画面手動同期ボタン実装 + IAM 記述訂正 + rename 手順書圧縮）
+**フェーズ**: WAM助成金対応 **技術側完了** + **CI/CD 自動デプロイ稼働中** + **管理機能拡充フェーズ完了** + **報告入力 UI ドラフト整備** + **運用ドキュメント基盤稼働** + **手動同期 UI 稼働**
+**最新デプロイ**: PR #141 (9c4b72c) Dashboard / Collector 両 deploy 完了（2026-05-16 22:41 UTC + 22:42 UTC）+ PR #143 (1fff689) Deploy Dashboard 実行中（2026-05-16 23:36 UTC）
+**Cloud Run設定**: 2026-04-07 `--no-cpu-throttling --max-instances=3` 適用済み（ADR 0004 / 効果測定 2026-05-03 追記）+ pay-dashboard は PR #141 で `--timeout 900` 適用
 **CI/CD**: ADR-0006、main push + パスフィルタで自動デプロイ、deploy 内に test gate 配置（PR #126）。`docs/operations/**` を paths trigger に追加（PR #139）
-**テストスイート**: Dashboard **333** + Cloud Run **63** = **396テスト全PASS**（CI 上でも自動実行）
+**テストスイート**: Dashboard **333** + Cloud Run **70** = **403テスト全PASS**（CI 上でも自動実行）
+
+## 🆕 2026-05-17 セッション完了サマリー
+
+| PR | 内容 | マージ | 備考 |
+|----|------|--------|------|
+| #141 | admin 画面に手動同期ボタン (4 種) + Cloud Run /sync/* 3 endpoint + OIDC ヘルパ + dashboard `--timeout 900` | 9c4b72c | Cloud Run tests +7 件 (63→70)、Codex review High 指摘反映 |
+| #142 | CLAUDE.md の IAM 設定を「既存環境で付与済」に明示 | 02cd7e9 | 訂正 PR、新規環境構築時のみ実行する手順として整理 |
+| #143 | 活動分類 rename 手順書から重複セクション 4.3 を削除 | 1fff689 | 4.2 表に Playwright 行 1 行追加 + 4.3 (11 行) 削除、情報集約 |
+
+### Connected Sheets 連携の入口整備
+- ユーザーが `v_monthly_compensation` を Google Sheets の「データコネクタ → BigQuery」で接続成功 → BQ VIEW を Sheets に出す導線が完成
+- これに合わせて「BQ 側を今すぐ最新化したい」ニーズに応える手動同期ボタンを admin 画面に追加（PR #141）
+
+### 追加された手動同期エンドポイント（pay-collector）
+
+| ボタン | エンドポイント | 想定所要時間 | 対象テーブル |
+|---|---|---|---|
+| メイン報告 | `POST /sync/main-reports` | 約 5.5 分 | gyomu_reports / hojo_reports / members / groups_master（Step 1-3 + Step 4 グループ情報復元込み） |
+| 立替金 | `POST /sync/reimbursement` | 約 1 分 | reimbursement_items |
+| タダメンM | `POST /sync/member-master` | 数十秒 | member_master |
+| グループ情報のみ | `POST /update-groups`（既存） | 約 2 分 | members / groups_master / dashboard_users |
+
+実装は WRITE_TRUNCATE（既存パターン踏襲）、同時実行ロックなし、実行履歴永続化なし。dashboard / pay-collector は共通 SA `pay-collector@` で動作する self-invoke 構成。
+
+### Codex review 経由で発見・修正した設計欠陥（PR #141 内）
+**High**: `/sync/main-reports` が `run_collection()` だけ呼ぶと `members.groups` が空文字で WRITE_TRUNCATE される（通常バッチ POST / は直後の Step 4 で復元している前提が単独 endpoint では崩れる）→ ダッシュボードのグループ別表示が壊れる。修正: `sync_main_reports` 内で続けて `update_member_groups_from_bq()` を呼ぶよう変更、所要時間 4 分 → 5.5 分に再設定。
+
+**Medium 反映**: 同期成功直後に `st.cache_data.clear()` を呼ぶ（BQ 更新済みでも dashboard が最大 1 時間古いまま見える問題を解消）。
+**Medium 見送り**: `bq_loader.load_all()` の `-1` failure をエラー扱いにする partial_error 検知ロジックは「無理のない範囲」で見送り。
+**Low 反映**: 関数外途中 import (`# noqa: E402`) を先頭の import 群に移動。
+
+### IAM 既付与の確認（PR #142 の経緯）
+PR #141 description / CLAUDE.md で「`pay-collector@` SA に `roles/run.invoker` 付与必須」と記載したが、`gcloud run services get-iam-policy` で確認したところ **既に付与済**（既存 `check_management.py` の self-invoke 用途で過去に付与）。CLAUDE.md を「新規環境構築時のみ実行」記述に訂正 + 確認コマンド追加（PR #142）。
+
+教訓を global memory に記録: `feedback_iam_state_check_before_declare.md`
+- IAM 等の運用変更を「必須」と書く前に既存状態を確認する
+- ユーザー明示指示の revocable 運用変更 (IAM 追加等) は AI executor で実行する（decision-maker 領分を過剰に拡大解釈しない）
+
+### 設計判断ログ（Codex セカンドオピニオン 2 回経由で合意）
+| 判断 | 採用理由 |
+|---|---|
+| 同時実行ロックなし | 朝 6 時バッチと手動操作の時間帯衝突は実運用上稀、WRITE_TRUNCATE で「最新が勝つ」前提を許容 |
+| 実行履歴永続化なし | BQ `ingested_at` + テーブルメタデータ `modified` で代替（既存「BQ テーブル情報」セクションで表示済） |
+| dashboard 側テスト省略 | 運用 2 名で手動 UI 検証即気付ける、過剰実装回避 |
+| pay-dashboard 専用 SA 分離 | Phase 1 では self-invoke 採用、`cloud_run_client.py` に TODO 残し |
+| メンバー単位の部分更新 | WRITE_TRUNCATE 設計のため別 PR で要件確定後に着手（Phase 3 候補） |
+| Cloud Tasks / 202 accepted 非同期化 | Phase 2 候補（実行履歴永続化が必要になった時点で検討） |
+
+### Issue 変化（Net 0）
+- Close: 0 件
+- 起票: 0 件
+- Net: **0 件**
+
+**理由言語化**: 今セッションはユーザー要望「無理のない範囲で機能追加」「過剰実装回避」を主軸とし、CLAUDE.md triage 基準（実害/再現バグ/CI破壊/rating≥7/明示指示）に該当する事象なし。Codex review の Medium 指摘 (`-1` failure 検知) も「無理のない範囲」で PR コメント記録に留めた。既存 Open Issue (#94 / #58 / #54) は前提条件未満（GCP 課金権限取得 / 外部ツール所在確認 / Phase 0 回答受領）のため着手不可。質的な進展は ① 機能追加 PR 1 件 ② doc 整備 PR 2 件 ③ memory 学習記録 1 件 ④ 既存テスト 7 件追加、累計 403 件全 PASS。
+
+### 動作確認まち（ユーザー側）
+1. admin で `pay-dashboard` の「管理設定」→「手動同期」セクション表示確認（4 ボタン + eta caption）
+2. 「タダメンMマスタ」ボタン押下（影響最小、数十秒）→ spinner → 「完了（X 秒、データキャッシュもクリア済）」+ JSON 表示
+3. 「BigQuery テーブル情報」セクションをリロード → `member_master` の「最終更新」が直近 JST に更新
+4. 余裕があれば「メイン報告」ボタン（約 5.5 分）を朝バッチと衝突しない時刻に 1 回試行
+5. PR #143 反映確認（運用ドキュメントページの活動分類 rename 計画書、4.2 表に Playwright 行があり 4.3 セクションが消えている）
+
+### 軽微な保守メモ（前セッションから持ち越し、別 PR スコープ）
+- Node.js 20 deprecation 警告（actions/checkout@v4 等、2026-06-02 以降強制 v24）→ workflow メンテで一括対応
+- `html.escape(code)` 対応（mermaid_renderer + architecture.py 全体整合）
+- selectbox の同名重複対策（`format_func` で DocEntry 直接渡し）
+- dashboard UI の DML 例外ハンドリング統一（PR #132 review I1+I2、rating 7 相当だが頻度低のため起票見送り TODO）
+- `bq_loader.load_all()` の `-1` failure → partial_error 検知（Codex PR #141 review Medium、運用負荷増えたら検討）
+- pay-dashboard 専用 SA 分離（PR #141 cloud_run_client.py TODO、SA 境界の明確化が必要になったら検討）
 
 ## 🆕 2026-05-16 セッション完了サマリー
 
