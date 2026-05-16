@@ -136,13 +136,21 @@ CI 自動デプロイ後、`pay-dashboard` の admin 画面「手動同期」セ
 
 `/sync/main-reports` で Step 4 を呼ぶ理由: `run_collection()` は `members.groups` 列を空文字で埋めて WRITE_TRUNCATE するため、続けて `update_member_groups_from_bq()` で復元しないとダッシュボードのグループ別表示が壊れる。通常バッチ `POST /` も同じ順序で Step 1-4 を実行している。
 
-**IAM 権限**: dashboard / pay-collector は共通の `pay-collector@` SA で動作するため、SA 自身に `roles/run.invoker` 付与が必須:
+**IAM 権限**: dashboard / pay-collector は共通の `pay-collector@` SA で動作するため、SA 自身に `roles/run.invoker` 付与が必要。**本番環境では既に付与済**（2026-05-17 確認、既存 `check_management.py` の「データを今すぐ更新する」ボタンが過去に self-invoke していた経緯で付与済）。新規環境構築時のみ以下を実行:
 
 ```bash
 gcloud run services add-iam-policy-binding pay-collector \
   --member="serviceAccount:pay-collector@monthly-pay-tax.iam.gserviceaccount.com" \
   --role="roles/run.invoker" \
   --region=asia-northeast1 --project=monthly-pay-tax
+```
+
+確認コマンド:
+
+```bash
+gcloud run services get-iam-policy pay-collector \
+  --region=asia-northeast1 --project=monthly-pay-tax --format=json
+# → bindings に上記 SA + roles/run.invoker があれば OK
 ```
 
 実装は WRITE_TRUNCATE で毎朝バッチと同じ。同時実行ロックは設けていない（朝6時バッチと手動操作の時間帯衝突は実運用上稀、WRITE_TRUNCATE で最新が勝つ前提）。
