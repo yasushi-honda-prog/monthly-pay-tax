@@ -4,6 +4,8 @@
 .gitconfig.local
 .sa-key.json
 dashboard/.streamlit/secrets.toml
+# deploy 時に workflow が dashboard/docs/operations へコピーするビルド用ディレクトリ
+dashboard/docs/
 __pycache__/
 *.pyc
 .venv/

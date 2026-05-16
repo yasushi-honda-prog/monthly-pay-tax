@@ -44,6 +44,7 @@ SA鍵ファイルは使わない（ローカル開発時のみ `SA_KEY_PATH` 環
   - `_pages/check_management.py` - 業務チェック管理表（checker/admin専用、BQ DML）
   - `_pages/wam_monthly.py` - WAM立替金確認（checker/admin、6タブ: PJ別サマリー/メンバー別明細/領収書添付状況/月別報酬・振込確認/支払明細書PDF/年間支払調書データ。Tab4 振込CSV・Tab5 支払明細書PDF・Tab6 年間支払調書CSVには氏名/口座/住所等の個人情報を含む）
   - `_pages/architecture.py` - Mermaidアーキテクチャ図
+  - `_pages/operations_docs.py` - 運用ドキュメント（`docs/operations/*.md` を frontmatter解析 + Mermaid自動レンダリング）
   - `_pages/user_management.py` - ユーザー管理（admin専用、BQ DML）
   - `_pages/admin_settings.py` - 管理設定（admin専用）
   - `_pages/help.py` - ヘルプ/マニュアル
@@ -52,7 +53,9 @@ SA鍵ファイルは使わない（ローカル開発時のみ `SA_KEY_PATH` 環
   - `lib/receipt_pdf.py` - 支払明細書PDF生成
   - `lib/styles.py` - 共有CSS
   - `lib/constants.py` - 定数
+  - `lib/mermaid_renderer.py` - Mermaid図レンダリング共通モジュール（dark/lightテーマ対応）
   - `lib/ui_helpers.py` - 共通UIユーティリティ（KPI表示・数値変換・年月セレクタ）
+- `docs/operations/` - 運用ドキュメント（業務報告シート構造変更等の記録、Markdown + frontmatter + Mermaid。dashboardの「運用ドキュメント」ページから閲覧可能）
 - `コード.js` - 旧GASコード（参照用、稼働していない）
 - `infra/bigquery/schema.sql` - BQテーブルスキーマ定義（dashboard_users, check_logs含む）
   - `infra/bigquery/views.sql` - BQ VIEW定義（v_gyomu_enriched, v_hojo_enriched, v_monthly_compensation, v_reimbursement_enriched）
@@ -63,10 +66,10 @@ SA鍵ファイルは使わない（ローカル開発時のみ `SA_KEY_PATH` 環
 ## テスト
 
 ```bash
-# Dashboard テスト（252テスト）— プロジェクトルートから実行可能
+# Dashboard テスト（330テスト）— プロジェクトルートから実行可能
 python3 -m pytest dashboard/tests/ -q
 
-# Cloud Run テスト（52テスト）— プロジェクトルートから実行可能
+# Cloud Run テスト（63テスト）— プロジェクトルートから実行可能
 python3 -m pytest cloud-run/tests/ -q
 
 # 全テスト一括
@@ -195,6 +198,7 @@ GASバインドSSのスプレッドシート関数パイプラインをSQLで再
 | 報告入力 | `_pages/report_input.py` | user/checker/admin |
 | 業務チェック | `_pages/check_management.py` | checker/admin |
 | アーキテクチャ | `_pages/architecture.py` | user/checker/admin |
+| 運用ドキュメント | `_pages/operations_docs.py` | user/checker/admin |
 | ヘルプ | `_pages/help.py` | user/checker/admin |
 | WAM立替金確認（6タブ） | `_pages/wam_monthly.py` | checker/admin |
 | ユーザー管理 | `_pages/user_management.py` | adminのみ |
