@@ -129,10 +129,12 @@ CI 自動デプロイ後、`pay-dashboard` の admin 画面「手動同期」セ
 
 | ボタン | エンドポイント | 想定所要時間 | 対象テーブル |
 |---|---|---|---|
-| メイン報告 | `POST /sync/main-reports` | 約 4 分 | gyomu_reports / hojo_reports / members |
+| メイン報告 | `POST /sync/main-reports` | 約 5.5 分 | gyomu_reports / hojo_reports / members / groups_master（Step 1-3 + Step 4 グループ情報復元込み） |
 | 立替金 | `POST /sync/reimbursement` | 約 1 分 | reimbursement_items |
 | タダメンM | `POST /sync/member-master` | 数十秒 | member_master |
-| グループ情報 | `POST /update-groups`（既存） | 約 2 分 | members / groups_master / dashboard_users |
+| グループ情報のみ | `POST /update-groups`（既存） | 約 2 分 | members / groups_master / dashboard_users |
+
+`/sync/main-reports` で Step 4 を呼ぶ理由: `run_collection()` は `members.groups` 列を空文字で埋めて WRITE_TRUNCATE するため、続けて `update_member_groups_from_bq()` で復元しないとダッシュボードのグループ別表示が壊れる。通常バッチ `POST /` も同じ順序で Step 1-4 を実行している。
 
 **IAM 権限**: dashboard / pay-collector は共通の `pay-collector@` SA で動作するため、SA 自身に `roles/run.invoker` 付与が必須:
 

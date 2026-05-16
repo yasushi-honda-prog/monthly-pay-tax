@@ -18,17 +18,26 @@ def client():
 
 
 class TestSyncMainReports:
-    """POST /sync/main-reports"""
+    """POST /sync/main-reports (Step 1-4: collection + group restore)"""
 
     @patch("main.bq_loader")
     @patch("main.sheets_collector")
     def test_success(self, mock_sheets, mock_bq, client):
+        # Step 1-3
         mock_sheets.run_collection.return_value = {"gyomu_reports": [["r1"]]}
         mock_bq.load_all.return_value = {
             "gyomu_reports": 100,
             "hojo_reports": 50,
             "members": 60,
         }
+        # Step 4: groups 復元
+        mock_sheets.update_member_groups_from_bq.return_value = (
+            [["m1"]],  # updated_members
+            [["g@x.com", "G"]],  # groups_master
+        )
+        mock_bq.load_to_bigquery.return_value = 60
+        mock_bq.config.BQ_TABLE_MEMBERS = "members"
+        mock_bq.config.BQ_TABLE_GROUPS_MASTER = "groups_master"
 
         response = client.post("/sync/main-reports")
 
@@ -37,6 +46,10 @@ class TestSyncMainReports:
         assert payload["status"] == "success"
         assert payload["endpoint"] == "/sync/main-reports"
         assert payload["tables"]["gyomu_reports"] == 100
+        # Step 4 で members と groups_master が更新されている
+        assert payload["tables"]["members"] == 60
+        assert payload["tables"]["groups_master"] == 60
+        mock_sheets.update_member_groups_from_bq.assert_called_once()
         assert "elapsed_seconds" in payload
 
     @patch("main.sheets_collector")
