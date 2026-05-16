@@ -1,11 +1,54 @@
 # ハンドオフメモ - monthly-pay-tax
 
-**更新日**: 2026-05-13（PR #135/#136/#137 マージ完了 + Issue #93 close + 報告入力 UI ドラフト整備）
-**フェーズ**: WAM助成金対応 **技術側完了** + **CI/CD 自動デプロイ稼働中** + **管理機能拡充フェーズ完了** + **報告入力 UI ドラフト整備**
-**最新デプロイ**: PR #137 (a080907) の Dashboard デプロイ進行中（2026-05-13 13:10 UTC〜）
+**更新日**: 2026-05-16（PR #139 マージ完了 + 運用ドキュメント基盤導入 + 業務報告シート「活動分類」rename 計画書配置）
+**フェーズ**: WAM助成金対応 **技術側完了** + **CI/CD 自動デプロイ稼働中** + **管理機能拡充フェーズ完了** + **報告入力 UI ドラフト整備** + **運用ドキュメント基盤稼働**
+**最新デプロイ**: PR #139 (89ec1ca) Dashboard デプロイ完了（2026-05-16 14:18 UTC、リビジョン `pay-dashboard-00256-gwh`）
 **Cloud Run設定**: 2026-04-07 `--no-cpu-throttling --max-instances=3` 適用済み（ADR 0004 / 効果測定 2026-05-03 追記）
-**CI/CD**: ADR-0006、main push + パスフィルタで自動デプロイ、deploy 内に test gate 配置（PR #126）
-**テストスイート**: Dashboard **317** + Cloud Run **63** = **380テスト全PASS**（CI 上でも自動実行）
+**CI/CD**: ADR-0006、main push + パスフィルタで自動デプロイ、deploy 内に test gate 配置（PR #126）。`docs/operations/**` を paths trigger に追加（PR #139）
+**テストスイート**: Dashboard **333** + Cloud Run **63** = **396テスト全PASS**（CI 上でも自動実行）
+
+## 🆕 2026-05-16 セッション完了サマリー
+
+| PR | 内容 | マージ | 備考 |
+|----|------|--------|------|
+| #139 | 運用ドキュメントページを dashboard に追加 + Mermaid renderer 共通化 + 業務報告シート「活動分類」rename 計画書 1本目配置 | 89ec1ca | 新規ページ + `docs/operations/` 基盤 + workflow に docs 同梱ステップ、16 テスト追加 |
+
+### 検証完了事項（業務報告シート「活動分類」カラム名変更）
+ユーザーからの相談を発端に、`活動分類` ヘッダー名の変更が現システムに与える影響を多層検証:
+
+| 観点 | 結論 | 論拠 |
+|------|------|------|
+| Cloud Run collector | **影響なし** | 範囲ベース取得 `B7:K`、ヘッダー行は読み取り範囲外（`data_start_row=7`） |
+| BigQuery スキーマ・VIEW | **影響なし** | 英語識別子 `activity_category` で固定、日本語はコメントのみ |
+| Streamlit dashboard | **影響なし** | BQ 英語列名で参照、UI 表示「活動分類」は内部文字列で独立 |
+| 旧 GAS (`コード.js`) | **影響なし** | 稼働停止中 + 位置ベース参照 |
+| シート内ワークシート関数 / バインド GAS | **影響なし** | ユーザー確認済 |
+
+Codex セカンドオピニオン取得済（4 MINOR / 1 NIT、BLOCKER なし）。実施時は **一時利用スタンドアロン GAS + clasp** が最適解。Playwright MCP は不要（脆い・過剰）。詳細は dashboard「運用ドキュメント」→ `2026-05-16 業務報告シート「活動分類」カラム名変更 計画書` で全員閲覧可。
+
+### 新規追加された基盤
+| 項目 | 内容 |
+|------|------|
+| `dashboard/_pages/operations_docs.py` | 運用ドキュメント表示ページ（frontmatter + Mermaid 自動分割） |
+| `dashboard/lib/mermaid_renderer.py` | Mermaid レンダリング共通モジュール（`architecture.py` から切り出し） |
+| `docs/operations/` | 運用ドキュメント実体（README + 1本目: 活動分類 rename 計画書） |
+| `.github/workflows/deploy-dashboard.yml` | docs/operations を build context に同梱するステップ追加 + paths trigger 拡張 |
+
+### Issue 変化（Net 0）
+- Close: 0 件
+- 起票: 0 件
+- Net: **0 件**（機能追加のみ、既存 Issue とは独立）
+
+### 動作確認まち（ユーザー側）
+1. dashboard で「運用ドキュメント」メニュー表示
+2. selectbox に「2026-05-16 業務報告シート「活動分類」カラム名変更 計画書」が出る
+3. Markdown + Mermaid 図 3個 + 表が描画される
+4. user / checker / admin 各ロールでアクセス可能
+
+### 軽微な保守メモ（別 PR で対応、本セッション対象外）
+- Node.js 20 deprecation 警告（actions/checkout@v4 等、2026-06-02 以降強制 v24）→ workflow メンテで一括対応
+- `html.escape(code)` 対応（mermaid_renderer + architecture.py 全体整合）
+- selectbox の同名重複対策（`format_func` で DocEntry 直接渡し）
 
 ## 🆕 2026-05-13 セッション完了サマリー
 
