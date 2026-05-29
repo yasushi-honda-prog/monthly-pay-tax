@@ -12,6 +12,7 @@ from flask import Flask, jsonify
 
 import sheets_collector
 import bq_loader
+import chat_notifier
 
 app = Flask(__name__)
 
@@ -29,6 +30,7 @@ def run_consolidation():
     logger.info("--- 処理開始: 全スプレッドシートのデータ集約 ---")
 
     try:
+        failures: list[tuple[str, str]] = []  # 部分失敗を集約し末尾で Chat 通知
         # Step 0: BQ唯一ソーステーブルの snapshot バックアップ（本処理の前に取得）
         # バッチ実行前=直近の正常状態を保全することで、後続 Step5 の dashboard_users
         # MERGE/DELETE 等の誤動作や、前日までのUI誤操作からの復旧手段を残す。
@@ -45,6 +47,9 @@ def run_consolidation():
                 "snapshotバックアップスキップ（本体処理は継続）: %s", snap_err, exc_info=True
             )
             snapshot_results = {"status": "failed", "error": str(snap_err)}
+            failures.append(
+                ("Step0 snapshot", f"{type(snap_err).__name__}: {snap_err}")
+            )
 
         # Step 1-2: Sheets APIでデータ収集
         all_data = sheets_collector.run_collection()
@@ -69,6 +74,9 @@ def run_consolidation():
             )
         except Exception as grp_err:
             logger.warning("グループ情報更新スキップ（本体処理は完了）: %s", grp_err, exc_info=True)
+            failures.append(
+                ("Step4 グループ情報", f"{type(grp_err).__name__}: {grp_err}")
+            )
 
         # Step 5: dashboard_usersグループベース自動同期
         # 失敗時は results["dashboard_users_sync"]["status"] = "failed" を残し、
@@ -104,6 +112,9 @@ def run_consolidation():
                 "error_type": type(sync_err).__name__,
                 "error": str(sync_err),
             }
+            failures.append(
+                ("Step5 dashboard_users同期", f"{type(sync_err).__name__}: {sync_err}")
+            )
 
         # Step 6: 立替金シート収集（失敗しても本体は成功扱い）
         try:
@@ -118,6 +129,9 @@ def run_consolidation():
         except Exception as reimb_err:
             logger.warning(
                 "立替金シート収集スキップ（本体処理は完了）: %s", reimb_err, exc_info=True
+            )
+            failures.append(
+                ("Step6 立替金", f"{type(reimb_err).__name__}: {reimb_err}")
             )
 
         # Step 7: タダメンMマスタ全量取得（失敗しても本体は成功扱い）
@@ -137,10 +151,20 @@ def run_consolidation():
             logger.warning(
                 "タダメンMマスタ収集スキップ（本体処理は完了）: %s", mm_err, exc_info=True
             )
+            failures.append(
+                ("Step7 タダメンM", f"{type(mm_err).__name__}: {mm_err}")
+            )
 
         elapsed = round(time.time() - start, 1)
         # Step 0 で取得した snapshot 結果をサマリーに含める
         results["snapshots"] = snapshot_results
+        # Step0 の個別テーブル snapshot 失敗（-1）も部分失敗として集約に含める
+        if isinstance(snapshot_results, dict):
+            for table_name, code in snapshot_results.items():
+                if code == -1:
+                    failures.append(("Step0 snapshot", f"{table_name} の作成に失敗"))
+        # 部分失敗が1件以上あれば集約して Chat 通知（致命的でないため本体は成功扱い）
+        chat_notifier.notify_failures("毎朝バッチ POST /", failures)
         summary = {
             "status": "success",
             "elapsed_seconds": elapsed,
@@ -152,6 +176,7 @@ def run_consolidation():
     except Exception as e:
         elapsed = round(time.time() - start, 1)
         logger.error("致命的エラー (%s秒): %s", elapsed, e, exc_info=True)
+        chat_notifier.notify_fatal("毎朝バッチ POST /", e)
         return jsonify({"status": "error", "message": str(e)}), 500
 
 
@@ -199,6 +224,11 @@ def update_groups():
                 "error_type": type(sync_err).__name__,
                 "error": str(sync_err),
             }
+            # 毎朝バッチ Step5 と同様、手動更新でも部分失敗を通知（非対称をなくす）
+            chat_notifier.notify_failures(
+                "POST /update-groups",
+                [("dashboard_users同期", f"{type(sync_err).__name__}: {sync_err}")],
+            )
 
         elapsed = round(time.time() - start, 1)
         summary = {
@@ -213,6 +243,7 @@ def update_groups():
     except Exception as e:
         elapsed = round(time.time() - start, 1)
         logger.error("グループ情報更新エラー (%s秒): %s", elapsed, e, exc_info=True)
+        chat_notifier.notify_fatal("POST /update-groups", e)
         return jsonify({"status": "error", "message": str(e)}), 500
 
 
@@ -255,6 +286,7 @@ def sync_main_reports():
     except Exception as e:
         elapsed = round(time.time() - start, 1)
         logger.error("手動同期: メイン報告 エラー (%s秒): %s", elapsed, e, exc_info=True)
+        chat_notifier.notify_fatal("POST /sync/main-reports", e)
         return jsonify({
             "status": "error",
             "endpoint": "/sync/main-reports",
@@ -283,6 +315,7 @@ def sync_reimbursement():
     except Exception as e:
         elapsed = round(time.time() - start, 1)
         logger.error("手動同期: 立替金 エラー (%s秒): %s", elapsed, e, exc_info=True)
+        chat_notifier.notify_fatal("POST /sync/reimbursement", e)
         return jsonify({
             "status": "error",
             "endpoint": "/sync/reimbursement",
@@ -314,6 +347,7 @@ def sync_member_master():
     except Exception as e:
         elapsed = round(time.time() - start, 1)
         logger.error("手動同期: タダメンM エラー (%s秒): %s", elapsed, e, exc_info=True)
+        chat_notifier.notify_fatal("POST /sync/member-master", e)
         return jsonify({
             "status": "error",
             "endpoint": "/sync/member-master",
