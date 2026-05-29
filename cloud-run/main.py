@@ -6,6 +6,7 @@ Cloud Scheduler → HTTP POST → データ収集 → BigQuery投入
 import logging
 import os
 import time
+from datetime import datetime, timedelta, timezone
 
 from flask import Flask, jsonify
 
@@ -118,6 +119,20 @@ def run_consolidation():
         except Exception as mm_err:
             logger.warning(
                 "タダメンMマスタ収集スキップ（本体処理は完了）: %s", mm_err, exc_info=True
+            )
+
+        # Step 8: BQ唯一ソーステーブルの snapshot バックアップ（失敗しても本体は成功扱い）
+        # 対象は Sheets/Admin Directory から再生成できないテーブルのみ（bq_loader.create_snapshots 参照）。
+        try:
+            logger.info("--- snapshotバックアップ開始 ---")
+            jst = timezone(timedelta(hours=9))
+            snapshot_date = datetime.now(jst).strftime("%Y%m%d")
+            snapshot_results = bq_loader.create_snapshots(snapshot_date)
+            results["snapshots"] = snapshot_results
+            logger.info("--- snapshotバックアップ完了: %s ---", snapshot_results)
+        except Exception as snap_err:
+            logger.warning(
+                "snapshotバックアップスキップ（本体処理は完了）: %s", snap_err, exc_info=True
             )
 
         elapsed = round(time.time() - start, 1)
