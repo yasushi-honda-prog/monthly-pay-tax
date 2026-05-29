@@ -82,6 +82,7 @@ jobs:
             --max-instances 3 \
             --no-allow-unauthenticated \
             --service-account "pay-collector@${{ vars.GCP_PROJECT_ID }}.iam.gserviceaccount.com" \
+            --update-secrets=CHAT_WEBHOOK_URL=chat-webhook-url:latest \
             --project="${{ vars.GCP_PROJECT_ID }}" \
             --quiet
 
