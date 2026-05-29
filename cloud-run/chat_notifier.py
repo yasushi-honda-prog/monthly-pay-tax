@@ -60,7 +60,9 @@ def notify(text: str) -> bool:
             logger.info("Chat 通知を送信しました (status=%s)", resp.status)
             return True
     except Exception as send_err:  # noqa: BLE001 — 通知失敗を本体に波及させない
-        logger.error("Chat 通知の送信に失敗（本体処理は継続）: %s", send_err, exc_info=True)
+        # 例外メッセージ/traceback に webhook URL（key/token）が混入しうるため、
+        # 例外型名のみログに残し URL を秘匿する（str(send_err) や exc_info は出さない）。
+        logger.error("Chat 通知の送信に失敗（本体処理は継続）: %s", type(send_err).__name__)
         return False
 
 
@@ -104,12 +106,26 @@ def format_fatal(context: str, exc: BaseException) -> str:
 
 
 def notify_failures(context: str, failures: list[tuple[str, str]]) -> bool:
-    """部分失敗が1件以上あれば集約して通知する。空なら no-op。"""
+    """部分失敗が1件以上あれば集約して通知する。空なら no-op。
+
+    整形（format_failures）の例外も含め、いかなる失敗も呼び出し元へ波及させない。
+    """
     if not failures:
         return False
-    return notify(format_failures(context, failures))
+    try:
+        return notify(format_failures(context, failures))
+    except Exception as err:  # noqa: BLE001 — 整形/送信の失敗を本体に波及させない
+        logger.error("Chat 通知（集約）に失敗（本体処理は継続）: %s", type(err).__name__)
+        return False
 
 
 def notify_fatal(context: str, exc: BaseException) -> bool:
-    """致命的エラーを即時通知する。"""
-    return notify(format_fatal(context, exc))
+    """致命的エラーを即時通知する。
+
+    整形（format_fatal）の例外も含め、いかなる失敗も呼び出し元へ波及させない。
+    """
+    try:
+        return notify(format_fatal(context, exc))
+    except Exception as err:  # noqa: BLE001 — 整形/送信の失敗を本体に波及させない
+        logger.error("Chat 通知（致命的）に失敗（本体処理は継続）: %s", type(err).__name__)
+        return False

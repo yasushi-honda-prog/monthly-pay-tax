@@ -224,6 +224,11 @@ def update_groups():
                 "error_type": type(sync_err).__name__,
                 "error": str(sync_err),
             }
+            # 毎朝バッチ Step5 と同様、手動更新でも部分失敗を通知（非対称をなくす）
+            chat_notifier.notify_failures(
+                "POST /update-groups",
+                [("dashboard_users同期", f"{type(sync_err).__name__}: {sync_err}")],
+            )
 
         elapsed = round(time.time() - start, 1)
         summary = {

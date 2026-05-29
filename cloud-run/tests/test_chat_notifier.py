@@ -66,6 +66,21 @@ class TestNotify:
         assert result is False
         mock_urlopen.assert_not_called()
 
+    @patch("chat_notifier.urllib.request.urlopen")
+    def test_send_failure_does_not_log_url(self, mock_urlopen, caplog):
+        """送信失敗ログに webhook URL（key/token）が漏れない（例外型名のみ）"""
+        secret_url = "https://chat.example/post?key=KEY_LEAK&token=TOKEN_LEAK"
+        # URL 全体を含む例外（Request 構築失敗の ValueError 等を模す）
+        mock_urlopen.side_effect = ValueError(f"unknown url type: {secret_url}")
+        with patch.dict(os.environ, {"CHAT_WEBHOOK_URL": secret_url}):
+            with caplog.at_level("ERROR"):
+                result = chat_notifier.notify("hi")
+        assert result is False
+        # ログに key/token が漏れていないこと
+        assert "KEY_LEAK" not in caplog.text
+        assert "TOKEN_LEAK" not in caplog.text
+        assert "ValueError" in caplog.text  # 例外型名は記録される
+
 
 class TestFormat:
     def test_format_failures(self):
@@ -96,6 +111,18 @@ class TestFormat:
             result = chat_notifier.notify_failures("ctx", [])
         assert result is False
         mock_notify.assert_not_called()
+
+    def test_notify_failures_swallows_formatter_error(self):
+        """format_failures が例外でも notify_failures は波及させず False"""
+        with patch("chat_notifier.format_failures", side_effect=RuntimeError("fmt boom")):
+            result = chat_notifier.notify_failures("ctx", [("s", "d")])
+        assert result is False
+
+    def test_notify_fatal_swallows_formatter_error(self):
+        """format_fatal が例外でも notify_fatal は波及させず False"""
+        with patch("chat_notifier.format_fatal", side_effect=RuntimeError("fmt boom")):
+            result = chat_notifier.notify_fatal("ctx", RuntimeError("x"))
+        assert result is False
 
 
 class TestMainIntegration:
@@ -227,3 +254,30 @@ class TestMainIntegration:
         assert response.status_code == 500
         mock_notifier.notify_fatal.assert_called_once()
         assert mock_notifier.notify_fatal.call_args.args[0] == "POST /sync/member-master"
+
+    @patch("main.chat_notifier")
+    @patch("main.bq_loader")
+    @patch("main.sheets_collector")
+    def test_update_groups_partial_sync_failure_notifies(
+        self, mock_sheets, mock_bq, mock_notifier, client
+    ):
+        """/update-groups の内側 dashboard_users 同期失敗(部分失敗)も集約通知される"""
+        mock_sheets.update_member_groups_from_bq.return_value = (
+            [["m1"]],
+            [["g@x.com", "G"]],
+        )
+        mock_bq.load_to_bigquery.return_value = 1
+        mock_bq.config.BQ_TABLE_MEMBERS = "members"
+        mock_bq.config.BQ_TABLE_GROUPS_MASTER = "groups_master"
+        mock_bq.read_group_based_users.return_value = {"g@x.com": []}  # truthy → 同期試行
+        # 同期の内側で例外 → except sync_err で握り 200、ただし通知
+        mock_sheets._build_admin_service.side_effect = RuntimeError("sync boom")
+
+        response = client.post("/update-groups")
+
+        assert response.status_code == 200  # 内側部分失敗は握って本体成功扱い
+        mock_notifier.notify_failures.assert_called_once()
+        ctx, failures = mock_notifier.notify_failures.call_args.args
+        assert ctx == "POST /update-groups"
+        assert len(failures) == 1
+        assert failures[0][0] == "dashboard_users同期"
