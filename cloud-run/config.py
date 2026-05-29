@@ -15,6 +15,24 @@ BQ_TABLE_SYNC_GROUPS = "dashboard_sync_groups"
 BQ_TABLE_REIMBURSEMENT = "reimbursement_items"
 BQ_TABLE_WAM_PROJECTS = "wam_target_projects"
 BQ_TABLE_MEMBER_MASTER = "member_master"
+# BQが唯一のソースであるテーブル（毎朝バッチで再生成されない）
+BQ_TABLE_DASHBOARD_USERS = "dashboard_users"
+BQ_TABLE_CHECK_LOGS = "check_logs"
+BQ_TABLE_WITHHOLDING = "withholding_targets"
+
+# BQバックアップ（誤操作・誤DELETE/MERGEからの復旧用 snapshot）
+# 対象は「Sheets/Admin Directoryから再生成できない=BQが唯一のソース」のテーブルのみ。
+# 毎朝バッチ末尾(Step8)で別データセットへ snapshot を取得し、expiration で自動失効させる。
+# 別データセットに置くことで、データセット単位の誤操作からも独立して復旧できる。
+BQ_BACKUP_DATASET = os.environ.get("BQ_BACKUP_DATASET", "pay_reports_backup")
+BQ_SNAPSHOT_EXPIRATION_DAYS = int(os.environ.get("BQ_SNAPSHOT_EXPIRATION_DAYS", "90"))
+BQ_SNAPSHOT_TABLES = [
+    BQ_TABLE_DASHBOARD_USERS,
+    BQ_TABLE_SYNC_GROUPS,
+    BQ_TABLE_CHECK_LOGS,
+    BQ_TABLE_WAM_PROJECTS,
+    BQ_TABLE_WITHHOLDING,
+]
 
 # 管理表スプレッドシート
 MASTER_SPREADSHEET_ID = "1fBNfkFBARSpT-OpLOytbAfoa0Xo5LTWv7irimssxcUU"

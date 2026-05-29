@@ -79,6 +79,54 @@ def load_to_bigquery(table_name: str, rows: list[list]) -> int:
     return len(df)
 
 
+def create_snapshots(snapshot_date: str) -> dict[str, int]:
+    """BQが唯一のソースであるテーブルの snapshot を backup データセットへ作成する。
+
+    対象は config.BQ_SNAPSHOT_TABLES（Sheets/Admin Directory から再生成できない
+    =誤操作・誤DELETE/MERGEで失われると復旧不可能なテーブル）。
+    各テーブルを別データセット config.BQ_BACKUP_DATASET へ CLONE し、
+    config.BQ_SNAPSHOT_EXPIRATION_DAYS 日後に自動失効する snapshot を作る。
+
+    同日に複数回呼ばれても最初の1断面を保持する（IF NOT EXISTS）。
+    1テーブルの作成が失敗しても残りのテーブルは継続する（部分失敗許容、付随処理のため）。
+
+    Args:
+        snapshot_date: snapshot名のサフィックス（例 "20260529"）。
+            冪等性の担保とテスト時の固定値注入のため引数化している。
+
+    Returns:
+        {テーブル名: 1（成功）または -1（失敗）} の dict。
+    """
+    client = _build_bq_client()
+    project = config.GCP_PROJECT_ID
+    expiration_days = config.BQ_SNAPSHOT_EXPIRATION_DAYS
+    results: dict[str, int] = {}
+
+    for table_name in config.BQ_SNAPSHOT_TABLES:
+        source_id = f"{project}.{config.BQ_DATASET}.{table_name}"
+        snapshot_id = (
+            f"{project}.{config.BQ_BACKUP_DATASET}.{table_name}_{snapshot_date}"
+        )
+        query = (
+            f"CREATE SNAPSHOT TABLE IF NOT EXISTS `{snapshot_id}` "
+            f"CLONE `{source_id}` "
+            f"OPTIONS (expiration_timestamp = "
+            f"TIMESTAMP_ADD(CURRENT_TIMESTAMP(), INTERVAL {expiration_days} DAY))"
+        )
+        try:
+            client.query(query).result()  # 完了まで待機
+            logger.info("snapshot作成: %s", snapshot_id)
+            results[table_name] = 1
+        except Exception as snap_err:
+            logger.error(
+                "snapshot作成失敗 %s（他テーブルは継続）: %s",
+                table_name, snap_err, exc_info=True,
+            )
+            results[table_name] = -1
+
+    return results
+
+
 def read_members_from_bq() -> list[list]:
     """BQ membersテーブルを list[list] 形式で読み取る（TABLE_COLUMNS順）
 
