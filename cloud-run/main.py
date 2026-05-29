@@ -29,6 +29,23 @@ def run_consolidation():
     logger.info("--- 処理開始: 全スプレッドシートのデータ集約 ---")
 
     try:
+        # Step 0: BQ唯一ソーステーブルの snapshot バックアップ（本処理の前に取得）
+        # バッチ実行前=直近の正常状態を保全することで、後続 Step5 の dashboard_users
+        # MERGE/DELETE 等の誤動作や、前日までのUI誤操作からの復旧手段を残す。
+        # 対象は Sheets/Admin Directory から再生成できないテーブルのみ（bq_loader.create_snapshots 参照）。
+        # 失敗しても本体処理は継続する（付随処理）。
+        try:
+            logger.info("--- snapshotバックアップ開始 ---")
+            jst = timezone(timedelta(hours=9))
+            snapshot_date = datetime.now(jst).strftime("%Y%m%d")
+            snapshot_results = bq_loader.create_snapshots(snapshot_date)
+            logger.info("--- snapshotバックアップ完了: %s ---", snapshot_results)
+        except Exception as snap_err:
+            logger.warning(
+                "snapshotバックアップスキップ（本体処理は継続）: %s", snap_err, exc_info=True
+            )
+            snapshot_results = {"status": "failed", "error": str(snap_err)}
+
         # Step 1-2: Sheets APIでデータ収集
         all_data = sheets_collector.run_collection()
 
@@ -121,21 +138,9 @@ def run_consolidation():
                 "タダメンMマスタ収集スキップ（本体処理は完了）: %s", mm_err, exc_info=True
             )
 
-        # Step 8: BQ唯一ソーステーブルの snapshot バックアップ（失敗しても本体は成功扱い）
-        # 対象は Sheets/Admin Directory から再生成できないテーブルのみ（bq_loader.create_snapshots 参照）。
-        try:
-            logger.info("--- snapshotバックアップ開始 ---")
-            jst = timezone(timedelta(hours=9))
-            snapshot_date = datetime.now(jst).strftime("%Y%m%d")
-            snapshot_results = bq_loader.create_snapshots(snapshot_date)
-            results["snapshots"] = snapshot_results
-            logger.info("--- snapshotバックアップ完了: %s ---", snapshot_results)
-        except Exception as snap_err:
-            logger.warning(
-                "snapshotバックアップスキップ（本体処理は完了）: %s", snap_err, exc_info=True
-            )
-
         elapsed = round(time.time() - start, 1)
+        # Step 0 で取得した snapshot 結果をサマリーに含める
+        results["snapshots"] = snapshot_results
         summary = {
             "status": "success",
             "elapsed_seconds": elapsed,

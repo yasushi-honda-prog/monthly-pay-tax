@@ -104,6 +104,30 @@ class TestCreateSnapshots:
         assert config.BQ_TABLE_HOJO not in snapshotted
         assert config.BQ_TABLE_MEMBER_MASTER not in snapshotted
 
+    @patch("bq_loader._build_bq_client")
+    def test_all_tables_fail(self, mock_build_client):
+        """全テーブルの作成が失敗しても全件 -1 でサマリーに残る（沈黙しない）"""
+        mock_client = MagicMock()
+        mock_build_client.return_value = mock_client
+        mock_client.query.side_effect = RuntimeError("all down")
+
+        result = bq_loader.create_snapshots("20260529")
+
+        assert result == {t: -1 for t in config.BQ_SNAPSHOT_TABLES}
+        assert mock_client.query.call_count == len(config.BQ_SNAPSHOT_TABLES)
+
+    @patch("bq_loader._build_bq_client")
+    def test_result_failure_recorded(self, mock_build_client):
+        """query() は成功するが .result() で BQ ジョブ実行時エラー → -1 で記録"""
+        mock_client = MagicMock()
+        mock_build_client.return_value = mock_client
+        # query() 自体は返るが、ジョブ完了待ち .result() で例外
+        mock_client.query.return_value.result.side_effect = RuntimeError("job failed")
+
+        result = bq_loader.create_snapshots("20260529")
+
+        assert result == {t: -1 for t in config.BQ_SNAPSHOT_TABLES}
+
 
 class TestStep8Integration:
     """main の Step8 統合（バッチ POST /）"""
@@ -170,3 +194,37 @@ class TestStep8Integration:
         assert response.status_code == 200
         payload = response.get_json()
         assert payload["tables"]["snapshots"] == {"dashboard_users": 1}
+
+    @patch("main.bq_loader")
+    @patch("main.sheets_collector")
+    def test_snapshot_runs_before_collection(self, mock_sheets, mock_bq, client):
+        """snapshot(Step0)はデータ収集(Step1)より前に実行される=更新前バックアップ"""
+        call_order = []
+        mock_bq.create_snapshots.side_effect = (
+            lambda d: call_order.append("snapshot") or {"dashboard_users": 1}
+        )
+        mock_sheets.run_collection.side_effect = (
+            lambda: call_order.append("collection") or {"gyomu_reports": [["r"]]}
+        )
+        mock_bq.load_all.return_value = {"gyomu_reports": 1}
+        mock_sheets.update_member_groups_from_bq.return_value = (
+            [["m1"]],
+            [["g@x.com", "G"]],
+        )
+        mock_bq.load_to_bigquery.return_value = 1
+        mock_bq.config.BQ_TABLE_MEMBERS = "members"
+        mock_bq.config.BQ_TABLE_GROUPS_MASTER = "groups_master"
+        mock_bq.config.BQ_TABLE_MEMBER_MASTER = "member_master"
+        mock_bq.read_group_based_users.return_value = {}
+        mock_sheets.run_reimbursement_collection.return_value = {
+            "reimbursement_items": [["r"]]
+        }
+        mock_sheets._build_sheets_service.return_value = MagicMock()
+        mock_sheets.collect_member_master.return_value = [["m"]]
+
+        response = client.post("/")
+
+        assert response.status_code == 200
+        # snapshot が最初に実行され、データ収集より前であること
+        assert call_order[0] == "snapshot"
+        assert call_order.index("snapshot") < call_order.index("collection")
