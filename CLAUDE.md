@@ -41,7 +41,7 @@ SA鍵ファイルは使わない（ローカル開発時のみ `SA_KEY_PATH` 環
   - `bq_loader.py` - BigQueryへのデータロード（pandas DataFrame経由、`create_snapshots()` でバックアップ snapshot 作成）
   - `chat_notifier.py` - Google Chat 障害通知（Incoming Webhook、urllib、`CHAT_WEBHOOK_URL` 未設定なら no-op。通知失敗は本体に波及させない）
   - `config.py` - GCPプロジェクトID、BQテーブル名、バックアップ設定、マスタスプレッドシートID等の設定値
-  - `tests/` - ユニットテスト（97テスト: Sheets APIスロットリング、グループ一覧、dashboard_users同期、グループ自動同期 ON/OFF、立替金シート収集、タダメンM収集、手動同期エンドポイント、snapshotバックアップ、Chat障害通知）
+  - `tests/` - ユニットテスト（100テスト: Sheets APIスロットリング、グループ一覧、dashboard_users同期、グループ自動同期 ON/OFF、立替金シート収集、タダメンM収集、手動同期エンドポイント、snapshotバックアップ、Step5 fail-safe（snapshot失敗日のスキップ）、Chat障害通知）
 - `dashboard/` - Streamlitダッシュボード（マルチページ構成）
   - `app.py` - エントリポイント（認証 + st.navigation ルーター）
   - `_pages/dashboard.py` - 5タブ（月別報酬サマリー/スポンサー別業務委託費/業務報告一覧/グループ別/業務委託費分析）
@@ -75,7 +75,7 @@ SA鍵ファイルは使わない（ローカル開発時のみ `SA_KEY_PATH` 環
 # Dashboard テスト（333テスト）— プロジェクトルートから実行可能
 python3 -m pytest dashboard/tests/ -q
 
-# Cloud Run テスト（97テスト）— プロジェクトルートから実行可能
+# Cloud Run テスト（100テスト）— プロジェクトルートから実行可能
 python3 -m pytest cloud-run/tests/ -q
 
 # 全テスト一括

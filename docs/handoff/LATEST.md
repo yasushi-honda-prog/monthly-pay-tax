@@ -1,11 +1,35 @@
 # ハンドオフメモ - monthly-pay-tax
 
-**更新日**: 2026-05-30（データ安全性向上フェーズ完了 — BQ snapshot バックアップ + Chat 障害通知 + 通知システム名称 + ドキュメント反映、PR #146-151 マージ）
-**フェーズ**: WAM助成金対応 **技術側完了** + **CI/CD 自動デプロイ稼働中** + **管理機能拡充フェーズ完了** + **運用ドキュメント基盤稼働** + **手動同期 UI 稼働** + **データ安全性向上フェーズ完了**
-**最新デプロイ**: PR #149 (360a0f2) Collector → `pay-collector-00034-kcb` / PR #151 (c15e919) Dashboard → `pay-dashboard-00261-zfs`（2026-05-30）
+**更新日**: 2026-05-31（snapshot 障害対応 + 事後強化完了 — IAM 修正 + 復旧 runbook + Step0 健全性チェック + Step5 fail-safe、PR #153-155 マージ）
+**フェーズ**: WAM助成金対応 **技術側完了** + **CI/CD 自動デプロイ稼働中** + **管理機能拡充フェーズ完了** + **運用ドキュメント基盤稼働** + **手動同期 UI 稼働** + **データ安全性向上フェーズ完了** + **snapshot 障害対応・耐障害性強化完了**
+**最新デプロイ**: PR #155 (832659d) Collector → `pay-collector-00035-gcd`（2026-05-31）/ PR #151 (c15e919) Dashboard → `pay-dashboard-00261-zfs`（2026-05-30）
 **Cloud Run設定**: 2026-04-07 `--no-cpu-throttling --max-instances=3` 適用済み（ADR 0004 / 効果測定 2026-05-03 追記）+ pay-dashboard は PR #141 で `--timeout 900` 適用 + pay-collector に `--update-secrets=CHAT_WEBHOOK_URL=chat-webhook-url:latest`（PR #148）
 **CI/CD**: ADR-0006、main push + パスフィルタで自動デプロイ、deploy 内に test gate 配置（PR #126）。`docs/operations/**` を paths trigger に追加（PR #139）
-**テストスイート**: Dashboard **333** + Cloud Run **97** = **430テスト全PASS**（CI 上でも自動実行）
+**テストスイート**: Dashboard **333** + Cloud Run **100** = **433テスト全PASS**（CI 上でも自動実行）
+
+## 🆕 2026-05-31 セッション完了サマリー（snapshot 障害対応 + 耐障害性強化）
+
+発端: 朝6時バッチで Step0 snapshot が `deleteSnapshot` 権限不足により**5件全失敗**（Chat 通知で検知）。原因特定 → 恒久対応 → 事後強化を段階実施（各分岐に Codex セカンドオピニオン + 本田様判断を挟み、過剰実装を回避）。
+
+| PR | 内容 | マージ | 備考 |
+|----|------|--------|------|
+| #153 | BQ snapshot に必要な IAM 手順を追記（障害恒久対応） | 2419f4a | expiration付き `CREATE SNAPSHOT` は `deleteSnapshot` を要求するが `dataEditor` に無い。`pay_reports_backup` に dataOwner(OWNER ACL) 付与 + 今日分5件を手動補完 |
+| #154 | snapshot 復旧手順 + Step0 健全性チェックを追記 | 7afd992 | 非破壊リストアを実証（`CREATE TABLE CLONE`、件数26→26・スキーマ一致）。健全性チェック: `INFORMATION_SCHEMA.TABLE_SNAPSHOTS` で当日5件確認 |
+| #155 | snapshot 失敗日は Step5 をスキップ（fail-safe） | 832659d | バックアップ無しで唯一ソースを破壊的変更しない。毎朝バッチ `POST /` のみ、手動 `/update-groups` は対象外。tests +3。**本番デプロイ成功**（pay-collector-00035-gcd） |
+
+### 原因（PR #153）
+- `create_snapshots()` は `OPTIONS(expiration_timestamp=90日)` 付き `CREATE SNAPSHOT TABLE` を実行 → `bigquery.tables.deleteSnapshot` を要求（失効＝将来の削除と同義）
+- pay-collector@ は `roles/bigquery.dataEditor` のみ（`createSnapshot` はあるが `deleteSnapshot` 無し）→ 403
+- 本処理 Step1-7 は正常完了しデータは無傷。PR #146 デプロイ時の IAM 付与漏れが本質
+- グローバル memory に `reference_bigquery_snapshot_expiration_permission.md` 追加
+
+### Step5 fail-safe（PR #155）
+- `dashboard_users` の snapshot が成功した日のみ Step5（破壊的 MERGE/DELETE）を実行。失敗日はスキップ + Chat 通知（翌日 snapshot 成功時に差分同期で追いつく）
+- 判定: `isinstance(snapshot_results, dict) and snapshot_results.get(config.BQ_TABLE_DASHBOARD_USERS) == 1`。`main.py` に `import config` 追加
+
+### 残務・将来候補（保留＝着手は本田様判断）
+- **明朝(20260601)バッチで pay-collector@ 実権限の snapshot 成功を確認** — CLAUDE.md「Step0 健全性チェック」クエリで当日5件を確認（実行は本田様、成功時は無通知のため能動確認が必要）
+- **Phase 2-C**（権限棚卸し1枚 + `dataOwner`→custom role 縮小評価）/ **Phase 3**（保持期間90日・復旧目標の記録、定期リストア確認ルール）は **ROI 逓減 + decision-maker 領分のため保留**。実運用で必要性が見えたとき or 運用判断時に着手
 
 ## 🆕 2026-05-30 セッション完了サマリー（データ安全性向上）
 
