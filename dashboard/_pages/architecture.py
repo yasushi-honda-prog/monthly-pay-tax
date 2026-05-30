@@ -19,6 +19,7 @@ st.markdown("""
 render_mermaid("""
 graph LR
     CS[Cloud Scheduler<br/>毎朝6時 JST] -->|OIDC認証| CR[Cloud Run<br/>pay-collector]
+    CR -->|Step0: BQ唯一ソース5表を<br/>日次snapshot| BKUP[(pay_reports_backup<br/>90日自動失効)]
     CR -->|Step1-3: Sheets API v4<br/>キーレスDWD| SS[(190個の<br/>スプレッドシート)]
     CR -->|WRITE_TRUNCATE| BQ[(BigQuery<br/>pay_reports)]
     CR -->|Step4: Admin Directory API| ADK[Google Admin SDK<br/>グループ情報]
@@ -29,24 +30,27 @@ graph LR
     RS --> BQ
     CR -->|Step7: タダメンM取得| MM[member_master<br/>240件]
     MM --> BQ
+    CR -.->|障害時| CHAT[Google Chat<br/>障害自動通知]
     BQ -->|VIEWs| DB[Cloud Run<br/>pay-dashboard]
     BR[ブラウザ] -->|HTTPS *.run.app| DB
     DB -->|Streamlit OIDC<br/>Google OAuth| GOOG[Google IdP<br/>tadakayo.jp]
-""", height=420)
+""", height=480)
 
 st.markdown("""
 | コンポーネント | 仕様 |
 |:---|:---|
-| Collector | Python 3.12 / Flask / gunicorn / 2GiB（Step 1-7: SS巡回 → BQ投入 → グループ → 同期 → 立替金 → タダメンM） |
+| Collector | Python 3.12 / Flask / gunicorn / 2GiB（Step 0-7: snapshot → SS巡回 → BQ投入 → グループ → 同期 → 立替金 → タダメンM。障害時 Google Chat 通知） |
 | Dashboard | Python 3.12 / Streamlit / 512MiB（8ページ: ダッシュボード5タブ / 報告入力 / 業務チェック / WAM立替金確認6タブ / アーキテクチャ / ヘルプ / ユーザー管理 / 管理設定） |
 | Collector認証 | Workload Identity + IAM signBlob (キーレスDWD) |
 | Dashboard認証 | Streamlit OIDC (Google OAuth, tadakayo.jpドメイン) |
 | BQ取り込み | WRITE_TRUNCATE（毎回全データ置換）|
-| BQスキーマ | 10テーブル + 4 VIEW |
+| BQスキーマ | 10テーブル + 4 VIEW + バックアップ用データセット pay_reports_backup |
+| BQバックアップ | Step0: BQ唯一ソース5表（dashboard_users / dashboard_sync_groups / check_logs / wam_target_projects / withholding_targets）を pay_reports_backup へ日次snapshot（90日自動失効、誤操作復旧用） |
 | グループ更新 | Step4: Admin Directory API でグループ情報を自動更新 |
 | ユーザー同期 | Step5: グループ由来のdashboard_usersをグループメンバーと自動同期（追加/削除） |
 | 立替金収集 | Step6: 立替金シートを巡回し reimbursement_items テーブルへ投入 |
 | メンバーマスタ | Step7: 管理表タダメンMタブから member_master（36列×240件）を全量取得 |
+| 障害通知 | 全エンドポイント（バッチ / 手動同期）の致命的エラー + 毎朝バッチの部分失敗を Google Chat スペースへ自動通知 |
 """)
 
 
@@ -371,6 +375,8 @@ st.markdown("""
 | データ | 楽観的ロック（check_logs同時編集制御） | `pages/check_management.py` |
 | データ | 操作ログ記録（action_log） | BQ `check_logs.action_log` |
 | データ | BQ保存時暗号化（Google管理キー） | BigQuery デフォルト |
+| データ | BQ唯一ソーステーブルの日次snapshotバックアップ（誤操作・誤DELETE/MERGE復旧、90日保持） | `cloud-run/bq_loader.py` `create_snapshots()` / Step0 |
+| 可用性 | バッチ障害の Google Chat 自動通知（致命的 + 部分失敗集約、テクニカル内容のみ） | `cloud-run/chat_notifier.py` |
 """)
 
 st.markdown("**データ保護フロー**")
@@ -390,8 +396,9 @@ st.markdown("""
 | シークレット | 保管方法 |
 |:---|:---|
 | OAuth クライアントID / シークレット | Secret Manager → `dashboard-auth-config` |
+| Google Chat webhook URL | Secret Manager → `chat-webhook-url`（env `CHAT_WEBHOOK_URL`、未設定なら通知 no-op） |
 | Collector SA 認証情報 | Workload Identity（鍵ファイルなし） |
-| BQ アクセス | SA のIAMロール（BQ Data Editor） |
+| BQ アクセス | SA のIAMロール（BQ Data Editor + Secret Accessor） |
 | Dashboard SA 認証情報 | Cloud Run デフォルトSA + Workload Identity |
 """)
 

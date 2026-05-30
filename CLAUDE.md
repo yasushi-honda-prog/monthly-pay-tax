@@ -12,6 +12,8 @@ GASベースの給与スプレッドシートデータ集約を、Cloud Run + Bi
 ```
 Cloud Scheduler (0 6 * * * JST, OIDC認証)
   → Cloud Run "pay-collector" (Python 3.12 / Flask / gunicorn)
+    Step 0: BQバックアップ（本処理の前に直近の正常状態を保全）
+      → BigQuery pay_reports_backup.{dashboard_users, dashboard_sync_groups, check_logs, wam_target_projects, withholding_targets}_YYYYMMDD (CREATE SNAPSHOT, 90日自動失効)
     Step 1-3: Sheets API v4 (IAM signBlobによるキーレスDWD認証)
       → BigQuery pay_reports.{gyomu_reports, hojo_reports, members} (WRITE_TRUNCATE)
     Step 4: Admin Directory API
@@ -24,6 +26,7 @@ Cloud Scheduler (0 6 * * * JST, OIDC認証)
       → BigQuery pay_reports.reimbursement_items (WRITE_TRUNCATE)
     Step 7: タダメンMマスタ全量取得
       → BigQuery pay_reports.member_master (WRITE_TRUNCATE, 36列×240件, センシティブデータ含む)
+    障害時（致命的エラー + 各Stepの部分失敗）: Google Chat スペースへ自動通知（chat_notifier、CHAT_WEBHOOK_URL 未設定なら no-op）
 ```
 
 認証はWorkload Identity + IAM signBlob APIによるキーレスDomain-Wide Delegation。
@@ -32,11 +35,12 @@ SA鍵ファイルは使わない（ローカル開発時のみ `SA_KEY_PATH` 環
 ## ディレクトリ構成
 
 - `cloud-run/` - Cloud Runアプリケーション（本体）
-  - `main.py` - Flaskエントリポイント（`POST /` バッチ実行 Step1-7、`POST /update-groups`、`POST /sync/main-reports`（Step1-3手動同期）、`POST /sync/reimbursement`（Step6手動同期）、`POST /sync/member-master`（Step7手動同期）、`GET /health`）
+  - `main.py` - Flaskエントリポイント（`POST /` バッチ実行 Step0-7（Step0=snapshotバックアップ）、`POST /update-groups`、`POST /sync/main-reports`（Step1-3手動同期）、`POST /sync/reimbursement`（Step6手動同期）、`POST /sync/member-master`（Step7手動同期）、`GET /health`。全エンドポイントの障害を Google Chat 通知）
   - `sheets_collector.py` - Sheets API経由のデータ収集（DWD認証含む、立替金シート・タダメンMマスタ収集）
-  - `bq_loader.py` - BigQueryへのデータロード（pandas DataFrame経由）
-  - `config.py` - GCPプロジェクトID、BQテーブル名、マスタスプレッドシートID等の設定値
-  - `tests/` - ユニットテスト（70テスト: Sheets APIスロットリング、グループ一覧、dashboard_users同期、グループ自動同期 ON/OFF、立替金シート収集、タダメンM収集、手動同期エンドポイント）
+  - `bq_loader.py` - BigQueryへのデータロード（pandas DataFrame経由、`create_snapshots()` でバックアップ snapshot 作成）
+  - `chat_notifier.py` - Google Chat 障害通知（Incoming Webhook、urllib、`CHAT_WEBHOOK_URL` 未設定なら no-op。通知失敗は本体に波及させない）
+  - `config.py` - GCPプロジェクトID、BQテーブル名、バックアップ設定、マスタスプレッドシートID等の設定値
+  - `tests/` - ユニットテスト（97テスト: Sheets APIスロットリング、グループ一覧、dashboard_users同期、グループ自動同期 ON/OFF、立替金シート収集、タダメンM収集、手動同期エンドポイント、snapshotバックアップ、Chat障害通知）
 - `dashboard/` - Streamlitダッシュボード（マルチページ構成）
   - `app.py` - エントリポイント（認証 + st.navigation ルーター）
   - `_pages/dashboard.py` - 5タブ（月別報酬サマリー/スポンサー別業務委託費/業務報告一覧/グループ別/業務委託費分析）
@@ -70,7 +74,7 @@ SA鍵ファイルは使わない（ローカル開発時のみ `SA_KEY_PATH` 環
 # Dashboard テスト（333テスト）— プロジェクトルートから実行可能
 python3 -m pytest dashboard/tests/ -q
 
-# Cloud Run テスト（70テスト）— プロジェクトルートから実行可能
+# Cloud Run テスト（97テスト）— プロジェクトルートから実行可能
 python3 -m pytest cloud-run/tests/ -q
 
 # 全テスト一括
@@ -180,10 +184,11 @@ BQ接続が必要なためローカル実行での完全な動作確認は困難
 | リージョン | `asia-northeast1` |
 | SA | `pay-collector@monthly-pay-tax.iam.gserviceaccount.com` |
 | Cloud Run URL | `https://pay-collector-209715990891.asia-northeast1.run.app` |
-| BQデータセット | `pay_reports` |
+| BQデータセット | `pay_reports`（本番）/ `pay_reports_backup`（Step0 snapshot バックアップ、90日自動失効） |
 | BQテーブル | `gyomu_reports`, `hojo_reports`, `members`, `withholding_targets`, `dashboard_users`, `dashboard_sync_groups`, `check_logs`, `groups_master`, `reimbursement_items`, `wam_target_projects`, `member_master` |
 | BQ VIEWs | `v_gyomu_enriched`, `v_hojo_enriched`, `v_monthly_compensation`, `v_reimbursement_enriched` |
 | AR | `cloud-run-images`（最新2イメージ保持） |
+| Secret Manager | `dashboard-auth-config`（OAuth）/ `chat-webhook-url`（Chat障害通知 webhook、env `CHAT_WEBHOOK_URL`、pay-collector@ に secretAccessor 付与済み） |
 
 ## BQスキーマ
 
