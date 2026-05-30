@@ -13,6 +13,7 @@ from flask import Flask, jsonify
 import sheets_collector
 import bq_loader
 import chat_notifier
+import config
 
 app = Flask(__name__)
 
@@ -79,42 +80,57 @@ def run_consolidation():
             )
 
         # Step 5: dashboard_usersグループベース自動同期
-        # 失敗時は results["dashboard_users_sync"]["status"] = "failed" を残し、
-        # Step 6/7 は継続するが、サマリーログから failed を可視化する。
+        # fail-safe: dashboard_users は Step5 で MERGE/DELETE により破壊的に変更される。
+        # 復旧用 snapshot(Step0)が取れた日のみ実行し、snapshot が無い日はスキップする
+        # （バックアップ無しで唯一ソースを破壊的変更しない＝復旧不可リスクの回避）。
+        # スキップ/失敗時は results["dashboard_users_sync"]["status"] を残し Step 6/7 は継続。
         # (bq_loader 側 read 関数は意図的に fail-fast 設計のため、ここで握り潰さない)
-        try:
-            logger.info("--- dashboard_usersグループ同期開始 ---")
-            group_users = bq_loader.read_group_based_users()
-            if group_users:
-                admin_service = sheets_collector._build_admin_service()
-                group_members_map = {}
-                for group_email in group_users:
-                    members_list = sheets_collector.list_group_members(admin_service, group_email)
-                    group_members_map[group_email] = members_list
-                sync_result = bq_loader.sync_dashboard_users_from_groups(group_members_map)
-                results["dashboard_users_sync"] = sync_result
-                logger.info(
-                    "--- dashboard_usersグループ同期完了 (追加: %d, 削除: %d, 凍結: %d, 未登録: %d) ---",
-                    sync_result["added"],
-                    sync_result["removed"],
-                    sync_result.get("skipped_disabled", 0),
-                    sync_result.get("skipped_unregistered", 0),
-                )
-            else:
-                logger.info("--- dashboard_usersグループ同期: 対象グループなし ---")
-        except Exception as sync_err:
-            logger.error(
-                "dashboard_usersグループ同期失敗 (Step 6/7 は継続): %s",
-                sync_err, exc_info=True,
+        dashboard_users_backed_up = (
+            isinstance(snapshot_results, dict)
+            and snapshot_results.get(config.BQ_TABLE_DASHBOARD_USERS) == 1
+        )
+        if not dashboard_users_backed_up:
+            logger.warning(
+                "dashboard_users の snapshot が無いため Step5 同期をスキップ（fail-safe）"
             )
-            results["dashboard_users_sync"] = {
-                "status": "failed",
-                "error_type": type(sync_err).__name__,
-                "error": str(sync_err),
-            }
+            results["dashboard_users_sync"] = {"status": "skipped_no_backup"}
             failures.append(
-                ("Step5 dashboard_users同期", f"{type(sync_err).__name__}: {sync_err}")
+                ("Step5 dashboard_users同期", "snapshot 未取得のためスキップ（fail-safe）")
             )
+        else:
+            try:
+                logger.info("--- dashboard_usersグループ同期開始 ---")
+                group_users = bq_loader.read_group_based_users()
+                if group_users:
+                    admin_service = sheets_collector._build_admin_service()
+                    group_members_map = {}
+                    for group_email in group_users:
+                        members_list = sheets_collector.list_group_members(admin_service, group_email)
+                        group_members_map[group_email] = members_list
+                    sync_result = bq_loader.sync_dashboard_users_from_groups(group_members_map)
+                    results["dashboard_users_sync"] = sync_result
+                    logger.info(
+                        "--- dashboard_usersグループ同期完了 (追加: %d, 削除: %d, 凍結: %d, 未登録: %d) ---",
+                        sync_result["added"],
+                        sync_result["removed"],
+                        sync_result.get("skipped_disabled", 0),
+                        sync_result.get("skipped_unregistered", 0),
+                    )
+                else:
+                    logger.info("--- dashboard_usersグループ同期: 対象グループなし ---")
+            except Exception as sync_err:
+                logger.error(
+                    "dashboard_usersグループ同期失敗 (Step 6/7 は継続): %s",
+                    sync_err, exc_info=True,
+                )
+                results["dashboard_users_sync"] = {
+                    "status": "failed",
+                    "error_type": type(sync_err).__name__,
+                    "error": str(sync_err),
+                }
+                failures.append(
+                    ("Step5 dashboard_users同期", f"{type(sync_err).__name__}: {sync_err}")
+                )
 
         # Step 6: 立替金シート収集（失敗しても本体は成功扱い）
         try:
