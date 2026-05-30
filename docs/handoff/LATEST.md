@@ -1,8 +1,8 @@
 # ハンドオフメモ - monthly-pay-tax
 
-**更新日**: 2026-05-30（データ安全性向上フェーズ完了 — BQ snapshot バックアップ + Chat 障害通知 + 通知システム名称、PR #146-149 マージ）
+**更新日**: 2026-05-30（データ安全性向上フェーズ完了 — BQ snapshot バックアップ + Chat 障害通知 + 通知システム名称 + ドキュメント反映、PR #146-151 マージ）
 **フェーズ**: WAM助成金対応 **技術側完了** + **CI/CD 自動デプロイ稼働中** + **管理機能拡充フェーズ完了** + **運用ドキュメント基盤稼働** + **手動同期 UI 稼働** + **データ安全性向上フェーズ完了**
-**最新デプロイ**: PR #149 (360a0f2) Collector deploy 完了 → `pay-collector-00034-kcb`（2026-05-30）
+**最新デプロイ**: PR #149 (360a0f2) Collector → `pay-collector-00034-kcb` / PR #151 (c15e919) Dashboard → `pay-dashboard-00261-zfs`（2026-05-30）
 **Cloud Run設定**: 2026-04-07 `--no-cpu-throttling --max-instances=3` 適用済み（ADR 0004 / 効果測定 2026-05-03 追記）+ pay-dashboard は PR #141 で `--timeout 900` 適用 + pay-collector に `--update-secrets=CHAT_WEBHOOK_URL=chat-webhook-url:latest`（PR #148）
 **CI/CD**: ADR-0006、main push + パスフィルタで自動デプロイ、deploy 内に test gate 配置（PR #126）。`docs/operations/**` を paths trigger に追加（PR #139）
 **テストスイート**: Dashboard **333** + Cloud Run **97** = **430テスト全PASS**（CI 上でも自動実行）
@@ -17,6 +17,7 @@
 | #147 | バッチ障害の Google Chat 自動通知（no-op 段階デプロイ） | 0caa5aa | 5エンドポイント統合、Codex 指摘 Medium3+Low1 全対応（URL漏洩防止含む）。tests +14 |
 | #148 | CHAT_WEBHOOK_URL 注入で通知を有効化 | d0df8e2 | Secret Manager 投入 + deploy.yml 更新、疎通確認済み |
 | #149 | Chat通知に正式システム名称を表示 | 360a0f2 | 「タダカヨ 活動時間・報酬マネジメントダッシュボード（データ収集バッチ / pay-collector）」 |
+| #151 | アーキテクチャ図・CLAUDE.md にドキュメント反映 | c15e919 | architecture.py に Step0/Chat通知を図示、CLAUDE.md にテスト件数97・新ファイル・新インフラ反映。運用ドキュメントページは自動glob で対応不要だった |
 
 ### BQ snapshot バックアップ（R2、PR #146）
 - 対象: **BQが唯一のソース**（Sheets/Admin Directory から再生成不可）の5テーブル — `dashboard_users` / `dashboard_sync_groups` / `check_logs` / `wam_target_projects` / `withholding_targets`
