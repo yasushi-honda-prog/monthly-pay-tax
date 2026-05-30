@@ -1,11 +1,59 @@
 # ハンドオフメモ - monthly-pay-tax
 
-**更新日**: 2026-05-17（PR #141 マージ完了 + admin 画面手動同期ボタン実装 + IAM 記述訂正 + rename 手順書圧縮 + ハンドオフアーカイブ）
-**フェーズ**: WAM助成金対応 **技術側完了** + **CI/CD 自動デプロイ稼働中** + **管理機能拡充フェーズ完了** + **報告入力 UI ドラフト整備** + **運用ドキュメント基盤稼働** + **手動同期 UI 稼働**
-**最新デプロイ**: PR #141 (9c4b72c) Dashboard / Collector 両 deploy 完了（2026-05-16 22:41 UTC + 22:42 UTC）+ PR #143 (1fff689) Deploy Dashboard 実行中（2026-05-16 23:36 UTC）
-**Cloud Run設定**: 2026-04-07 `--no-cpu-throttling --max-instances=3` 適用済み（ADR 0004 / 効果測定 2026-05-03 追記）+ pay-dashboard は PR #141 で `--timeout 900` 適用
+**更新日**: 2026-05-30（データ安全性向上フェーズ完了 — BQ snapshot バックアップ + Chat 障害通知 + 通知システム名称、PR #146-149 マージ）
+**フェーズ**: WAM助成金対応 **技術側完了** + **CI/CD 自動デプロイ稼働中** + **管理機能拡充フェーズ完了** + **運用ドキュメント基盤稼働** + **手動同期 UI 稼働** + **データ安全性向上フェーズ完了**
+**最新デプロイ**: PR #149 (360a0f2) Collector deploy 完了 → `pay-collector-00034-kcb`（2026-05-30）
+**Cloud Run設定**: 2026-04-07 `--no-cpu-throttling --max-instances=3` 適用済み（ADR 0004 / 効果測定 2026-05-03 追記）+ pay-dashboard は PR #141 で `--timeout 900` 適用 + pay-collector に `--update-secrets=CHAT_WEBHOOK_URL=chat-webhook-url:latest`（PR #148）
 **CI/CD**: ADR-0006、main push + パスフィルタで自動デプロイ、deploy 内に test gate 配置（PR #126）。`docs/operations/**` を paths trigger に追加（PR #139）
-**テストスイート**: Dashboard **333** + Cloud Run **70** = **403テスト全PASS**（CI 上でも自動実行）
+**テストスイート**: Dashboard **333** + Cloud Run **97** = **430テスト全PASS**（CI 上でも自動実行）
+
+## 🆕 2026-05-30 セッション完了サマリー（データ安全性向上）
+
+発端: ユーザーから「BigQuery のバックアップを取っていたか？」の問い。Codex セカンドオピニオン + リスク×効果バランス分析を経て、データ安全性を 2 段階で向上。
+
+| PR | 内容 | マージ | 備考 |
+|----|------|--------|------|
+| #146 | BQ唯一ソース5テーブルの日次 snapshot バックアップ（Step0・90日自動失効・別データセット） | 7d4dc93 | Codex 指摘で snapshot を本処理前(Step0)へ移動、復旧 runbook 追加。Cloud Run tests +9 |
+| #147 | バッチ障害の Google Chat 自動通知（no-op 段階デプロイ） | 0caa5aa | 5エンドポイント統合、Codex 指摘 Medium3+Low1 全対応（URL漏洩防止含む）。tests +14 |
+| #148 | CHAT_WEBHOOK_URL 注入で通知を有効化 | d0df8e2 | Secret Manager 投入 + deploy.yml 更新、疎通確認済み |
+| #149 | Chat通知に正式システム名称を表示 | 360a0f2 | 「タダカヨ 活動時間・報酬マネジメントダッシュボード（データ収集バッチ / pay-collector）」 |
+
+### BQ snapshot バックアップ（R2、PR #146）
+- 対象: **BQが唯一のソース**（Sheets/Admin Directory から再生成不可）の5テーブル — `dashboard_users` / `dashboard_sync_groups` / `check_logs` / `wam_target_projects` / `withholding_targets`
+- 毎朝バッチ **Step0**（本処理の前 = 直近正常状態を保全）で `pay_reports_backup` データセットへ `CREATE SNAPSHOT TABLE`、90日で自動失効
+- 再生成可能テーブル（gyomu/hojo/members/member_master）は対象外。rename 等の非常時のみ手動 snapshot（R1、`20260516_活動分類_rename.md` §5.5）
+- 実装: `cloud-run/bq_loader.py` `create_snapshots()` / `main.py` Step0。復旧手順: `docs/operations/20260530_BQ_snapshot復旧手順.md`
+- 見送り: R3 部分失敗アラート（→ Chat 通知で実質カバー）、R4 cross-region DR（小規模に過剰）
+
+### Chat 障害通知（PR #147-149）
+- 5エンドポイント（`/` `/update-groups` `/sync/×3`）の致命的エラーを即通知 + 毎朝バッチ `POST /` の部分失敗（Step0-7）を末尾集約通知
+- 通知方式: Google Chat Incoming Webhook（urllib、依存ゼロ増）。webhook URL は Secret Manager `chat-webhook-url` → env `CHAT_WEBHOOK_URL`、**未設定なら no-op**
+- 通知内容: テクニカルのみ（システム名 / Step名 / 例外型 / メッセージ / JST時刻 / リビジョン）。投稿先スペースは運用管理者限定で PII マスクなし方針
+- 通知は付随処理として完全隔離（`notify` 全体を except Exception で握り、URL を含む例外もログに出さない）
+- 実装: `cloud-run/chat_notifier.py` / `main.py`。運用: `docs/operations/20260530_Chat障害通知.md`
+
+### 構築済みインフラ（このセッション）
+| リソース | 状態 |
+|---|---|
+| BQ データセット `pay_reports_backup` | 作成済み（asia-northeast1、`infra/bigquery/backup_dataset.sql`） |
+| Secret `chat-webhook-url` | 作成済み（version 1 enabled、webhook 再生成 + read -s 登録） |
+| `pay-collector@` SA secretAccessor | `chat-webhook-url` に付与済み |
+
+### 設計判断・教訓（Codex セカンドオピニオン経由）
+| 判断 | 理由 |
+|---|---|
+| snapshot は本処理**前**(Step0) | バッチ実行前の正常状態を保全、Step5 誤動作や UI 誤操作から守る。初回デプロイ無防備期間も解消 |
+| 通知ログから webhook URL を除外 | safe-refactor で except を広げた副作用で URL を含む ValueError がログに出る経路が顕在化 → 例外型名のみログ |
+| webhook URL の安全な扱い | チャット平文露出 → 再生成 + `read -s` 経由で Secret 登録（shell history / ツールログに残さない） |
+| 通知名称は正式名 + 発生元併記 | 発生元は collector バッチ。ダッシュボード（pay-dashboard）とは別サービスのため「データ収集バッチ (pay-collector)」を明示 |
+
+### Issue 変化（Net 0）
+- Close: 0 件 / 起票: 0 件 / **Net: 0 件**
+- 全作業がユーザー明示指示の新機能実装で、即実装→即マージで完了（triage 基準上、Issue 化対象なし）。Net 0 だが PR 4本マージで進捗あり
+
+### 残課題・次セッション候補
+- **実投稿確認**: ユーザー判断で疎通テスト投稿は実施済み（HTTP 200）。新文面（PR #149）での確認は「不要」と判断 → 次回実障害時に自然確認
+- 既存 Open Issue #94 / #58 / #54 は外部ブロッカー待ちで据え置き
 
 ## 🆕 2026-05-17 セッション完了サマリー
 
