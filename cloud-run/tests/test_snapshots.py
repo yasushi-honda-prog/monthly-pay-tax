@@ -228,3 +228,75 @@ class TestStep8Integration:
         # snapshot が最初に実行され、データ収集より前であること
         assert call_order[0] == "snapshot"
         assert call_order.index("snapshot") < call_order.index("collection")
+
+
+class TestStep5FailSafe:
+    """Step5(dashboard_users 破壊的同期) は dashboard_users の snapshot が
+    取れた日のみ実行する fail-safe（復旧用 snapshot 無しでは破壊的変更を走らせない）"""
+
+    def _setup_common(self, mock_sheets, mock_bq):
+        """Step5 以外を簡潔に通すための共通モック"""
+        mock_sheets.run_collection.return_value = {"gyomu_reports": [["r1"]]}
+        mock_bq.load_all.return_value = {"gyomu_reports": 1}
+        mock_sheets.update_member_groups_from_bq.return_value = (
+            [["m1"]], [["g@x.com", "G"]],
+        )
+        mock_bq.load_to_bigquery.return_value = 1
+        mock_bq.config.BQ_TABLE_MEMBERS = "members"
+        mock_bq.config.BQ_TABLE_GROUPS_MASTER = "groups_master"
+        mock_bq.config.BQ_TABLE_MEMBER_MASTER = "member_master"
+        mock_sheets.run_reimbursement_collection.return_value = {
+            "reimbursement_items": [["r"]]
+        }
+        mock_sheets._build_sheets_service.return_value = MagicMock()
+        mock_sheets.collect_member_master.return_value = [["m"]]
+
+    @patch("main.bq_loader")
+    @patch("main.sheets_collector")
+    def test_step5_skipped_when_dashboard_users_snapshot_failed(
+        self, mock_sheets, mock_bq, client
+    ):
+        """dashboard_users の snapshot が -1(失敗) の日は Step5 をスキップ"""
+        self._setup_common(mock_sheets, mock_bq)
+        # dashboard_users の snapshot だけ失敗、他は成功
+        mock_bq.create_snapshots.return_value = {"dashboard_users": -1, "check_logs": 1}
+
+        response = client.post("/")
+
+        assert response.status_code == 200
+        payload = response.get_json()
+        # 破壊的同期の入口が呼ばれない＝スキップされている
+        mock_bq.read_group_based_users.assert_not_called()
+        assert payload["tables"]["dashboard_users_sync"]["status"] == "skipped_no_backup"
+
+    @patch("main.bq_loader")
+    @patch("main.sheets_collector")
+    def test_step5_runs_when_dashboard_users_snapshot_ok(
+        self, mock_sheets, mock_bq, client
+    ):
+        """dashboard_users の snapshot が 1(成功) の日は Step5 を実行"""
+        self._setup_common(mock_sheets, mock_bq)
+        mock_bq.create_snapshots.return_value = {"dashboard_users": 1}
+        mock_bq.read_group_based_users.return_value = {}  # 対象グループなしで簡潔に
+
+        response = client.post("/")
+
+        assert response.status_code == 200
+        # snapshot が取れているので Step5 の処理に入る
+        mock_bq.read_group_based_users.assert_called_once()
+
+    @patch("main.bq_loader")
+    @patch("main.sheets_collector")
+    def test_step5_skipped_when_snapshot_step_raises(
+        self, mock_sheets, mock_bq, client
+    ):
+        """Step0 自体が例外で全滅(dashboard_users の snapshot 不在)でも Step5 をスキップ"""
+        self._setup_common(mock_sheets, mock_bq)
+        mock_bq.create_snapshots.side_effect = RuntimeError("snapshot down")
+
+        response = client.post("/")
+
+        assert response.status_code == 200
+        payload = response.get_json()
+        mock_bq.read_group_based_users.assert_not_called()
+        assert payload["tables"]["dashboard_users_sync"]["status"] == "skipped_no_backup"

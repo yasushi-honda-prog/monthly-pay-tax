@@ -20,6 +20,7 @@ Cloud Scheduler (0 6 * * * JST, OIDC認証)
       → BigQuery pay_reports.{groups_master} (WRITE_TRUNCATE)
       → BigQuery pay_reports.members.groups (UPDATE)
     Step 5: dashboard_usersグループ同期（dashboard_sync_groups で enabled=TRUE のグループのみ）
+      ※ fail-safe: Step0 で dashboard_users の snapshot が取れた日のみ実行。snapshot 失敗日はスキップ（復旧用バックアップ無しで破壊的 MERGE/DELETE を走らせない）。毎朝バッチ POST / のみ適用、手動の /update-groups は対象外
       → BigQuery pay_reports.dashboard_users (MERGE/DELETE: source_group由来ユーザーの追加・削除)
       → BigQuery pay_reports.dashboard_sync_groups (last_synced_at 更新)
     Step 6: 立替金シート収集
