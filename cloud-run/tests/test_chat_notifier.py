@@ -93,6 +93,8 @@ class TestFormat:
         assert "HttpError: denied" in text
         assert "毎朝バッチ POST /" in text
         assert "JST" in text  # 発生時刻フィールド
+        assert chat_notifier.SYSTEM_NAME in text  # 正式システム名称
+        assert "データ収集バッチ" in text  # 発生元コンポーネント
 
     def test_format_fatal(self):
         with patch.dict(os.environ, {"K_REVISION": "pay-collector-test"}):
@@ -104,6 +106,7 @@ class TestFormat:
         assert "JST" in text
         assert "pay-collector-test" in text
         assert "POST /" in text
+        assert chat_notifier.SYSTEM_NAME in text  # 正式システム名称
 
     def test_notify_failures_empty_is_noop(self):
         """部分失敗が空なら通知しない"""
