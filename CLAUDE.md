@@ -190,6 +190,42 @@ bq show --format=prettyjson monthly-pay-tax:pay_reports_backup | \
 # → role=OWNER の pay-collector@ エントリがあれば OK
 ```
 
+### Step0 健全性チェック（毎朝の成功確認）
+
+Chat 障害通知は**失敗時のみ**飛ぶため、Step0 が成功した日は無通知（沈黙）。毎朝バッチ後に当日分 snapshot が5件揃ったかを能動確認する（2026-05-31 にクエリ動作確認済み）:
+
+```sql
+-- DATE 部分を当日(JST)に変える。例: 2026-06-01 なら %_20260601
+SELECT table_name, snapshot_time
+FROM `monthly-pay-tax.pay_reports_backup.INFORMATION_SCHEMA.TABLE_SNAPSHOTS`
+WHERE table_name LIKE '%_20260601'
+ORDER BY table_name
+-- 5件（dashboard_users / dashboard_sync_groups / check_logs
+--      / wam_target_projects / withholding_targets）揃えば健全。不足なら IAM/権限を疑う。
+```
+
+### snapshot からの復旧手順
+
+唯一ソース5テーブルを誤 DELETE/MERGE 等で破損した場合の復旧。`bigquery.tables.restoreSnapshot` は `dataEditor` に含まれ SA は実行可能（リストアが機能することは 2026-05-31 に CREATE TABLE CLONE で件数・スキーマ一致を非破壊実証済み）。
+
+```bash
+# 1. 復旧元 snapshot を特定（上記「健全性チェック」で一覧確認）
+# 2. 非破壊確認: 一時テーブルへ復元し中身を確認（本番テーブルには触れない）
+bq query --use_legacy_sql=false \
+  "CREATE TABLE \`monthly-pay-tax.pay_reports_backup.restore_test_X\` CLONE \`monthly-pay-tax.pay_reports_backup.X_YYYYMMDD\`"
+#    → 件数・代表行を確認したら一時テーブルを削除: bq rm -f -t monthly-pay-tax:pay_reports_backup.restore_test_X
+
+# 3. 本番退避: 復旧前に現在の本番テーブルを退避（誤判断時に戻せる保険）
+bq cp monthly-pay-tax:pay_reports.X monthly-pay-tax:pay_reports.X_before_restore_YYYYMMDD
+
+# 4. 本番へ復元: snapshot を本番名へ上書きコピー（snapshot→通常テーブル化）
+bq cp -f monthly-pay-tax:pay_reports_backup.X_YYYYMMDD monthly-pay-tax:pay_reports.X
+
+# 5. 検証後、退避テーブルを削除
+```
+
+> 注: 手順 3-4（本番テーブルへの書き戻し）は破壊的操作のため、実行は実際の障害時のみ。上記は手順検証として記載（本セッションでは手順 2 の非破壊リストアまでを実証）。
+
 ### ロールバック
 
 CI/CD でデプロイ後の問題発生時:
