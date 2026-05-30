@@ -159,6 +159,37 @@ gcloud run services get-iam-policy pay-collector \
 
 実装は WRITE_TRUNCATE で毎朝バッチと同じ。同時実行ロックは設けていない（朝6時バッチと手動操作の時間帯衝突は実運用上稀、WRITE_TRUNCATE で最新が勝つ前提）。
 
+### BQ snapshot バックアップに必要な IAM（Step0）
+
+毎朝バッチ Step0 の `create_snapshots()` は `OPTIONS (expiration_timestamp = ...)`（90日自動失効）付きで `CREATE SNAPSHOT TABLE` を実行する。**expiration 付き snapshot 作成は `bigquery.tables.deleteSnapshot` 権限を要求する**（失効＝将来の削除と同義のため。[公式仕様](https://docs.cloud.google.com/bigquery/docs/table-snapshots-create)）。この権限は pay-collector@ がプロジェクトレベルで持つ `roles/bigquery.dataEditor` には**含まれず**、`dataOwner` / `admin` のみが持つ（`createSnapshot` は dataEditor にもあるが `deleteSnapshot` は無い点に注意）。
+
+そのため backup データセット `pay_reports_backup` レベルで pay-collector@ に `dataOwner` 相当（ACL の OWNER）を付与する必要がある。**本番環境では付与済**（2026-05-31、PR #146 デプロイ時の付与漏れを Step0 初回本番実行の `403 deleteSnapshot denied` で検知し補完。データセットレベルの `bq add-iam-policy-binding` は allowlisting 必須のため ACL ベースで付与）。新規環境構築時のみ以下を実行:
+
+```bash
+# backup データセットの ACL に pay-collector@ を OWNER(=dataOwner相当) で追加
+TMP=$(mktemp)
+bq show --format=prettyjson monthly-pay-tax:pay_reports_backup > "$TMP"
+python3 - "$TMP" <<'PY'
+import sys, json
+p = sys.argv[1]
+d = json.load(open(p))
+SA = "pay-collector@monthly-pay-tax.iam.gserviceaccount.com"
+if not any(a.get("userByEmail") == SA and a.get("role") == "OWNER" for a in d["access"]):
+    d["access"].append({"role": "OWNER", "userByEmail": SA})
+    json.dump(d, open(p, "w"))
+PY
+bq update --source "$TMP" monthly-pay-tax:pay_reports_backup
+rm -f "$TMP"
+```
+
+確認コマンド:
+
+```bash
+bq show --format=prettyjson monthly-pay-tax:pay_reports_backup | \
+  python3 -c "import sys,json; d=json.load(sys.stdin); print([a for a in d['access'] if a.get('userByEmail','').startswith('pay-collector@')])"
+# → role=OWNER の pay-collector@ エントリがあれば OK
+```
+
 ### ロールバック
 
 CI/CD でデプロイ後の問題発生時:
