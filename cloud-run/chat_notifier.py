@@ -26,6 +26,11 @@ REVISION_ENV = "K_REVISION"
 _JST = timezone(timedelta(hours=9))
 _POST_TIMEOUT_SEC = 10
 
+# 通知に表示するシステム名称。運用者が分かる正式名称（ダッシュボードのトップタイトル）に、
+# 障害の発生元コンポーネント（技術名）を併記する。
+SYSTEM_NAME = "タダカヨ 活動時間・報酬マネジメントダッシュボード"
+SYSTEM_COMPONENT = "データ収集バッチ (pay-collector)"
+
 
 def _now_jst_str() -> str:
     """現在時刻を JST の 'YYYY-MM-DD HH:MM JST' 形式で返す。"""
@@ -81,8 +86,9 @@ def format_failures(context: str, failures: list[tuple[str, str]]) -> str:
         投稿用の複数行 text。
     """
     header = (
-        f"🔴 pay-collector 障害 ({len(failures)}件)\n"
-        f"発生: {_now_jst_str()} / rev: {_revision()} / {context}"
+        f"🔴 {SYSTEM_NAME} 障害 ({len(failures)}件)\n"
+        f"システム: {SYSTEM_COMPONENT} / {context}\n"
+        f"発生: {_now_jst_str()} / rev: {_revision()}"
     )
     lines = [f"• [{step}] {detail}" for step, detail in failures]
     return header + "\n" + "\n".join(lines)
@@ -99,8 +105,9 @@ def format_fatal(context: str, exc: BaseException) -> str:
         投稿用の text。
     """
     return (
-        f"🔴 pay-collector 致命的エラー\n"
-        f"発生: {_now_jst_str()} / rev: {_revision()} / {context}\n"
+        f"🔴 {SYSTEM_NAME} 致命的エラー\n"
+        f"システム: {SYSTEM_COMPONENT} / {context}\n"
+        f"発生: {_now_jst_str()} / rev: {_revision()}\n"
         f"• {type(exc).__name__}: {exc}"
     )
 
