@@ -30,6 +30,12 @@
 - **#3**: `load_existing` が BQ エラーを「既存なし」扱い → 例外伝播。
 - 取得不能2件（こうちゃん/あーちゃん）のマスタURL是正は運用者タスク（is decision-maker 領分）。
 
+### 🔭 今後の方向性（2026-05-31 本田様共有・要記憶）— A1 セルに GAS Script ID 自動入力
+- 「【共通】業務報告シート制御GASライブラリ」（Script ID: `1hDSPvY91iCGLoK_1FhqQK-DhT3DpVtDuXH9ZTOAxAjuIat-p4lEY2egj`）を各業務報告スプレッドシートに順次導入中。**導入済みシートは「【都度入力】業務報告」タブの A1 セルに自身の GAS Script ID が自動入力される想定**（業務報告スプレッドシート＝複数タブ構成。A1 が入るのは先頭タブではなく **`【都度入力】業務報告` タブ**）。ライブラリ参照への書き換えは GAS 配信ツール（Script ID `1DJeYyPnr6ImxP4WMZ03StQhjlOmfa37v7iiDQAwi3yGkFAt4J0xlMAtb`）で実施（**GAS からのアプローチは一旦完了**）。
+- **含意（将来の収集方式の転換）**: `【都度入力】業務報告` タブ A1 が「各シートが自分の Script ID を申告する場所」になると、現状の半手動巡回（`collect_gas_bindings.py` / Playwright MCP）が不要になり、**各シートの `'【都度入力】業務報告'!A1` を Sheets API で一括 batchGet するだけ**で `gas_bindings` を再構築可能 → Cloud Run 毎朝バッチに組込できる方向。
+- **配信時の制約（2026-05-31 検証）**: GAS 実行での一括書き換えは ① Apps Script API 管理系クォータ `scriptManagementApiQpsPerUser`=60/min/{project}/{user}（429 RESOURCE_EXHAUSTED）② GAS 6 分実行制限 の二重制約。clasp/ローカル移行でも 429 は同じ（同一 API 消費。consumer project を変えればバケットは分かれるが上限 60 は不変）だが、**6 分制限はローカル実行で解放**。推奨 = ローカル Apps Script API バッチ（スロットリング 2.5–3 秒/件 + 指数 backoff + チェックポイント再開）。call 数削減（`getContent` 省略で `updateContent` のみ→1 件 1 call）も有効。
+- **関連作業（完了済み）**: 管理用スプレッドシート `130a5JLj2NXj-WTt44HYDMCMAHpuhmm9sq47yOYRlKBs` の「シート3」A 列に、現時点の `gas_bindings` status=ok 全 213 件の Script ID 一覧を記入済み（member_id 順・完全上書き・読み返し検証 OK、Sheets API + Drive スコープ）。
+
 ## 🆕 2026-05-31 セッション完了サマリー（snapshot 障害対応 + 耐障害性強化）
 
 発端: 朝6時バッチで Step0 snapshot が `deleteSnapshot` 権限不足により**5件全失敗**（Chat 通知で検知）。原因特定 → 恒久対応 → 事後強化を段階実施（各分岐に Codex セカンドオピニオン + 本田様判断を挟み、過剰実装を回避）。
