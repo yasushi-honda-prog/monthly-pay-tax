@@ -43,6 +43,7 @@ tables = [
     "members", "member_master",
     "withholding_targets", "wam_target_projects",
     "dashboard_users", "check_logs", "groups_master",
+    "gas_bindings",
 ]
 
 try:
