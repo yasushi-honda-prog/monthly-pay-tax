@@ -1,43 +1,50 @@
-"""業務報告スプレッドシートのコンテナバインド GAS Script ID を巡回収集し BigQuery へ MERGE。
+"""業務報告スプレッドシートの GAS Script ID 巡回結果を BigQuery へ MERGE するロードツール。
 
-ローカル半手動実行ツール（Google 手動ログイン依存・CI/Cloud Run では動かない）。
+ローカル半手動実行ツール（CI / Cloud Run では動かない）。
 
 Google の仕様上、スプレッドシート ID からコンテナバインドの Script ID を取得する
-公開 API は存在しないため、各シートをブラウザで開いて「拡張機能 → Apps Script」を
-起動し、遷移先 URL（.../projects/{SCRIPT_ID}/edit）から Script ID を抽出する。
+公開 API は存在しない。そのため各シートをログイン済みブラウザ（Playwright MCP）で開いて
+「拡張機能 → Apps Script」の遷移先 URL（.../projects/{SCRIPT_ID}/edit）から Script ID を
+抽出する。巡回そのものは Playwright MCP 側の run_code ループで行い（python-playwright は
+Google の auth_required で失敗するため）、本スクリプトはその巡回結果（JSON 配列）を
+受け取って安全装置を通し BigQuery へ MERGE する「結果ロード」に専念する。
 
 安全装置:
-  - 段階化: --limit で 1 実行あたりの処理件数を絞る（10 → 25 → 50 → 残り）。
   - MERGE: 取得済みの正常 script_id を、再取得失敗で上書きしない。
   - createTime 検知: 取得 script_id の作成時刻が巡回開始以降なら「新規空プロジェクト
-    生成（unexpected_new_project）」を疑い、その実行を停止扱いにする（被害の早期検知）。
+    生成（unexpected_new_project）」を疑い停止扱いにする（被害の早期検知）。
+    安全装置自体が機能しない場合（clasp トークン利用不可 / createTime 取得失敗）は、
+    検証不能のまま MERGE せず例外で停止する（fail-closed）。
 
 認証:
   - BigQuery I/O は `bq` CLI 経由（gcloud active account = yasushi-honda@tadakayo.jp）。
     ※ python の ADC は別アカウントを指す環境のため、ADC は使わない。
   - createTime 検証は ~/.clasprc.json の default トークン（clasp ログイン）を流用。
 
-前提セットアップ:
-  pip install playwright && python3 -m playwright install chromium
+巡回対象の算出（どのシートを巡回するか）は build_targets / load_existing /
+select_targets を import して別途行い、その結果を Playwright MCP の巡回ループへ渡す。
 
 使い方:
-  python3 scripts/collect_gas_bindings.py --headed --limit 10   # 初回ログイン + パイロット
-  python3 scripts/collect_gas_bindings.py --limit 25            # 段階的に拡大
-  python3 scripts/collect_gas_bindings.py                       # 残り全件
-  python3 scripts/collect_gas_bindings.py --retry-errors        # 失敗分のみ再試行
-  python3 scripts/collect_gas_bindings.py --dry-run --limit 5   # BQ 書込なし（ロジック確認）
+  python3 scripts/collect_gas_bindings.py results.json          # JSON ファイルをロード
+  cat results.json | python3 scripts/collect_gas_bindings.py -  # stdin からロード
+  python3 scripts/collect_gas_bindings.py results.json --dry-run  # BQ 書込なし（検証のみ）
+
+入力 JSON 形式（巡回結果オブジェクトの配列。MCP 結果が二重 JSON 文字列でも可）:
+  [{"spreadsheet_id": "...", "status": "ok"|"error"|...,
+    "script_id": "..."|null, "editor_url": "..."|null,
+    "error_type": ...|null, "error_detail": ...|null}, ...]
+  ※ member_id / nickname / url_source / report_url は member_master から自動補完する。
+  ※ fetched_at は status=ok の行に無ければ現在時刻を補完する。
 """
 from __future__ import annotations
 
 import argparse
 import json
 import os
-import random
 import re
 import subprocess
 import sys
 import tempfile
-import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -49,14 +56,7 @@ STAGING_SHORT = "gas_bindings_staging"
 STAGING_LOAD = f"{PROJECT}:{DATASET}.{STAGING_SHORT}"    # bq load 用
 STAGING_FQ = f"{PROJECT}.{DATASET}.{STAGING_SHORT}"      # backtick 用
 
-SCRIPT_DIR = Path(__file__).resolve().parent
-AUTH_DIR = SCRIPT_DIR / ".gas_auth"
-NDJSON_PATH = SCRIPT_DIR / ".gas_bindings_attempts.ndjson"
-SHOT_DIR = SCRIPT_DIR / ".gas_screenshots"
-CRAWLER_VERSION = "1.0.0"
-
 SS_ID_RE = re.compile(r"/spreadsheets/d/([\w-]+)")
-SCRIPT_ID_RE = re.compile(r"/projects/([\w-]+)")
 
 STRING_COLS = [
     "spreadsheet_id", "report_url", "script_id", "editor_url",
@@ -66,9 +66,6 @@ STRING_COLS = [
 LOAD_SCHEMA = ",".join(
     [f"{c}:STRING" for c in STRING_COLS] + ["fetched_at:TIMESTAMP", "ingested_at:TIMESTAMP"]
 )
-GOTO_TIMEOUT_MS = 60_000
-MENU_TIMEOUT_MS = 30_000
-NEWTAB_TIMEOUT_MS = 45_000
 
 _BQ = ["bq", f"--project_id={PROJECT}"]
 
@@ -141,127 +138,72 @@ def build_targets() -> list[dict]:
 
 # --- 既存 status の読み込み（冪等スキップ用） ---
 def load_existing() -> dict[str, dict]:
-    try:
-        rows = _bq_query_json(
-            f"SELECT spreadsheet_id, status, "
-            f"FORMAT_TIMESTAMP('%Y-%m-%dT%H:%M:%SZ', fetched_at) AS fetched_at_iso "
-            f"FROM `{TABLE_FQ}`"
-        )
-    except Exception:
-        return {}
+    """gas_bindings の既存 status を読み込む。
+
+    BQ クエリが失敗した場合は例外を伝播する（「既存なし」と誤認して全件再取得・
+    上書きするのを防ぐ fail-closed）。
+    """
+    rows = _bq_query_json(
+        f"SELECT spreadsheet_id, status, "
+        f"FORMAT_TIMESTAMP('%Y-%m-%dT%H:%M:%SZ', fetched_at) AS fetched_at_iso "
+        f"FROM `{TABLE_FQ}`"
+    )
     return {r["spreadsheet_id"]: {"status": r["status"], "fetched_at_iso": r.get("fetched_at_iso")}
             for r in rows}
 
 
-def select_targets(targets, existing, args) -> list[dict]:
-    """スキップ規則を適用して今回処理する対象を返す。"""
+def select_targets(targets, existing, *, force=False, retry_errors=False,
+                   refresh_older_than=None, limit=None) -> list[dict]:
+    """スキップ規則を適用して今回巡回すべき対象を返す（巡回対象算出の補助）。
+
+    main() からは呼ばれない。Playwright MCP の巡回ループが import して
+    「どのシートを巡回するか」を決めるための公開関数。引数は明示キーワードで受け、
+    特定の CLI namespace 形状には依存しない。
+    """
     out = []
     for t in targets:
         ex = existing.get(t["spreadsheet_id"])
-        if args.force:
+        if force:
             out.append(t)
             continue
         if ex is None:
             out.append(t)
             continue
         st = ex["status"]
-        if args.retry_errors:
+        if retry_errors:
             if st in ("error", "pending", "auth_required"):
                 out.append(t)
             continue
         if st == "ok":
-            if args.refresh_older_than is not None and ex.get("fetched_at_iso"):
+            if refresh_older_than is not None and ex.get("fetched_at_iso"):
+                # 対象選定の補助判定。日付フォーマット不正時は再取得対象に含めない
+                # （fail-open だが BQ への書き込みには影響しない選定ロジックのため許容）。
                 try:
                     ft = datetime.fromisoformat(ex["fetched_at_iso"].replace("Z", "+00:00"))
-                    if (datetime.now(timezone.utc) - ft).days >= args.refresh_older_than:
+                    if (datetime.now(timezone.utc) - ft).days >= refresh_older_than:
                         out.append(t)
-                except Exception:
+                except (ValueError, TypeError):
                     pass
             continue
         # ok 以外（error/pending/no_gas/unexpected_new_project）は通常実行では再試行しない
-        # （no_gas / unexpected は空プロジェクト再生成リスクのため --retry-errors でも触らない）
-    if args.limit is not None:
-        out = out[: args.limit]
+        # （no_gas / unexpected は空プロジェクト再生成リスクのため retry_errors でも触らない）
+    if limit is not None:
+        out = out[: limit]
     return out
 
 
-# --- Playwright 巡回 ---
-def crawl_one(context, target: dict) -> dict:
-    from playwright.sync_api import TimeoutError as PWTimeout
+# --- createTime 安全装置（clasp default トークン流用 / fail-closed） ---
+def check_create_times(results: list[dict], suspect_after: datetime) -> int:
+    """取得 script_id の createTime を検証し、suspect_after 以降に作られた疑わしいものを停止扱いにする。
 
-    ss_id = target["spreadsheet_id"]
-    result = dict(target)
-    result.update({"script_id": None, "editor_url": None,
-                   "status": "error", "error_type": None, "error_detail": None,
-                   "fetched_at": None})
-    page = context.new_page()
-    try:
-        page.goto(target["report_url"], wait_until="domcontentloaded", timeout=GOTO_TIMEOUT_MS)
-        if "accounts.google.com" in page.url:
-            result.update(status="error", error_type="auth_required",
-                          error_detail="redirected to login")
-            return result
-        if "/spreadsheets/d/" not in page.url:
-            result.update(status="error", error_type="permission_denied",
-                          error_detail=f"unexpected url: {page.url[:200]}")
-            return result
+    suspect_after は「これ以降に作成された script は新規生成を疑う」検知フロア時刻。
+    返り値は「新規プロジェクト生成の疑い」件数。該当行は script_id を無効化し
+    status=unexpected_new_project に書き換える（MERGE では既存の ok を保全）。
 
-        page.wait_for_selector("#docs-extensions-menu", timeout=MENU_TIMEOUT_MS)
-        page.click("#docs-extensions-menu")
-        item = page.get_by_role("menuitem").filter(has_text="Apps Script").first
-        with context.expect_page(timeout=NEWTAB_TIMEOUT_MS) as new_info:
-            item.click()
-        editor = new_info.value
-        try:
-            editor.wait_for_url("**/projects/**", timeout=NEWTAB_TIMEOUT_MS)
-            url = editor.url
-        finally:
-            editor.close()
-
-        m = SCRIPT_ID_RE.search(url)
-        if not m:
-            result.update(status="error", error_type="parse_error",
-                          error_detail=f"no script id in: {url[:200]}")
-            return result
-        result.update(status="ok", script_id=m.group(1), editor_url=url,
-                      error_type=None, error_detail=None, fetched_at=utcnow_iso())
-        return result
-    except PWTimeout as e:
-        result.update(status="error", error_type="ui_timeout", error_detail=str(e)[:300])
-        _save_shot(page, ss_id)
-        return result
-    except Exception as e:  # noqa: BLE001 — 1 件失敗で止めず分類して継続
-        result.update(status="error", error_type="parse_error", error_detail=str(e)[:300])
-        _save_shot(page, ss_id)
-        return result
-    finally:
-        page.close()
-
-
-def _save_shot(page, ss_id: str) -> None:
-    try:
-        SHOT_DIR.mkdir(exist_ok=True)
-        page.screenshot(path=str(SHOT_DIR / f"{ss_id}.png"))
-    except Exception:
-        pass
-
-
-def _append_ndjson(rec: dict, status: str, error_type, final_url, duration_ms: int) -> None:
-    line = {
-        "attempted_at": utcnow_iso(),
-        "spreadsheet_id": rec["spreadsheet_id"],
-        "status": status,
-        "error_type": error_type,
-        "final_url": final_url,
-        "duration_ms": duration_ms,
-        "crawler_version": CRAWLER_VERSION,
-    }
-    with open(NDJSON_PATH, "a", encoding="utf-8") as f:
-        f.write(json.dumps(line, ensure_ascii=False) + "\n")
-
-
-# --- createTime 安全装置（clasp default トークン流用） ---
-def check_create_times(results: list[dict], crawl_start: datetime) -> int:
+    安全装置自体が機能しない場合（clasp トークン利用不可 / createTime 取得失敗 /
+    createTime 欠落）は、検証不能のまま MERGE させないため RuntimeError を送出する
+    （fail-closed）。
+    """
     ok = [r for r in results if r["status"] == "ok" and r.get("script_id")]
     if not ok:
         return 0
@@ -278,26 +220,35 @@ def check_create_times(results: list[dict], crawl_start: datetime) -> int:
             token_uri="https://oauth2.googleapis.com/token",
         )
         svc = build("script", "v1", credentials=creds, cache_discovery=False)
-    except Exception as e:  # noqa: BLE001 — 安全装置が使えない場合は警告のみ
-        print(f"  ⚠ createTime 検証スキップ（clasp トークン利用不可）: {e}", file=sys.stderr)
-        return 0
+    except Exception as e:
+        raise RuntimeError(
+            f"createTime 安全装置を初期化できません（clasp トークン利用不可）: {e}. "
+            f"検証不能のため BQ ロードを中止します（fail-closed）。"
+            f"`clasp login` でトークンを更新してから再実行してください。"
+        ) from e
 
     suspicious = 0
     for r in ok:
         try:
             proj = svc.projects().get(scriptId=r["script_id"]).execute()
-            ct_raw = proj.get("createTime")
-            if not ct_raw:
-                continue
-            ct = datetime.fromisoformat(ct_raw.replace("Z", "+00:00"))
-            if ct >= crawl_start:
-                r.update(status="unexpected_new_project", error_type="unexpected_new_project",
-                         error_detail=f"createTime={ct_raw} >= crawl_start", script_id=None)
-                suspicious += 1
-                print(f"  🛑 新規プロジェクト生成の疑い: {r['spreadsheet_id']} "
-                      f"({r['nickname']}) createTime={ct_raw}", file=sys.stderr)
-        except Exception as e:  # noqa: BLE001
-            print(f"  ⚠ createTime 取得失敗 {r['script_id']}: {e}", file=sys.stderr)
+        except Exception as e:
+            raise RuntimeError(
+                f"createTime の取得に失敗しました（script_id={r['script_id']}）: {e}. "
+                f"検証不能のため BQ ロードを中止します（fail-closed）。"
+            ) from e
+        ct_raw = proj.get("createTime")
+        if not ct_raw:
+            raise RuntimeError(
+                f"createTime が空でした（script_id={r['script_id']}）。"
+                f"検証不能のため BQ ロードを中止します（fail-closed）。"
+            )
+        ct = datetime.fromisoformat(ct_raw.replace("Z", "+00:00"))
+        if ct >= suspect_after:
+            r.update(status="unexpected_new_project", error_type="unexpected_new_project",
+                     error_detail=f"createTime={ct_raw} >= suspect_after", script_id=None)
+            suspicious += 1
+            print(f"  🛑 新規プロジェクト生成の疑い: {r['spreadsheet_id']} "
+                  f"({r['nickname']}) createTime={ct_raw}", file=sys.stderr)
     return suspicious
 
 
@@ -313,10 +264,18 @@ def load_merge(results: list[dict]) -> None:
     _bq_load_ndjson(rows)
 
     cols = STRING_COLS + ["fetched_at", "ingested_at"]
-    set_all = ", ".join(f"{c}=S.{c}" for c in cols)
-    set_fail = ", ".join(f"{c}=S.{c}" for c in
-                         ["report_url", "member_id", "nickname", "url_source",
-                          "status", "error_type", "error_detail", "ingested_at"])
+    # member_master 由来のメタ列は、再ロードで S 側が NULL（master miss 等）でも
+    # 既存値を破壊しないよう COALESCE で保持する（データ保全 / fail-closed）。
+    meta_preserve = {"report_url", "member_id", "nickname", "url_source"}
+
+    def _set_clause(columns):
+        return ", ".join(
+            (f"{c}=COALESCE(S.{c}, T.{c})" if c in meta_preserve else f"{c}=S.{c}")
+            for c in columns)
+
+    set_all = _set_clause(cols)
+    set_fail = _set_clause(["report_url", "member_id", "nickname", "url_source",
+                            "status", "error_type", "error_detail", "ingested_at"])
     insert_cols = ", ".join(cols)
     insert_vals = ", ".join(f"S.{c}" for c in cols)
     merge_sql = f"""
@@ -329,101 +288,117 @@ def load_merge(results: list[dict]) -> None:
     _bq_exec(f"DROP TABLE IF EXISTS `{STAGING_FQ}`")
 
 
-def _do_login() -> int:
-    """ブラウザを開き、Google ログイン状態を persistent context に保存する（初回1回）。
+# --- MCP 巡回結果のロード CLI ---
+def _read_input(source: str) -> list[dict]:
+    """巡回結果 JSON を読み込む（'-' で stdin、それ以外はファイルパス）。
 
-    ログイン完了（スプレッドシート一覧への到達）を自動検知して保存・終了する。
-    非対話実行（! プレフィックス）でも動くよう input は使わない。
+    MCP の run_code 結果が JSON 文字列として二重エンコードされている場合
+    （先頭が `"`）にも対応する。
     """
-    from playwright.sync_api import sync_playwright
-    AUTH_DIR.mkdir(exist_ok=True)
-    print("ブラウザで yasushi-honda@tadakayo.jp にログインしてください。")
-    print("ログインしてスプレッドシート一覧が表示されると、自動で保存して終了します（最大5分待機）。")
-    saved = False
-    with sync_playwright() as p:
-        ctx = p.chromium.launch_persistent_context(
-            user_data_dir=str(AUTH_DIR), headless=False, locale="ja-JP",
-            viewport={"width": 1280, "height": 900})
-        page = ctx.new_page()
-        page.goto("https://docs.google.com/spreadsheets/u/0/")
-        deadline = time.time() + 300
-        while time.time() < deadline:
-            try:
-                cur = page.url
-            except Exception:
-                break
-            if "accounts.google.com" not in cur and "/spreadsheets" in cur:
-                time.sleep(4)  # Cookie / セッションの書き込み待ち
-                saved = True
-                break
-            time.sleep(2)
-        ctx.close()
-    print("ログインプロファイルを保存しました（scripts/.gas_auth/）。" if saved else
-          "⚠ ログインを検知できませんでした。もう一度 --login を実行してください。", file=sys.stderr if not saved else sys.stdout)
-    return 0 if saved else 1
+    raw = (sys.stdin.read() if source == "-" else Path(source).read_text(encoding="utf-8")).strip()
+    if not raw:
+        return []
+    data = json.loads(raw)
+    if isinstance(data, str):  # 二重 JSON エンコード（MCP 文字列結果）
+        data = json.loads(data)
+    if not isinstance(data, list):
+        raise ValueError("入力は巡回結果オブジェクトの JSON 配列である必要があります。")
+    seen_ids: set[str] = set()
+    for i, r in enumerate(data):
+        if not isinstance(r, dict):
+            raise ValueError(f"入力 {i} 件目が不正です（オブジェクトが必須）: {r!r}")
+        ss_id, status = r.get("spreadsheet_id"), r.get("status")
+        if not isinstance(ss_id, str) or not ss_id.strip():
+            raise ValueError(f"入力 {i} 件目: spreadsheet_id は非空文字列が必須です: {r!r}")
+        if not isinstance(status, str) or not status.strip():
+            raise ValueError(f"入力 {i} 件目: status は非空文字列が必須です: {r!r}")
+        if ss_id in seen_ids:  # 重複は MERGE で複数マッチエラー/重複 INSERT を招くため境界で弾く
+            raise ValueError(f"入力 {i} 件目: spreadsheet_id が重複しています: {ss_id}")
+        seen_ids.add(ss_id)
+        # status=ok は createTime 安全装置の検証対象。script_id 欠落の ok を許すと
+        # MERGE で既存の有効 script_id を NULL 上書きするため、非空 script_id を必須化する。
+        if status == "ok":
+            sid = r.get("script_id")
+            if not isinstance(sid, str) or not sid.strip():
+                raise ValueError(
+                    f"入力 {i} 件目: status=ok には非空の script_id が必須です: {r!r}")
+    return data
+
+
+def _enrich_with_metadata(results: list[dict]) -> int:
+    """member_master 由来のメタと MERGE スキーマの欠損フィールドを1パスで補完する。
+
+    member_master に無い spreadsheet_id（マスタ更新で消えた等）はメタを補完できない。
+    その件数を返し、呼び出し側で警告する（silent な null 化を避ける）。
+    """
+    meta = {t["spreadsheet_id"]: t for t in build_targets()}
+    now = utcnow_iso()
+    missing = 0
+    for r in results:
+        m = meta.get(r["spreadsheet_id"])
+        if m is None:
+            missing += 1
+            m = {}
+        r["member_id"] = m.get("member_id")
+        r["nickname"] = m.get("nickname")
+        r["url_source"] = m.get("url_source")
+        r["report_url"] = m.get("report_url") or \
+            f"https://docs.google.com/spreadsheets/d/{r['spreadsheet_id']}/edit"
+        r.setdefault("script_id", None)
+        r.setdefault("editor_url", None)
+        r.setdefault("error_type", None)
+        r.setdefault("error_detail", None)
+        r["fetched_at"] = (r.get("fetched_at") or now) if r.get("status") == "ok" else None
+    return missing
+
+
+def _resolve_suspect_after(crawl_started_at: str | None) -> datetime:
+    """createTime 安全装置の検知フロア時刻を決める。
+
+    crawl_started_at（巡回セッション開始 ISO8601）が指定されればそれを使う（正確）。
+    未指定時はロード当日 0:00 UTC を保守的フロアとする（呼び出し側で警告）。
+    """
+    if crawl_started_at:
+        dt = datetime.fromisoformat(crawl_started_at.replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt
+    return datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description="Collect container-bound GAS Script IDs into BigQuery.")
-    ap.add_argument("--limit", type=int, default=None, help="今回処理する未処理対象の最大件数（段階化）")
-    ap.add_argument("--force", action="store_true", help="status=ok も含め全件再取得")
-    ap.add_argument("--retry-errors", action="store_true", help="status=error/pending のみ再試行")
-    ap.add_argument("--refresh-older-than", type=int, default=None, metavar="DAYS",
-                    help="status=ok でも fetched_at が指定日数より古ければ再取得")
-    ap.add_argument("--dry-run", action="store_true", help="BQ へ書き込まず NDJSON と結果出力のみ")
-    ap.add_argument("--headed", action="store_true", help="ブラウザを表示（巡回をその場で見たい時）")
-    ap.add_argument("--login", action="store_true",
-                    help="ブラウザを開き Google ログイン済みプロファイルを保存して終了（初回1回）")
+    ap = argparse.ArgumentParser(
+        description="Playwright MCP の巡回結果（GAS Script ID）を BigQuery gas_bindings へ MERGE する。")
+    ap.add_argument("input", help="巡回結果 JSON 配列のファイルパス（'-' で stdin から読む）")
+    ap.add_argument("--dry-run", action="store_true",
+                    help="BQ へ書き込まず、検証（createTime 安全装置）と集計のみ出力")
+    ap.add_argument("--crawl-started-at", metavar="ISO8601", default=None,
+                    help="巡回セッションの開始時刻(ISO8601 UTC)。createTime 安全装置の検知"
+                         "フロアに使う。未指定時はロード当日 0:00 UTC を保守的フロアとする")
     args = ap.parse_args()
 
-    if args.login:
-        return _do_login()
-
-    targets = build_targets()
-    existing = load_existing()
-    todo = select_targets(targets, existing, args)
-
-    print(f"対象総数: {len(targets)} / 既存記録: {len(existing)} / 今回処理: {len(todo)}")
-    if not todo:
-        print("処理対象なし（全件取得済み or スキップ条件）。")
+    results = _read_input(args.input)
+    if not results:
+        print("入力が空です。処理対象なし。")
         return 0
 
-    from playwright.sync_api import sync_playwright
+    missing = _enrich_with_metadata(results)
+    if missing:
+        print(f"  ⚠ member_master に無い spreadsheet_id が {missing} 件（メタ未補完）。"
+              f"マスタ URL の更新漏れの可能性があります。", file=sys.stderr)
 
-    AUTH_DIR.mkdir(exist_ok=True)
-    crawl_start = datetime.now(timezone.utc)
-    results: list[dict] = []
-
-    with sync_playwright() as p:
-        context = p.chromium.launch_persistent_context(
-            user_data_dir=str(AUTH_DIR),
-            headless=not args.headed,
-            locale="ja-JP",
-            viewport={"width": 1280, "height": 900},
-        )
-        try:
-            for i, t in enumerate(todo, 1):
-                t0 = time.time()
-                r = crawl_one(context, t)
-                dur = int((time.time() - t0) * 1000)
-                results.append(r)
-                _append_ndjson(r, r["status"], r["error_type"], r.get("editor_url"), dur)
-                mark = "✓" if r["status"] == "ok" else "✗"
-                print(f"  [{i}/{len(todo)}] {mark} {t['nickname']} "
-                      f"{t['spreadsheet_id'][:12]}… → {r['status']}"
-                      + (f" ({r['error_type']})" if r["error_type"] else ""))
-                if r["status"] == "error" and r["error_type"] == "auth_required":
-                    print("  🛑 ログインが必要です。--headed で再ログインしてください。中断します。",
-                          file=sys.stderr)
-                    break
-                time.sleep(2 + random.random() * 2)  # jitter（bot 判定回避）
-        finally:
-            context.close()
-
-    suspicious = check_create_times(results, crawl_start)
+    # 安全装置: createTime 検証（検証不能なら例外で停止 = fail-closed）。
+    # 検知フロアは巡回セッション開始時刻（--crawl-started-at）を優先。未指定時は
+    # ロード当日 0:00 UTC を保守的フロアとし、日跨ぎでの検知漏れ可能性を警告する。
+    suspect_after = _resolve_suspect_after(args.crawl_started_at)
+    if not args.crawl_started_at:
+        print("  ⚠ --crawl-started-at 未指定: ロード当日 0:00 UTC を保守的な検知フロアとします"
+              "（日跨ぎ巡回では新規生成の検知漏れの恐れ。巡回開始時刻の指定を推奨）。",
+              file=sys.stderr)
+    suspicious = check_create_times(results, suspect_after)
 
     ok = sum(1 for r in results if r["status"] == "ok")
-    print(f"\n結果: ok={ok} / 試行={len(results)} / 新規生成疑い={suspicious}")
+    print(f"結果: ok={ok} / 総数={len(results)} / 新規生成疑い={suspicious}")
 
     if args.dry_run:
         print("--dry-run のため BQ へは書き込みません。")
