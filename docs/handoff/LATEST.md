@@ -1,6 +1,6 @@
 # ハンドオフメモ - monthly-pay-tax
 
-**更新日**: 2026-05-31（collect_gas_bindings コード整理完了 — Codex指摘 #1/#3/#4 + 多段レビュー対応、PR #161 マージ / 当日朝バッチ snapshot 5件 健全確認）
+**更新日**: 2026-06-01（snapshot 障害恒久対策の実証完了 — ACL 付与後初の自動 Step0 実行で当日分 snapshot 5件成功を確認 / 前回: collect_gas_bindings コード整理完了 PR #161）
 **フェーズ**: WAM助成金対応 **技術側完了** + **CI/CD 自動デプロイ稼働中** + **管理機能拡充フェーズ完了** + **運用ドキュメント基盤稼働** + **手動同期 UI 稼働** + **データ安全性向上フェーズ完了** + **snapshot 障害対応・耐障害性強化完了**
 **最新デプロイ**: PR #155 (832659d) Collector → `pay-collector-00035-gcd`（2026-05-31）/ PR #151 (c15e919) Dashboard → `pay-dashboard-00261-zfs`（2026-05-30）
 **Cloud Run設定**: 2026-04-07 `--no-cpu-throttling --max-instances=3` 適用済み（ADR 0004 / 効果測定 2026-05-03 追記）+ pay-dashboard は PR #141 で `--timeout 900` 適用 + pay-collector に `--update-secrets=CHAT_WEBHOOK_URL=chat-webhook-url:latest`（PR #148）
@@ -63,7 +63,7 @@
 - 判定: `isinstance(snapshot_results, dict) and snapshot_results.get(config.BQ_TABLE_DASHBOARD_USERS) == 1`。`main.py` に `import config` 追加
 
 ### 残務・将来候補（保留＝着手は本田様判断）
-- **snapshot 健全性確認（実態）**: 2026-05-31 06:29 JST の朝バッチ(rev 00034-kcb)は Step0 snapshot を **5件全失敗**（ACL 付与漏れの初回顕在化、Chat 通知で検知）。その後 ACL(dataOwner) を付与し **手動補完で 06:57 に5件揃え済み**（`INFORMATION_SCHEMA.TABLE_SNAPSHOTS` の snapshot_time JST 06:57 はこの**手動補完**であり、**自動バッチの成功ではない**）。現在 ACL 付与済み・rev 00035-gcd 稼働。**明朝(20260601)が ACL 付与後の実権限による初の自動 Step0 実行**＝ここで5件成功して初めて恒久対策の実証完了。成功時は無通知のため当日5件を能動確認すること（実行は本田様）
+- ✅ **snapshot 健全性確認（実態・完了）**: 2026-05-31 06:29 JST の朝バッチ(rev 00034-kcb)は Step0 snapshot を **5件全失敗**（ACL 付与漏れの初回顕在化、Chat 通知で検知）→ ACL(dataOwner) 付与 + 手動補完で当日分を揃えた（06:57 の snapshot_time は手動補完であり自動バッチ成功ではなかった）。**2026-06-01 朝バッチで ACL 付与後初の自動 Step0 実行が5件成功＝snapshot 障害恒久対策の実証完了**。`INFORMATION_SCHEMA.TABLE_SNAPSHOTS` で `%_20260601` 5件（dashboard_users / dashboard_sync_groups / check_logs / wam_target_projects / withholding_targets）を確認。snapshot_time が JST 06:00:46〜06:00:53 の連続レンジ＝手動補完ではなく今朝6時バッチ Step0 による自動作成と判別。catchup の「次のアクション 1」クローズ
 - **Phase 2-C**（権限棚卸し1枚 + `dataOwner`→custom role 縮小評価）/ **Phase 3**（保持期間90日・復旧目標の記録、定期リストア確認ルール）は **ROI 逓減 + decision-maker 領分のため保留**。実運用で必要性が見えたとき or 運用判断時に着手
 
 ## 🆕 2026-05-30 セッション完了サマリー（データ安全性向上）
