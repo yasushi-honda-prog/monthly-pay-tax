@@ -204,6 +204,25 @@ CREATE TABLE IF NOT EXISTS `monthly-pay-tax.pay_reports.wam_target_projects` (
   ingested_at TIMESTAMP NOT NULL
 );
 
+-- GASバインディング（業務報告シート ↔ コンテナバインドGAS Script ID の紐付けメタデータ）
+-- ローカル半手動巡回（scripts/collect_gas_bindings.py）が staging→MERGE で投入。
+-- GASコード本体は保存しない（必要時に script_id から clasp clone）。読み取り専用。
+-- 詳細・実行手順は infra/bigquery/migrations/2026-05-31_gas_bindings.sql 参照。
+CREATE TABLE IF NOT EXISTS `monthly-pay-tax.pay_reports.gas_bindings` (
+  spreadsheet_id STRING NOT NULL,  -- report_url から抽出したスプレッドシートID（MERGEキー）
+  report_url     STRING NOT NULL,  -- 元の報告シートURL（members/member_master 結合キー）
+  script_id      STRING,           -- コンテナバインドGASのScript ID（status=ok のみ非NULL）
+  editor_url     STRING,           -- script.google.com エディタURL
+  member_id      STRING,           -- タダメンID
+  nickname       STRING,           -- ニックネーム
+  url_source     STRING,           -- "url_1" | "url_2"
+  status         STRING NOT NULL,  -- ok | no_gas | error | pending | unexpected_new_project
+  error_type     STRING,           -- auth_required | permission_denied | ui_timeout | parse_error | unexpected_new_project
+  error_detail   STRING,
+  fetched_at     TIMESTAMP,        -- Script ID を取得した時刻
+  ingested_at    TIMESTAMP NOT NULL -- BQ 書き込み時刻
+);
+
 -- シード: 初期管理者
 -- INSERT INTO `monthly-pay-tax.pay_reports.dashboard_users`
 --   (email, role, display_name, added_by, created_at, updated_at)
