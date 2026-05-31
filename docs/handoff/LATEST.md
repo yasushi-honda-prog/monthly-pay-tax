@@ -5,7 +5,7 @@
 **最新デプロイ**: PR #155 (832659d) Collector → `pay-collector-00035-gcd`（2026-05-31）/ PR #151 (c15e919) Dashboard → `pay-dashboard-00261-zfs`（2026-05-30）
 **Cloud Run設定**: 2026-04-07 `--no-cpu-throttling --max-instances=3` 適用済み（ADR 0004 / 効果測定 2026-05-03 追記）+ pay-dashboard は PR #141 で `--timeout 900` 適用 + pay-collector に `--update-secrets=CHAT_WEBHOOK_URL=chat-webhook-url:latest`（PR #148）
 **CI/CD**: ADR-0006、main push + パスフィルタで自動デプロイ、deploy 内に test gate 配置（PR #126）。`docs/operations/**` を paths trigger に追加（PR #139）
-**テストスイート**: Dashboard **333** + Cloud Run **100** = **433テスト全PASS**（CI 上でも自動実行）
+**テストスイート**: Dashboard **338** + Cloud Run **100** = **438テスト全PASS**（CI 上でも自動実行）
 
 ## ✅ 2026-05-31 セッション（完了）業務報告シート GAS Script ID 一元管理
 
