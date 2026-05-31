@@ -1,11 +1,11 @@
 # ハンドオフメモ - monthly-pay-tax
 
-**更新日**: 2026-05-31（snapshot 障害対応 + 事後強化完了 — IAM 修正 + 復旧 runbook + Step0 健全性チェック + Step5 fail-safe、PR #153-155 マージ）
+**更新日**: 2026-05-31（collect_gas_bindings コード整理完了 — Codex指摘 #1/#3/#4 + 多段レビュー対応、PR #161 マージ / 当日朝バッチ snapshot 5件 健全確認）
 **フェーズ**: WAM助成金対応 **技術側完了** + **CI/CD 自動デプロイ稼働中** + **管理機能拡充フェーズ完了** + **運用ドキュメント基盤稼働** + **手動同期 UI 稼働** + **データ安全性向上フェーズ完了** + **snapshot 障害対応・耐障害性強化完了**
 **最新デプロイ**: PR #155 (832659d) Collector → `pay-collector-00035-gcd`（2026-05-31）/ PR #151 (c15e919) Dashboard → `pay-dashboard-00261-zfs`（2026-05-30）
 **Cloud Run設定**: 2026-04-07 `--no-cpu-throttling --max-instances=3` 適用済み（ADR 0004 / 効果測定 2026-05-03 追記）+ pay-dashboard は PR #141 で `--timeout 900` 適用 + pay-collector に `--update-secrets=CHAT_WEBHOOK_URL=chat-webhook-url:latest`（PR #148）
 **CI/CD**: ADR-0006、main push + パスフィルタで自動デプロイ、deploy 内に test gate 配置（PR #126）。`docs/operations/**` を paths trigger に追加（PR #139）
-**テストスイート**: Dashboard **338** + Cloud Run **100** = **438テスト全PASS**（CI 上でも自動実行）
+**テストスイート**: Dashboard **338** + Cloud Run **100** = **438テスト全PASS**（CI 自動実行）+ scripts/tests **26**（collect_gas_bindings、ローカル実行・CI対象外）
 
 ## ✅ 2026-05-31 セッション（完了）業務報告シート GAS Script ID 一元管理
 
@@ -23,12 +23,18 @@
 - **取得不能2件**: こうちゃん（藤田 煌季 / a4cb3be1）・あーちゃん（藤田 梓稀 / cc375697）。member_master に URL あるが実シートが「ページが見つかりません」＝マスタURL古い/削除/権限変更。dashboard に `page_not_found` 表示、運用者が個別対応。
 - dashboard「GAS管理」ページ本番稼働（admin閲覧専用・status別フィルタ・editor_urlリンク・clasp clone手順）。テスト dashboard 338 / cloud-run 100 PASS。
 
-### 残作業（次セッション・コード整理のみ。本番データ投入は完了）
-`scripts/collect_gas_bindings.py` の Codex 指摘整理（別PR）:
-- **#4 死蔵コード削除**: python-playwright 巡回（`crawl_one`/`_do_login`/`main` + Playwright import/`AUTH_DIR`/`SHOT_DIR`）は MCP 経路移行で不使用 → 削除。残すのは `build_targets`/`load_existing`/`select_targets`/`check_create_times`/`load_merge`/`_bq_*` + MCP結果ロードCLI（`/tmp/load_batch.py` を `scripts/` に正式化）。
-- **#1 fail-open 修正**: `check_create_times` が clasp/API 失敗時に警告のみ続行 → 検証不能をエラー扱いで停止。
-- **#3**: `load_existing` が BQ エラーを「既存なし」扱い → 例外伝播。
-- 取得不能2件（こうちゃん/あーちゃん）のマスタURL是正は運用者タスク（is decision-maker 領分）。
+### ✅ collect_gas_bindings.py コード整理（完了 — PR #161、2026-05-31）
+`scripts/collect_gas_bindings.py` を「巡回ツール」→「Playwright MCP の巡回結果(JSON)を BQ へ MERGE するロードツール」へ再スコープ。Codex 過去指摘3件 + 多段レビュー対応:
+- **#4**: python-playwright 巡回コード（`crawl_one`/`_do_login`/`_save_shot`/`_append_ndjson`/巡回`main` + import/定数）削除。`main` を MCP 結果ロード CLI に置換、`/tmp/load_batch.py` 経路を正式化（`/tmp/gas_remaining.json` 依存は `build_targets()` 再構築で解消）。
+- **#1**: `check_create_times` を fail-closed 化（clasp/API/createTime 検証不能 → RuntimeError 停止）。
+- **#3**: `load_existing` の BQ エラー握り潰しを除去し例外伝播。
+- **`/code-review`（3アングル）6件 + `/codex review` 6件対応**: 検知フロア時刻 `suspect_after` 明確化 + `--crawl-started-at` 引数、`_read_input` 行レベル検証（型/非空/重複/ok↔script_id 整合）、`select_targets` 明示キーワード引数化、`load_merge` のメタ列 `COALESCE(S,T)` 保持（master miss の NULL 上書き防止）等。`/codex review` が `/code-review` 見落としの**データ破壊リスク2件**（ok+script_id NULL上書き / メタNULL上書き）を補完。テスト 26件新規、全 464件 PASS、CI pass。
+- **保留**（別PR候補）: finding 4 許可 status ホワイトリスト（spec依存で見送り）、finding 6 staging テーブル名固定（低・半手動低頻度）。
+- 取得不能2件（こうちゃん/あーちゃん）のマスタURL是正は運用者タスク（decision-maker 領分）。
+
+### 🔧 発見した別件（本PR外・対応候補）
+- **一括テスト `pytest dashboard/tests/ cloud-run/tests/` が `tests` パッケージ名衝突で collection error**（両者に `__init__.py` あり）。CLAUDE.md のテスト一括コマンドが実態と乖離（別々実行は正常）。
+- **`scripts/tests` が CI 対象外**（`.github/workflows/test.yml` は dashboard/cloud-run のみ）。ローカルツールゆえ意図的だが、回帰検知のため CI 追加の検討余地。
 
 ### 🔭 今後の方向性（2026-05-31 本田様共有・要記憶）— A1 セルに GAS Script ID 自動入力
 - 「【共通】業務報告シート制御GASライブラリ」（Script ID: `1hDSPvY91iCGLoK_1FhqQK-DhT3DpVtDuXH9ZTOAxAjuIat-p4lEY2egj`）を各業務報告スプレッドシートに順次導入中。**導入済みシートは「【都度入力】業務報告」タブの A1 セルに自身の GAS Script ID が自動入力される想定**（業務報告スプレッドシート＝複数タブ構成。A1 が入るのは先頭タブではなく **`【都度入力】業務報告` タブ**）。ライブラリ参照への書き換えは GAS 配信ツール（Script ID `1DJeYyPnr6ImxP4WMZ03StQhjlOmfa37v7iiDQAwi3yGkFAt4J0xlMAtb`）で実施（**GAS からのアプローチは一旦完了**）。
@@ -57,7 +63,7 @@
 - 判定: `isinstance(snapshot_results, dict) and snapshot_results.get(config.BQ_TABLE_DASHBOARD_USERS) == 1`。`main.py` に `import config` 追加
 
 ### 残務・将来候補（保留＝着手は本田様判断）
-- **明朝(20260601)バッチで pay-collector@ 実権限の snapshot 成功を確認** — CLAUDE.md「Step0 健全性チェック」クエリで当日5件を確認（実行は本田様、成功時は無通知のため能動確認が必要）
+- **snapshot 健全性確認**: 2026-05-31 分は **5件揃い確認済み**（本セッション、`INFORMATION_SCHEMA.TABLE_SNAPSHOTS` で snapshot_time JST 06:57）。pay-collector@ 実権限での Step0 成功を実証。明朝(20260601)以降も同クエリで当日5件を能動確認（成功時は無通知のため）
 - **Phase 2-C**（権限棚卸し1枚 + `dataOwner`→custom role 縮小評価）/ **Phase 3**（保持期間90日・復旧目標の記録、定期リストア確認ルール）は **ROI 逓減 + decision-maker 領分のため保留**。実運用で必要性が見えたとき or 運用判断時に着手
 
 ## 🆕 2026-05-30 セッション完了サマリー（データ安全性向上）
