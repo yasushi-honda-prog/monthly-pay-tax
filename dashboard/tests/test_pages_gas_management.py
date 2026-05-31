@@ -81,3 +81,32 @@ def test_dataframe_rendered(mock_streamlit, mock_auth_require_admin, sample_df):
     """データありパスで一覧（st.dataframe）が描画される"""
     _load_module(sample_df, target_count=215)
     assert mock_streamlit.dataframe.called
+
+
+def test_search_regex_metachar_safe(mock_streamlit, mock_auth_require_admin, sample_df):
+    """検索欄に正規表現記号 '[' を入れても re.error で落ちない（regex=False）"""
+    mock_streamlit.text_input.return_value = "["
+    try:
+        mod = _load_module(sample_df, target_count=215)
+        assert mod is not None
+    finally:
+        mock_streamlit.text_input.return_value = ""
+
+
+def test_count_targets_failure_shows_dash(mock_streamlit, mock_auth_require_admin, sample_df):
+    """count_targets が失敗してもクラッシュせず警告表示パスに入る"""
+    if "pages.gas_management" in sys.modules:
+        del sys.modules["pages.gas_management"]
+    import importlib
+
+    with patch("lib.bq_client.get_bq_client") as mock_get_bq:
+        mock_client = MagicMock()
+        mock_qr = MagicMock()
+        mock_qr.to_dataframe.return_value = sample_df  # load_bindings 成功
+        mock_qr.result.side_effect = RuntimeError("BQ down")  # count_targets 失敗
+        mock_client.query.return_value = mock_qr
+        mock_get_bq.return_value = mock_client
+        mod = importlib.import_module("pages.gas_management")
+
+    assert mod is not None
+    assert mock_streamlit.warning.called

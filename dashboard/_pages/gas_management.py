@@ -68,8 +68,10 @@ except Exception as e:  # noqa: BLE001
 
 try:
     total_targets = count_targets()
+    targets_failed = False
 except Exception:  # noqa: BLE001
     total_targets = 0
+    targets_failed = True
 
 # --- メトリクス ---
 n_ok = int((df["status"] == "ok").sum()) if not df.empty else 0
@@ -80,11 +82,17 @@ collected_ids = df["spreadsheet_id"].nunique() if not df.empty else 0
 n_remaining = max(total_targets - collected_ids, 0)
 
 m1, m2, m3, m4, m5 = st.columns(5)
-m1.metric("巡回対象", total_targets)
+m1.metric("巡回対象", "—" if targets_failed else total_targets)
 m2.metric("取得済 (ok)", n_ok)
 m3.metric("エラー", n_error)
 m4.metric("GAS無し", n_no_gas)
-m5.metric("未巡回", n_remaining)
+m5.metric("未巡回", "—" if targets_failed else n_remaining)
+
+if targets_failed:
+    st.warning(
+        "巡回対象数の取得に失敗しました（BQ 接続を確認してください）。"
+        "「巡回対象」「未巡回」の値は不正確です。"
+    )
 
 if n_suspicious > 0:
     st.error(
@@ -114,9 +122,10 @@ if sel_status != "全て":
     view = view[view["status"] == sel_status]
 if kw:
     kw_low = kw.strip().lower()
+    # regex=False: 検索欄に [ や ( 等の正規表現記号を入れても re.error で落ちない
     view = view[
-        view["nickname"].fillna("").str.lower().str.contains(kw_low)
-        | view["member_id"].fillna("").str.lower().str.contains(kw_low)
+        view["nickname"].str.lower().str.contains(kw_low, regex=False, na=False)
+        | view["member_id"].str.lower().str.contains(kw_low, regex=False, na=False)
     ]
 
 st.caption(f"表示件数: {len(view)} / 全 {len(df)} 件")
