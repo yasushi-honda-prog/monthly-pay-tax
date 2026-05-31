@@ -63,7 +63,7 @@
 - 判定: `isinstance(snapshot_results, dict) and snapshot_results.get(config.BQ_TABLE_DASHBOARD_USERS) == 1`。`main.py` に `import config` 追加
 
 ### 残務・将来候補（保留＝着手は本田様判断）
-- **snapshot 健全性確認**: 2026-05-31 分は **5件揃い確認済み**（本セッション、`INFORMATION_SCHEMA.TABLE_SNAPSHOTS` で snapshot_time JST 06:57）。pay-collector@ 実権限での Step0 成功を実証。明朝(20260601)以降も同クエリで当日5件を能動確認（成功時は無通知のため）
+- **snapshot 健全性確認（実態）**: 2026-05-31 06:29 JST の朝バッチ(rev 00034-kcb)は Step0 snapshot を **5件全失敗**（ACL 付与漏れの初回顕在化、Chat 通知で検知）。その後 ACL(dataOwner) を付与し **手動補完で 06:57 に5件揃え済み**（`INFORMATION_SCHEMA.TABLE_SNAPSHOTS` の snapshot_time JST 06:57 はこの**手動補完**であり、**自動バッチの成功ではない**）。現在 ACL 付与済み・rev 00035-gcd 稼働。**明朝(20260601)が ACL 付与後の実権限による初の自動 Step0 実行**＝ここで5件成功して初めて恒久対策の実証完了。成功時は無通知のため当日5件を能動確認すること（実行は本田様）
 - **Phase 2-C**（権限棚卸し1枚 + `dataOwner`→custom role 縮小評価）/ **Phase 3**（保持期間90日・復旧目標の記録、定期リストア確認ルール）は **ROI 逓減 + decision-maker 領分のため保留**。実運用で必要性が見えたとき or 運用判断時に着手
 
 ## 🆕 2026-05-30 セッション完了サマリー（データ安全性向上）
