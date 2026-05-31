@@ -7,29 +7,28 @@
 **CI/CD**: ADR-0006、main push + パスフィルタで自動デプロイ、deploy 内に test gate 配置（PR #126）。`docs/operations/**` を paths trigger に追加（PR #139）
 **テストスイート**: Dashboard **333** + Cloud Run **100** = **433テスト全PASS**（CI 上でも自動実行）
 
-## 🚧 2026-05-31 セッション（進行中・WIP）業務報告シート GAS Script ID 一元管理
+## ✅ 2026-05-31 セッション（完了）業務報告シート GAS Script ID 一元管理
 
-業務報告スプレッドシート約215件のコンテナバインド GAS（Apps Script）の Script ID を収集し、スプレッドシート・メンバーと紐付けて BigQuery で一元管理する機能を実装中。**未完**。ブランチ `feature/gas-script-id-collection`。
+業務報告スプレッドシート215件のコンテナバインド GAS の Script ID を収集し、スプレッドシート・メンバーと紐付けて BigQuery `gas_bindings` で一元管理。**完了・本番稼働**。PR #157 マージ済み（main、dashboard 本番反映）。
 
-**背景**: Google の仕様上、スプレッドシート ID からコンテナバインドの Script ID を取得する公開 API は存在しない（Drive/Apps Script API/clasp すべて不可、WebSearch + 実証で確認）。唯一の手段は各シートをブラウザで開き「拡張機能→Apps Script」を起動して遷移先 URL `.../projects/{SCRIPT_ID}/edit` から抽出する半手動巡回。スコープは ID 紐付けメタデータのみ・読み取り専用（ユーザー合意）。設計詳細は `~/.claude/plans/linear-pondering-spring.md`、Codex セカンドオピニオン反映済み。
+**背景**: スプレッドシート ID から Script ID を取得する公開 API は無い（Drive/Apps Script API/clasp 不可）。唯一の手段は各シートで「拡張機能→Apps Script」を開き遷移先 URL `.../projects/{SCRIPT_ID}/edit` から抽出する半手動巡回。スコープ: ID 紐付けメタデータのみ・読み取り専用。
 
-### 完了
-- BQ `pay_reports.gas_bindings` テーブル作成（`infra/bigquery/migrations/2026-05-31_gas_bindings.sql` + `schema.sql` 追記）。列: spreadsheet_id/report_url/script_id/editor_url/member_id/nickname/url_source/status/error_type/error_detail/fetched_at/ingested_at。status enum: ok/no_gas/error/pending/unexpected_new_project
-- `scripts/collect_gas_bindings.py` 実装: Playwright persistent context 巡回 + staging→**MERGE**（正常 script_id を失敗で上書きしない）+ createTime 安全装置（巡回後に新規空プロジェクト生成を検知）+ NDJSON 試行ログ。CLI: `--limit`/`--login`/`--force`/`--retry-errors`/`--refresh-older-than`/`--dry-run`/`--headed`
-- BQ I/O は **`bq` CLI 経由**（python ADC は別アカウント `yasushi.honda@aozora-cg.com` を指すため不使用、ADC は触らない）。`--dry-run` で対象215件取得を確認（`bq query` の `--max_rows=100000` 必須に注意）
-- `dashboard/lib/constants.py` に `GAS_BINDINGS_TABLE`、`.gitignore` に `.gas_auth/` 等を追記
+### 巡回エンジン（重要な方針転換）
+- python-playwright の persistent context は **Google が自動化セッションを信頼せず `auth_required`** で失敗（Cookie 保存済みでも再認証要求）。
+- **解決 = ログイン済みで安定動作する Playwright MCP ブラウザの `run_code` ループで全件巡回**。1バッチ25件（MCP `run_code` の **300秒制限**。30件で約4分OK、40件は超過しタイムアウト）、各件 jitter、`#docs-extensions-menu` クリック→新タブ URL から Script ID 抽出。
+- ロード: MCP 結果 JSON を `/tmp/load_batch.py`（`scripts/collect_gas_bindings.py` の `load_merge`/`check_create_times`/`utcnow_iso` を import）で createTime 検証 → staging→MERGE。BQ I/O は `bq` CLI（python ADC は別アカウントのため不使用）。
 
-### 🔴 ブロッカー（次セッションの起点）
-- **Playwright 巡回が `auth_required` で失敗**。`scripts/.gas_auth/` に Google ログイン Cookie（SID/SSID/HSID/__Secure-1P/3PSID、google.com+google.co.jp 計26個）は保存されているのに、巡回（headless / headed 双方）で accounts.google.com にリダイレクトされる。
-- 仮説（濃厚順）: ① Google が自動化ブラウザのセッションを信頼せず再認証要求（Codex 警告どおり）② `/u/0/`（デフォルトアカウント）が yasushi-honda 以外を指すアカウント不一致 ③ ログイン保存タイミングの問題
-- 切り分け案: (a) `/u/0/` を `/u/{idx}/` か email 指定に / (b) headed フォアグラウンドで実 URL 遷移を目視 / (c) **既にログイン済みで安定動作する Playwright MCP ブラウザでパイロットを代替**（最初に「【ハル】業務報告シート」で実証済み、Script ID `1CKYoYu0iSSddWONmmxei9Gh50V-NYXAHC9lhq1vf3ZG0-0SbrLgBqRMt` 取得・clone 成功）/ (d) storage_state 方式
+### 結果（Phase5検証 全PASS）
+- 215件: **ok 213 / page_not_found 2 / suspicious(新規生成) 0**。distinct script_id 213・member紐付け漏れ0・ok_but_null 0。
+- **取得不能2件**: こうちゃん（藤田 煌季 / a4cb3be1）・あーちゃん（藤田 梓稀 / cc375697）。member_master に URL あるが実シートが「ページが見つかりません」＝マスタURL古い/削除/権限変更。dashboard に `page_not_found` 表示、運用者が個別対応。
+- dashboard「GAS管理」ページ本番稼働（admin閲覧専用・status別フィルタ・editor_urlリンク・clasp clone手順）。テスト dashboard 338 / cloud-run 100 PASS。
 
-### 未着手
-- `dashboard/_pages/gas_management.py`（admin 専用閲覧ページ）+ `app.py`/`admin_settings.py` 追記 + dashboard テスト
-- パイロット10件検証 → 段階的全件巡回（10→25→50→残り）→ 最終検証
-
-### gas_bindings 現状
-- `--headed --limit 10` 等の試行で `auth_required` 1〜2件が MERGE 済み（status=error）。正式データではない。次セッションでログイン解決後に `--force` or `--retry-errors` で再取得。
+### 残作業（次セッション・コード整理のみ。本番データ投入は完了）
+`scripts/collect_gas_bindings.py` の Codex 指摘整理（別PR）:
+- **#4 死蔵コード削除**: python-playwright 巡回（`crawl_one`/`_do_login`/`main` + Playwright import/`AUTH_DIR`/`SHOT_DIR`）は MCP 経路移行で不使用 → 削除。残すのは `build_targets`/`load_existing`/`select_targets`/`check_create_times`/`load_merge`/`_bq_*` + MCP結果ロードCLI（`/tmp/load_batch.py` を `scripts/` に正式化）。
+- **#1 fail-open 修正**: `check_create_times` が clasp/API 失敗時に警告のみ続行 → 検証不能をエラー扱いで停止。
+- **#3**: `load_existing` が BQ エラーを「既存なし」扱い → 例外伝播。
+- 取得不能2件（こうちゃん/あーちゃん）のマスタURL是正は運用者タスク（is decision-maker 領分）。
 
 ## 🆕 2026-05-31 セッション完了サマリー（snapshot 障害対応 + 耐障害性強化）
 
