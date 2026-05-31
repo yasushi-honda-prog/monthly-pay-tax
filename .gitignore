@@ -13,3 +13,8 @@ __pycache__/
 .playwright-mcp/
 .claude/settings.local.json
 .serena/
+# GAS Script ID 収集スクリプトのローカル生成物（認証プロファイル / 進捗 / 試行ログ）
+scripts/.gas_auth/
+scripts/.gas_bindings_progress.json
+scripts/.gas_bindings_attempts.ndjson
+scripts/.gas_screenshots/

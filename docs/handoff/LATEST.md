@@ -7,6 +7,30 @@
 **CI/CD**: ADR-0006、main push + パスフィルタで自動デプロイ、deploy 内に test gate 配置（PR #126）。`docs/operations/**` を paths trigger に追加（PR #139）
 **テストスイート**: Dashboard **333** + Cloud Run **100** = **433テスト全PASS**（CI 上でも自動実行）
 
+## 🚧 2026-05-31 セッション（進行中・WIP）業務報告シート GAS Script ID 一元管理
+
+業務報告スプレッドシート約215件のコンテナバインド GAS（Apps Script）の Script ID を収集し、スプレッドシート・メンバーと紐付けて BigQuery で一元管理する機能を実装中。**未完**。ブランチ `feature/gas-script-id-collection`。
+
+**背景**: Google の仕様上、スプレッドシート ID からコンテナバインドの Script ID を取得する公開 API は存在しない（Drive/Apps Script API/clasp すべて不可、WebSearch + 実証で確認）。唯一の手段は各シートをブラウザで開き「拡張機能→Apps Script」を起動して遷移先 URL `.../projects/{SCRIPT_ID}/edit` から抽出する半手動巡回。スコープは ID 紐付けメタデータのみ・読み取り専用（ユーザー合意）。設計詳細は `~/.claude/plans/linear-pondering-spring.md`、Codex セカンドオピニオン反映済み。
+
+### 完了
+- BQ `pay_reports.gas_bindings` テーブル作成（`infra/bigquery/migrations/2026-05-31_gas_bindings.sql` + `schema.sql` 追記）。列: spreadsheet_id/report_url/script_id/editor_url/member_id/nickname/url_source/status/error_type/error_detail/fetched_at/ingested_at。status enum: ok/no_gas/error/pending/unexpected_new_project
+- `scripts/collect_gas_bindings.py` 実装: Playwright persistent context 巡回 + staging→**MERGE**（正常 script_id を失敗で上書きしない）+ createTime 安全装置（巡回後に新規空プロジェクト生成を検知）+ NDJSON 試行ログ。CLI: `--limit`/`--login`/`--force`/`--retry-errors`/`--refresh-older-than`/`--dry-run`/`--headed`
+- BQ I/O は **`bq` CLI 経由**（python ADC は別アカウント `yasushi.honda@aozora-cg.com` を指すため不使用、ADC は触らない）。`--dry-run` で対象215件取得を確認（`bq query` の `--max_rows=100000` 必須に注意）
+- `dashboard/lib/constants.py` に `GAS_BINDINGS_TABLE`、`.gitignore` に `.gas_auth/` 等を追記
+
+### 🔴 ブロッカー（次セッションの起点）
+- **Playwright 巡回が `auth_required` で失敗**。`scripts/.gas_auth/` に Google ログイン Cookie（SID/SSID/HSID/__Secure-1P/3PSID、google.com+google.co.jp 計26個）は保存されているのに、巡回（headless / headed 双方）で accounts.google.com にリダイレクトされる。
+- 仮説（濃厚順）: ① Google が自動化ブラウザのセッションを信頼せず再認証要求（Codex 警告どおり）② `/u/0/`（デフォルトアカウント）が yasushi-honda 以外を指すアカウント不一致 ③ ログイン保存タイミングの問題
+- 切り分け案: (a) `/u/0/` を `/u/{idx}/` か email 指定に / (b) headed フォアグラウンドで実 URL 遷移を目視 / (c) **既にログイン済みで安定動作する Playwright MCP ブラウザでパイロットを代替**（最初に「【ハル】業務報告シート」で実証済み、Script ID `1CKYoYu0iSSddWONmmxei9Gh50V-NYXAHC9lhq1vf3ZG0-0SbrLgBqRMt` 取得・clone 成功）/ (d) storage_state 方式
+
+### 未着手
+- `dashboard/_pages/gas_management.py`（admin 専用閲覧ページ）+ `app.py`/`admin_settings.py` 追記 + dashboard テスト
+- パイロット10件検証 → 段階的全件巡回（10→25→50→残り）→ 最終検証
+
+### gas_bindings 現状
+- `--headed --limit 10` 等の試行で `auth_required` 1〜2件が MERGE 済み（status=error）。正式データではない。次セッションでログイン解決後に `--force` or `--retry-errors` で再取得。
+
 ## 🆕 2026-05-31 セッション完了サマリー（snapshot 障害対応 + 耐障害性強化）
 
 発端: 朝6時バッチで Step0 snapshot が `deleteSnapshot` 権限不足により**5件全失敗**（Chat 通知で検知）。原因特定 → 恒久対応 → 事後強化を段階実施（各分岐に Codex セカンドオピニオン + 本田様判断を挟み、過剰実装を回避）。
