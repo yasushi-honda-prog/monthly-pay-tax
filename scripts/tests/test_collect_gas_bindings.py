@@ -1,7 +1,15 @@
-"""scripts/collect_gas_bindings.py の回帰テスト（Codex 指摘 #1/#3 + スキップ規則 + 入力検証）。
+"""scripts/collect_gas_bindings.py の回帰テスト。
 
-ローカル半手動ロードツールの純粋ロジック部分を、bq CLI / clasp トークン / build_targets を
-モックして検証する。本番 BQ / Apps Script API には接続しない。
+カバー範囲:
+- Codex #1 check_create_times の fail-closed
+- Codex #3 load_existing の例外伝播
+- select_targets のスキップ規則
+- _read_input の入力検証（型/非空/重複/ok↔script_id 整合）
+- _enrich_with_metadata（メタ補完 + master miss カウント）
+- load_merge の MERGE SQL（メタ列の COALESCE 保持）
+- _resolve_suspect_after（検知フロア時刻の決定）
+
+bq CLI / clasp トークン / build_targets をモックし、本番 BQ / Apps Script API には接続しない。
 """
 import sys
 from datetime import datetime, timezone
@@ -38,14 +46,12 @@ def test_load_existing_returns_map_on_success(monkeypatch):
 
 # --- #1: check_create_times は検証不能時に fail-closed（例外で停止）---
 def test_check_create_times_no_ok_returns_zero():
-    # script_id を持つ ok 行が無ければ検証対象なし → 0（安全装置の起動不要）
     results = [{"status": "error", "script_id": None},
                {"status": "ok", "script_id": None}]
     assert c.check_create_times(results, _now()) == 0
 
 
 def test_check_create_times_raises_when_clasp_unavailable(monkeypatch):
-    # clasp トークンが読めない（= 安全装置を初期化できない）→ 検証不能で RuntimeError
     monkeypatch.setattr(c.os.path, "expanduser", lambda _p: "/nonexistent/.clasprc.json")
     results = [{"status": "ok", "script_id": "SID1", "nickname": "x", "spreadsheet_id": "AAA"}]
     with pytest.raises(RuntimeError, match="fail-closed"):
@@ -57,7 +63,7 @@ def test_select_targets_skips_ok_by_default():
     targets = [{"spreadsheet_id": "AAA"}, {"spreadsheet_id": "BBB"}]
     existing = {"AAA": {"status": "ok", "fetched_at_iso": None}}
     out = c.select_targets(targets, existing)
-    assert [t["spreadsheet_id"] for t in out] == ["BBB"]  # AAA=ok スキップ / BBB=未登録で対象
+    assert [t["spreadsheet_id"] for t in out] == ["BBB"]
 
 
 def test_select_targets_force_includes_all():
@@ -75,7 +81,6 @@ def test_select_targets_retry_errors_only():
         "CCC": {"status": "no_gas", "fetched_at_iso": None},
     }
     out = c.select_targets(targets, existing, retry_errors=True)
-    # error のみ再試行。ok / no_gas（空プロジェクト再生成リスク）は触らない
     assert [t["spreadsheet_id"] for t in out] == ["BBB"]
 
 
@@ -85,18 +90,20 @@ def test_select_targets_limit():
     assert len(out) == 2
 
 
-# --- 入力パーサ（_read_input は二重 JSON 文字列 + 行レベル検証に対応）---
+# --- 入力パーサ（二重 JSON 文字列 + 行レベル検証）---
 def test_read_input_plain_array(tmp_path):
     p = tmp_path / "r.json"
-    p.write_text('[{"spreadsheet_id": "AAA", "status": "ok"}]', encoding="utf-8")
-    assert c._read_input(str(p)) == [{"spreadsheet_id": "AAA", "status": "ok"}]
+    p.write_text('[{"spreadsheet_id": "AAA", "status": "ok", "script_id": "S1"}]', encoding="utf-8")
+    assert c._read_input(str(p)) == [{"spreadsheet_id": "AAA", "status": "ok", "script_id": "S1"}]
 
 
 def test_read_input_double_encoded(tmp_path):
     # MCP run_code が結果を JSON 文字列として返すケース（先頭が `"`）
     p = tmp_path / "r.json"
-    p.write_text('"[{\\"spreadsheet_id\\": \\"AAA\\", \\"status\\": \\"ok\\"}]"', encoding="utf-8")
-    assert c._read_input(str(p)) == [{"spreadsheet_id": "AAA", "status": "ok"}]
+    p.write_text(
+        '"[{\\"spreadsheet_id\\": \\"AAA\\", \\"status\\": \\"ok\\", \\"script_id\\": \\"S1\\"}]"',
+        encoding="utf-8")
+    assert c._read_input(str(p)) == [{"spreadsheet_id": "AAA", "status": "ok", "script_id": "S1"}]
 
 
 def test_read_input_empty_returns_empty(tmp_path):
@@ -113,9 +120,8 @@ def test_read_input_rejects_non_list(tmp_path):
 
 
 def test_read_input_rejects_row_without_spreadsheet_id(tmp_path):
-    # 行レベル検証: spreadsheet_id 欠落は境界で弾く（下流の生 KeyError を防ぐ）
     p = tmp_path / "r.json"
-    p.write_text('[{"status": "ok"}]', encoding="utf-8")
+    p.write_text('[{"status": "ok", "script_id": "S1"}]', encoding="utf-8")
     with pytest.raises(ValueError, match="spreadsheet_id"):
         c._read_input(str(p))
 
@@ -124,6 +130,53 @@ def test_read_input_rejects_row_without_status(tmp_path):
     p = tmp_path / "r.json"
     p.write_text('[{"spreadsheet_id": "AAA"}]', encoding="utf-8")
     with pytest.raises(ValueError, match="status"):
+        c._read_input(str(p))
+
+
+def test_read_input_rejects_blank_spreadsheet_id(tmp_path):
+    # finding 4: trim 後の非空検証
+    p = tmp_path / "r.json"
+    p.write_text('[{"spreadsheet_id": "  ", "status": "ok", "script_id": "S1"}]', encoding="utf-8")
+    with pytest.raises(ValueError, match="spreadsheet_id"):
+        c._read_input(str(p))
+
+
+def test_read_input_rejects_non_string_status(tmp_path):
+    # finding 4: status の型検証（数値を弾く）
+    p = tmp_path / "r.json"
+    p.write_text('[{"spreadsheet_id": "AAA", "status": 1}]', encoding="utf-8")
+    with pytest.raises(ValueError, match="status"):
+        c._read_input(str(p))
+
+
+def test_read_input_rejects_ok_without_script_id(tmp_path):
+    # finding 1: status=ok なのに script_id 欠落 → 既存 script_id の NULL 上書きを防ぐ
+    p = tmp_path / "r.json"
+    p.write_text('[{"spreadsheet_id": "AAA", "status": "ok"}]', encoding="utf-8")
+    with pytest.raises(ValueError, match="script_id"):
+        c._read_input(str(p))
+
+
+def test_read_input_rejects_ok_with_blank_script_id(tmp_path):
+    p = tmp_path / "r.json"
+    p.write_text('[{"spreadsheet_id": "AAA", "status": "ok", "script_id": "  "}]', encoding="utf-8")
+    with pytest.raises(ValueError, match="script_id"):
+        c._read_input(str(p))
+
+
+def test_read_input_accepts_non_ok_without_script_id(tmp_path):
+    # ok 以外（no_gas/error 等）は script_id 任意
+    p = tmp_path / "r.json"
+    p.write_text('[{"spreadsheet_id": "AAA", "status": "no_gas"}]', encoding="utf-8")
+    assert c._read_input(str(p)) == [{"spreadsheet_id": "AAA", "status": "no_gas"}]
+
+
+def test_read_input_rejects_duplicate_spreadsheet_id(tmp_path):
+    # finding 3: 重複 spreadsheet_id は MERGE 複数マッチ/重複 INSERT を招くため境界で弾く
+    p = tmp_path / "r.json"
+    p.write_text('[{"spreadsheet_id": "AAA", "status": "no_gas"}, '
+                 '{"spreadsheet_id": "AAA", "status": "error"}]', encoding="utf-8")
+    with pytest.raises(ValueError, match="重複"):
         c._read_input(str(p))
 
 
@@ -139,11 +192,9 @@ def test_enrich_with_metadata_fills_and_counts_misses(monkeypatch):
     ]
     missing = c._enrich_with_metadata(results)
     assert missing == 1
-    # 補完: master ヒット行はメタが入り、miss 行は None + フォールバック URL
     assert results[0]["nickname"] == "a"
     assert results[1]["nickname"] is None
     assert results[1]["report_url"].endswith("/ZZZ/edit")
-    # 欠損フィールド補完: ok 行は fetched_at が埋まり、欠損キーは None で揃う
     assert results[0]["fetched_at"] is not None
     assert results[0]["editor_url"] is None
 
@@ -152,4 +203,40 @@ def test_enrich_with_metadata_nulls_fetched_at_for_non_ok(monkeypatch):
     monkeypatch.setattr(c, "build_targets", lambda: [])
     results = [{"spreadsheet_id": "AAA", "status": "error"}]
     c._enrich_with_metadata(results)
-    assert results[0]["fetched_at"] is None  # 非 ok は fetched_at を立てない
+    assert results[0]["fetched_at"] is None
+
+
+# --- load_merge の MERGE SQL（finding 5: メタ列の COALESCE 保持）---
+def test_load_merge_preserves_meta_with_coalesce(monkeypatch):
+    captured = []
+    monkeypatch.setattr(c, "_bq_load_ndjson", lambda rows: None)
+    monkeypatch.setattr(c, "_bq_exec", lambda sql: captured.append(sql))
+    results = [{"spreadsheet_id": "AAA", "status": "ok", "script_id": "S1",
+                "member_id": "1", "nickname": "a", "url_source": "url_1",
+                "report_url": "https://x/AAA", "editor_url": "https://e/S1",
+                "error_type": None, "error_detail": None, "fetched_at": "2026-05-31T00:00:00Z"}]
+    c.load_merge(results)
+    merge_sql = captured[0]
+    # member_master 由来のメタは COALESCE で既存保持、script_id/status は S 優先
+    assert "member_id=COALESCE(S.member_id, T.member_id)" in merge_sql
+    assert "nickname=COALESCE(S.nickname, T.nickname)" in merge_sql
+    assert "report_url=COALESCE(S.report_url, T.report_url)" in merge_sql
+    assert "script_id=S.script_id" in merge_sql
+    assert "status=S.status" in merge_sql
+
+
+# --- _resolve_suspect_after（finding 2: 検知フロア時刻の決定）---
+def test_resolve_suspect_after_uses_crawl_started_at():
+    dt = c._resolve_suspect_after("2026-05-31T10:30:00Z")
+    assert dt == datetime(2026, 5, 31, 10, 30, tzinfo=timezone.utc)
+
+
+def test_resolve_suspect_after_defaults_to_midnight():
+    dt = c._resolve_suspect_after(None)
+    assert dt.hour == 0 and dt.minute == 0 and dt.second == 0
+    assert dt.tzinfo == timezone.utc
+
+
+def test_resolve_suspect_after_rejects_bad_format():
+    with pytest.raises(ValueError):
+        c._resolve_suspect_after("not-a-date")

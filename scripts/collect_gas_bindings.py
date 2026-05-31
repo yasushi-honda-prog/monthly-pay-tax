@@ -264,10 +264,18 @@ def load_merge(results: list[dict]) -> None:
     _bq_load_ndjson(rows)
 
     cols = STRING_COLS + ["fetched_at", "ingested_at"]
-    set_all = ", ".join(f"{c}=S.{c}" for c in cols)
-    set_fail = ", ".join(f"{c}=S.{c}" for c in
-                         ["report_url", "member_id", "nickname", "url_source",
-                          "status", "error_type", "error_detail", "ingested_at"])
+    # member_master 由来のメタ列は、再ロードで S 側が NULL（master miss 等）でも
+    # 既存値を破壊しないよう COALESCE で保持する（データ保全 / fail-closed）。
+    meta_preserve = {"report_url", "member_id", "nickname", "url_source"}
+
+    def _set_clause(columns):
+        return ", ".join(
+            (f"{c}=COALESCE(S.{c}, T.{c})" if c in meta_preserve else f"{c}=S.{c}")
+            for c in columns)
+
+    set_all = _set_clause(cols)
+    set_fail = _set_clause(["report_url", "member_id", "nickname", "url_source",
+                            "status", "error_type", "error_detail", "ingested_at"])
     insert_cols = ", ".join(cols)
     insert_vals = ", ".join(f"S.{c}" for c in cols)
     merge_sql = f"""
@@ -295,10 +303,25 @@ def _read_input(source: str) -> list[dict]:
         data = json.loads(data)
     if not isinstance(data, list):
         raise ValueError("入力は巡回結果オブジェクトの JSON 配列である必要があります。")
+    seen_ids: set[str] = set()
     for i, r in enumerate(data):
-        if not isinstance(r, dict) or not r.get("spreadsheet_id") or not r.get("status"):
-            raise ValueError(
-                f"入力 {i} 件目が不正です（dict かつ spreadsheet_id / status が必須）: {r!r}")
+        if not isinstance(r, dict):
+            raise ValueError(f"入力 {i} 件目が不正です（オブジェクトが必須）: {r!r}")
+        ss_id, status = r.get("spreadsheet_id"), r.get("status")
+        if not isinstance(ss_id, str) or not ss_id.strip():
+            raise ValueError(f"入力 {i} 件目: spreadsheet_id は非空文字列が必須です: {r!r}")
+        if not isinstance(status, str) or not status.strip():
+            raise ValueError(f"入力 {i} 件目: status は非空文字列が必須です: {r!r}")
+        if ss_id in seen_ids:  # 重複は MERGE で複数マッチエラー/重複 INSERT を招くため境界で弾く
+            raise ValueError(f"入力 {i} 件目: spreadsheet_id が重複しています: {ss_id}")
+        seen_ids.add(ss_id)
+        # status=ok は createTime 安全装置の検証対象。script_id 欠落の ok を許すと
+        # MERGE で既存の有効 script_id を NULL 上書きするため、非空 script_id を必須化する。
+        if status == "ok":
+            sid = r.get("script_id")
+            if not isinstance(sid, str) or not sid.strip():
+                raise ValueError(
+                    f"入力 {i} 件目: status=ok には非空の script_id が必須です: {r!r}")
     return data
 
 
@@ -329,12 +352,29 @@ def _enrich_with_metadata(results: list[dict]) -> int:
     return missing
 
 
+def _resolve_suspect_after(crawl_started_at: str | None) -> datetime:
+    """createTime 安全装置の検知フロア時刻を決める。
+
+    crawl_started_at（巡回セッション開始 ISO8601）が指定されればそれを使う（正確）。
+    未指定時はロード当日 0:00 UTC を保守的フロアとする（呼び出し側で警告）。
+    """
+    if crawl_started_at:
+        dt = datetime.fromisoformat(crawl_started_at.replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt
+    return datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(
         description="Playwright MCP の巡回結果（GAS Script ID）を BigQuery gas_bindings へ MERGE する。")
     ap.add_argument("input", help="巡回結果 JSON 配列のファイルパス（'-' で stdin から読む）")
     ap.add_argument("--dry-run", action="store_true",
                     help="BQ へ書き込まず、検証（createTime 安全装置）と集計のみ出力")
+    ap.add_argument("--crawl-started-at", metavar="ISO8601", default=None,
+                    help="巡回セッションの開始時刻(ISO8601 UTC)。createTime 安全装置の検知"
+                         "フロアに使う。未指定時はロード当日 0:00 UTC を保守的フロアとする")
     args = ap.parse_args()
 
     results = _read_input(args.input)
@@ -348,10 +388,13 @@ def main() -> int:
               f"マスタ URL の更新漏れの可能性があります。", file=sys.stderr)
 
     # 安全装置: createTime 検証（検証不能なら例外で停止 = fail-closed）。
-    # 入力 JSON には巡回セッションの開始時刻が無いため、「ロード当日 0:00 UTC 以降に
-    # 作成された script は新規生成を疑う」保守的な検知フロアを用いる（過検知方向＝安全側。
-    # 巡回とロードは同日運用が前提。日をまたぐ場合は前日生成分の検知漏れに注意）。
-    suspect_after = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    # 検知フロアは巡回セッション開始時刻（--crawl-started-at）を優先。未指定時は
+    # ロード当日 0:00 UTC を保守的フロアとし、日跨ぎでの検知漏れ可能性を警告する。
+    suspect_after = _resolve_suspect_after(args.crawl_started_at)
+    if not args.crawl_started_at:
+        print("  ⚠ --crawl-started-at 未指定: ロード当日 0:00 UTC を保守的な検知フロアとします"
+              "（日跨ぎ巡回では新規生成の検知漏れの恐れ。巡回開始時刻の指定を推奨）。",
+              file=sys.stderr)
     suspicious = check_create_times(results, suspect_after)
 
     ok = sum(1 for r in results if r["status"] == "ok")
