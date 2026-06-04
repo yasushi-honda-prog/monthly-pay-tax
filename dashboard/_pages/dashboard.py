@@ -126,6 +126,27 @@ _COST_GROUP_EXCLUDE_NONPROFIT: set[str] = {
     "行政事業（ケアプー：ケアプランデータ連携システムを広め隊）",
     "行政事業（神奈川DX）",
     "電話対応（主にケアプランデータ連携システムを広め隊）",
+    "ケアプランデータ連携システムを広め隊",  # 2026年5月以降の正規化名
+}
+
+# 旧グループ名 → 隊名 正規化マップ（2026年5月以降の activity_category と揃えて推移を連続表示）
+_LEGACY_GROUP_TO_TAI: dict[str, str] = {
+    "行政事業（ケアプー：ケアプランデータ連携システムを広め隊）": "ケアプランデータ連携システムを広め隊",
+    "行政事業（神奈川DX）": "行政事業（神奈川DX）",
+    "スポンサー対応（主にスマート介護士を推進し隊）": "スマート介護士を推進し隊",
+    "タダスク（主にタダスクわいわい盛り上げ隊）": "タダスクわいわい盛り上げ隊",
+    "タダスク（主にみんなでスキルアップし隊）": "みんなでスキルアップし隊",
+    "タダサポ（主にタダスクわいわい盛り上げ隊）": "タダスクわいわい盛り上げ隊",
+    "出張タダスク（主に出張タダスクで喜ばれ隊）": "出張タダスクで喜ばれ隊",
+    "タダレク（主に色んな企業とwin-winになり隊）": "色んな企業とwin-winになり隊",
+    "イベント企画/コミュニティ（主にみんなと仲良くし隊）": "みんなと仲良くし隊",
+    "テクニカル・オペレーション業務（主にすごいシステムつくり隊）": "すごいシステムつくり隊",
+    "タダカヨ経営戦略・業務管理（主にしっかり法人を経営し隊）": "しっかり法人を経営し隊",
+    "広報（主に広報がんばり隊、シン・もっと寄付を集め隊）": "広報がんばり隊",
+    "法人内MTG（全隊）": "法人内MTG（全隊）",
+    "電話対応（主にケアプランデータ連携システムを広め隊）": "ケアプランデータ連携システムを広め隊",
+    "その他": "その他",
+    "(未分類)": "(未分類)",
 }
 
 # 固定カラードメイン（期間を変えても分類の色が変わらないよう全分類を明示）
@@ -135,7 +156,11 @@ _TABLEAU20 = [
     "#79706e","#bab0ac","#d67195","#fcbfd2","#b279a2","#d6a5c9",
     "#9e765f","#d8b5a5",
 ]
-_COST_COLOR_DOMAIN: list[str] = sorted(set(_COST_GROUP_MAP.values()) | {"(未分類)", "行政事業（神奈川DX）"})
+_COST_COLOR_DOMAIN: list[str] = sorted(
+    set(_COST_GROUP_MAP.values())
+    | {"(未分類)", "行政事業（神奈川DX）"}
+    | set(_LEGACY_GROUP_TO_TAI.values())
+)
 _COST_COLOR_RANGE: list[str] = [_TABLEAU20[i % len(_TABLEAU20)] for i in range(len(_COST_COLOR_DOMAIN))]
 
 
@@ -1293,6 +1318,21 @@ with tab5:
             (_cost_f["description"].fillna("").str.contains("神奈川DX|神奈川県DX|神奈川県", na=False)),
             "cost_group",
         ] = "行政事業（神奈川DX）"
+
+        # ③ 日付による集計切替
+        # 2026年5月以降: activity_category（隊名）を直接使用
+        # 2026年4月以前: 旧グループ名を隊名に正規化（推移を連続して見るため）
+        _cost_f["_ym_int"] = (
+            _cost_f["year"].astype(int) * 100
+            + _cost_f["month_num"].apply(lambda x: int(x) if str(x).isdigit() else 0)
+        )
+        _new_mask = _cost_f["_ym_int"] >= 202605
+        _cost_f.loc[_new_mask, "cost_group"] = _cost_f.loc[_new_mask, "activity_category"].apply(
+            lambda v: str(v).strip() if pd.notna(v) and str(v).strip() else "(未分類)"
+        )
+        _cost_f.loc[~_new_mask, "cost_group"] = _cost_f.loc[~_new_mask, "cost_group"].map(
+            lambda g: _LEGACY_GROUP_TO_TAI.get(g, g)
+        )
 
         _cf = _cost_f[_cost_f["month_num"].str.isdigit()].copy()
         _cf["ym_label"] = _cf["year"].astype(str) + "年" + _cf["month_num"] + "月"
