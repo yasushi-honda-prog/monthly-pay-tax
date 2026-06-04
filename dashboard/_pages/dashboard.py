@@ -168,6 +168,8 @@ _COST_COLOR_DOMAIN: list[str] = sorted(
     }
 )
 _COST_COLOR_RANGE: list[str] = [_TABLEAU20[i % len(_TABLEAU20)] for i in range(len(_COST_COLOR_DOMAIN))]
+# activity_category がこのセットに含まれる場合のみ隊名として直接使用（移行期の旧値を除外）
+_VALID_TAI_NAMES: frozenset[str] = frozenset(_COST_COLOR_DOMAIN)
 
 
 def _ensure_numeric_pivot(df, exclude_col=None):
@@ -1326,17 +1328,19 @@ with tab5:
         ] = "行政事業（神奈川DX）"
 
         # ③ 日付による集計切替
-        # 2026年5月以降: activity_category（隊名）を直接使用
-        # 2026年4月以前: 旧グループ名を隊名に正規化（推移を連続して見るため）
+        # 2026年5月以降 かつ activity_category が有効な隊名 → そのまま使用
+        # それ以外（旧データ or 移行期で未整備の新データ）→ 旧マップ + 正規化
         _cost_f["_ym_int"] = (
             _cost_f["year"].astype(int) * 100
             + _cost_f["month_num"].apply(lambda x: int(x) if str(x).isdigit() else 0)
         )
         _new_mask = _cost_f["_ym_int"] >= 202605
-        _cost_f.loc[_new_mask, "cost_group"] = _cost_f.loc[_new_mask, "activity_category"].apply(
-            lambda v: str(v).strip() if pd.notna(v) and str(v).strip() else "(未分類)"
+        _act_stripped = _cost_f["activity_category"].apply(
+            lambda v: str(v).strip() if pd.notna(v) else ""
         )
-        _cost_f.loc[~_new_mask, "cost_group"] = _cost_f.loc[~_new_mask, "cost_group"].map(
+        _use_tai_mask = _new_mask & _act_stripped.isin(_VALID_TAI_NAMES)
+        _cost_f.loc[_use_tai_mask, "cost_group"] = _act_stripped.loc[_use_tai_mask]
+        _cost_f.loc[~_use_tai_mask, "cost_group"] = _cost_f.loc[~_use_tai_mask, "cost_group"].map(
             lambda g: _LEGACY_GROUP_TO_TAI.get(g, g)
         )
 
