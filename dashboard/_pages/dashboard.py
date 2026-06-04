@@ -1525,49 +1525,74 @@ with tab5:
                 _drill_agg.columns = ["年月", "メンバー", "金額"]
                 _drill_agg = _drill_agg[_drill_agg["金額"] > 0]
                 if not _drill_agg.empty:
-                    # 業務分類別内訳（タイトル直下）
-                    with st.expander("業務分類別内訳を表示"):
-                        _wcat_total = (
-                            _drill_df.groupby("work_category")["amount_num"]
-                            .sum()
-                            .sort_values(ascending=False)
-                            .reset_index()
-                        )
-                        _wcat_total.columns = ["業務分類", "金額（円）"]
-                        st.dataframe(
-                            _wcat_total.style.format({"金額（円）": "¥{:,.0f}"}),
-                            hide_index=True, use_container_width=True,
-                            height=35 * (len(_wcat_total) + 1) + 5,
-                        )
-                        st.caption("全画面表示中は Esc キーで元の画面に戻れます")
-                    dc1, dc2 = st.columns(2)
-                    with dc1:
-                        render_kpi("分類合計", f"¥{_drill_df['amount_num'].sum():,.0f}")
-                    with dc2:
-                        render_kpi("メンバー数", f"{_drill_df['nickname'].nunique()} 名")
-                    _n_members = _drill_agg["メンバー"].nunique()
-                    _drill_height = max(500, _n_members * 20 + 80)
-                    _drill_chart = alt.Chart(_drill_agg).mark_bar().encode(
-                        x=alt.X("年月:O", title="年月", sort=_cost_ym_order,
-                                axis=alt.Axis(labelAngle=0, labelFontSize=11)),
-                        y=alt.Y("金額:Q", title="金額（円）", axis=alt.Axis(format=",.0f"), stack="zero"),
-                        color=alt.Color("メンバー:N",
-                            legend=alt.Legend(orient="right", labelFontSize=10, symbolLimit=0)),
-                        tooltip=["年月:O", "メンバー:N", alt.Tooltip("金額:Q", format=",.0f")],
-                    ).properties(height=_drill_height)
-                    st.altair_chart(_drill_chart, use_container_width=True)
-                    # メンバー別合計（この分類のみ）
-                    _member_total = (
-                        _drill_df.groupby("display_name")["amount_num"]
+                    # 業務分類別内訳（行選択でKPI・グラフを絞り込み）
+                    _wcat_total = (
+                        _drill_df.groupby("work_category")["amount_num"]
                         .sum()
                         .sort_values(ascending=False)
                         .reset_index()
                     )
-                    _member_total.columns = ["メンバー", "合計（円）"]
-                    st.dataframe(
-                        _member_total.style.format({"合計（円）": "¥{:,.0f}"}),
-                        hide_index=True, use_container_width=True,
+                    _wcat_total.columns = ["業務分類", "金額（円）"]
+                    with st.expander("業務分類別内訳を表示"):
+                        _wcat_ev = st.dataframe(
+                            _wcat_total,
+                            column_config={
+                                "金額（円）": st.column_config.NumberColumn(format="¥{:,.0f}"),
+                            },
+                            hide_index=True, use_container_width=True,
+                            height=35 * (len(_wcat_total) + 1) + 5,
+                            on_select="rerun",
+                            selection_mode="single-row",
+                            key=f"wcat_sel_{chart_key}",
+                        )
+                        st.caption("行を選択すると分類合計・グラフが絞り込まれます　全画面表示中は Esc キーで元に戻れます")
+                    # 選択された業務分類を取得
+                    try:
+                        _sel_rows = (_wcat_ev.selection or {}).get("rows", [])
+                        _sel_wcat = _wcat_total.iloc[_sel_rows[0]]["業務分類"] if _sel_rows else None
+                    except Exception:
+                        _sel_wcat = None
+                    # 業務分類フィルタ適用
+                    _filt_df = _drill_df[_drill_df["work_category"] == _sel_wcat] if _sel_wcat else _drill_df
+                    dc1, dc2 = st.columns(2)
+                    with dc1:
+                        render_kpi("分類合計", f"¥{_filt_df['amount_num'].sum():,.0f}")
+                    with dc2:
+                        render_kpi("メンバー数", f"{_filt_df['nickname'].nunique()} 名")
+                    if _sel_wcat:
+                        st.caption(f"▲ 業務分類「{_sel_wcat}」で絞り込み中")
+                    # チャート（絞り込み適用）
+                    _filt_agg = (
+                        _filt_df.groupby(["ym_label", "display_name"])["amount_num"]
+                        .sum()
+                        .reset_index()
                     )
+                    _filt_agg.columns = ["年月", "メンバー", "金額"]
+                    _filt_agg = _filt_agg[_filt_agg["金額"] > 0]
+                    if not _filt_agg.empty:
+                        _n_members = _filt_agg["メンバー"].nunique()
+                        _drill_height = max(500, _n_members * 20 + 80)
+                        _drill_chart = alt.Chart(_filt_agg).mark_bar().encode(
+                            x=alt.X("年月:O", title="年月", sort=_cost_ym_order,
+                                    axis=alt.Axis(labelAngle=0, labelFontSize=11)),
+                            y=alt.Y("金額:Q", title="金額（円）", axis=alt.Axis(format=",.0f"), stack="zero"),
+                            color=alt.Color("メンバー:N",
+                                legend=alt.Legend(orient="right", labelFontSize=10, symbolLimit=0)),
+                            tooltip=["年月:O", "メンバー:N", alt.Tooltip("金額:Q", format=",.0f")],
+                        ).properties(height=_drill_height)
+                        st.altair_chart(_drill_chart, use_container_width=True)
+                        # メンバー別合計
+                        _member_total = (
+                            _filt_df.groupby("display_name")["amount_num"]
+                            .sum()
+                            .sort_values(ascending=False)
+                            .reset_index()
+                        )
+                        _member_total.columns = ["メンバー", "合計（円）"]
+                        st.dataframe(
+                            _member_total.style.format({"合計（円）": "¥{:,.0f}"}),
+                            hide_index=True, use_container_width=True,
+                        )
                 else:
                     st.info("対象期間にデータがありません")
                 st.divider()
@@ -1718,34 +1743,68 @@ with tab5:
                 _drill_agg.columns = ["年月", "メンバー", "金額"]
                 _drill_agg = _drill_agg[_drill_agg["金額"] > 0]
                 if not _drill_agg.empty:
-                    dc1, dc2 = st.columns(2)
-                    with dc1:
-                        render_kpi("分類合計", f"¥{_drill_df['amount_num'].sum():,.0f}")
-                    with dc2:
-                        render_kpi("メンバー数", f"{_drill_df['nickname'].nunique()} 名")
-                    _drill_fig = px.bar(
-                        _drill_agg, x="年月", y="金額", color="メンバー",
-                        barmode="stack", height=320,
-                        category_orders={"年月": _cost_ym_order},
-                    )
-                    _drill_fig.update_layout(
-                        yaxis_tickformat=",.0f",
-                        legend=dict(
-                            orientation="h", yanchor="top", y=-0.25,
-                            font=dict(size=9), title=None,
-                        ),
-                        margin=dict(l=0, r=0, t=10, b=0),
-                    )
-                    st.plotly_chart(_drill_fig, use_container_width=True)
-                    _member_total = (
-                        _drill_df.groupby("display_name")["amount_num"]
+                    # 業務分類別内訳（行選択でKPI・グラフを絞り込み）
+                    _wcat_total_m = (
+                        _drill_df.groupby("work_category")["amount_num"]
                         .sum().sort_values(ascending=False).reset_index()
                     )
-                    _member_total.columns = ["メンバー", "合計（円）"]
-                    st.dataframe(
-                        _member_total.style.format({"合計（円）": "¥{:,.0f}"}),
-                        hide_index=True, use_container_width=True,
+                    _wcat_total_m.columns = ["業務分類", "金額（円）"]
+                    with st.expander("業務分類別内訳を表示"):
+                        _wcat_ev_m = st.dataframe(
+                            _wcat_total_m,
+                            column_config={
+                                "金額（円）": st.column_config.NumberColumn(format="¥{:,.0f}"),
+                            },
+                            hide_index=True, use_container_width=True,
+                            height=35 * (len(_wcat_total_m) + 1) + 5,
+                            on_select="rerun",
+                            selection_mode="single-row",
+                            key=f"m_wcat_sel_{chart_key}",
+                        )
+                        st.caption("行を選択すると分類合計・グラフが絞り込まれます")
+                    try:
+                        _m_sel_rows = (_wcat_ev_m.selection or {}).get("rows", [])
+                        _m_sel_wcat = _wcat_total_m.iloc[_m_sel_rows[0]]["業務分類"] if _m_sel_rows else None
+                    except Exception:
+                        _m_sel_wcat = None
+                    _m_filt_df = _drill_df[_drill_df["work_category"] == _m_sel_wcat] if _m_sel_wcat else _drill_df
+                    dc1, dc2 = st.columns(2)
+                    with dc1:
+                        render_kpi("分類合計", f"¥{_m_filt_df['amount_num'].sum():,.0f}")
+                    with dc2:
+                        render_kpi("メンバー数", f"{_m_filt_df['nickname'].nunique()} 名")
+                    if _m_sel_wcat:
+                        st.caption(f"▲ 業務分類「{_m_sel_wcat}」で絞り込み中")
+                    _m_filt_agg = (
+                        _m_filt_df.groupby(["ym_label", "display_name"])["amount_num"]
+                        .sum().reset_index()
                     )
+                    _m_filt_agg.columns = ["年月", "メンバー", "金額"]
+                    _m_filt_agg = _m_filt_agg[_m_filt_agg["金額"] > 0]
+                    if not _m_filt_agg.empty:
+                        _drill_fig = px.bar(
+                            _m_filt_agg, x="年月", y="金額", color="メンバー",
+                            barmode="stack", height=320,
+                            category_orders={"年月": _cost_ym_order},
+                        )
+                        _drill_fig.update_layout(
+                            yaxis_tickformat=",.0f",
+                            legend=dict(
+                                orientation="h", yanchor="top", y=-0.25,
+                                font=dict(size=9), title=None,
+                            ),
+                            margin=dict(l=0, r=0, t=10, b=0),
+                        )
+                        st.plotly_chart(_drill_fig, use_container_width=True)
+                        _member_total = (
+                            _m_filt_df.groupby("display_name")["amount_num"]
+                            .sum().sort_values(ascending=False).reset_index()
+                        )
+                        _member_total.columns = ["メンバー", "合計（円）"]
+                        st.dataframe(
+                            _member_total.style.format({"合計（円）": "¥{:,.0f}"}),
+                            hide_index=True, use_container_width=True,
+                        )
                 else:
                     st.info("対象期間にデータがありません")
 
