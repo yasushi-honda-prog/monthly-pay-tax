@@ -1535,32 +1535,29 @@ with tab5:
                     _wcat_total.columns = ["業務分類", "金額（円）"]
                     with st.expander("業務分類別内訳を表示"):
                         _wcat_ev = st.dataframe(
-                            _wcat_total,
-                            column_config={
-                                "金額（円）": st.column_config.NumberColumn(format="¥{:,.0f}"),
-                            },
+                            _wcat_total.style.format({"金額（円）": "¥{:,.0f}"}),
                             hide_index=True, use_container_width=True,
                             height=35 * (len(_wcat_total) + 1) + 5,
                             on_select="rerun",
-                            selection_mode="single-row",
+                            selection_mode="multi-row",
                             key=f"wcat_sel_{chart_key}",
                         )
-                        st.caption("行を選択すると分類合計・グラフが絞り込まれます　全画面表示中は Esc キーで元に戻れます")
-                    # 選択された業務分類を取得
+                        st.caption("行を選択（複数可）すると分類合計・グラフが絞り込まれます　全画面表示中は Esc キーで元に戻れます")
+                    # 選択された業務分類を取得（複数対応）
                     try:
                         _sel_rows = (_wcat_ev.selection or {}).get("rows", [])
-                        _sel_wcat = _wcat_total.iloc[_sel_rows[0]]["業務分類"] if _sel_rows else None
+                        _sel_wcats = [_wcat_total.iloc[i]["業務分類"] for i in _sel_rows]
                     except Exception:
-                        _sel_wcat = None
+                        _sel_wcats = []
                     # 業務分類フィルタ適用
-                    _filt_df = _drill_df[_drill_df["work_category"] == _sel_wcat] if _sel_wcat else _drill_df
+                    _filt_df = _drill_df[_drill_df["work_category"].isin(_sel_wcats)] if _sel_wcats else _drill_df
                     dc1, dc2 = st.columns(2)
                     with dc1:
                         render_kpi("分類合計", f"¥{_filt_df['amount_num'].sum():,.0f}")
                     with dc2:
                         render_kpi("メンバー数", f"{_filt_df['nickname'].nunique()} 名")
-                    if _sel_wcat:
-                        st.caption(f"▲ 業務分類「{_sel_wcat}」で絞り込み中")
+                    if _sel_wcats:
+                        st.caption(f"▲ 業務分類「{'・'.join(_sel_wcats)}」で絞り込み中")
                     # チャート（絞り込み適用）
                     _filt_agg = (
                         _filt_df.groupby(["ym_label", "display_name"])["amount_num"]
@@ -1751,30 +1748,27 @@ with tab5:
                     _wcat_total_m.columns = ["業務分類", "金額（円）"]
                     with st.expander("業務分類別内訳を表示"):
                         _wcat_ev_m = st.dataframe(
-                            _wcat_total_m,
-                            column_config={
-                                "金額（円）": st.column_config.NumberColumn(format="¥{:,.0f}"),
-                            },
+                            _wcat_total_m.style.format({"金額（円）": "¥{:,.0f}"}),
                             hide_index=True, use_container_width=True,
                             height=35 * (len(_wcat_total_m) + 1) + 5,
                             on_select="rerun",
-                            selection_mode="single-row",
+                            selection_mode="multi-row",
                             key=f"m_wcat_sel_{chart_key}",
                         )
-                        st.caption("行を選択すると分類合計・グラフが絞り込まれます")
+                        st.caption("行を選択（複数可）すると分類合計・グラフが絞り込まれます")
                     try:
                         _m_sel_rows = (_wcat_ev_m.selection or {}).get("rows", [])
-                        _m_sel_wcat = _wcat_total_m.iloc[_m_sel_rows[0]]["業務分類"] if _m_sel_rows else None
+                        _m_sel_wcats = [_wcat_total_m.iloc[i]["業務分類"] for i in _m_sel_rows]
                     except Exception:
-                        _m_sel_wcat = None
-                    _m_filt_df = _drill_df[_drill_df["work_category"] == _m_sel_wcat] if _m_sel_wcat else _drill_df
+                        _m_sel_wcats = []
+                    _m_filt_df = _drill_df[_drill_df["work_category"].isin(_m_sel_wcats)] if _m_sel_wcats else _drill_df
                     dc1, dc2 = st.columns(2)
                     with dc1:
                         render_kpi("分類合計", f"¥{_m_filt_df['amount_num'].sum():,.0f}")
                     with dc2:
                         render_kpi("メンバー数", f"{_m_filt_df['nickname'].nunique()} 名")
-                    if _m_sel_wcat:
-                        st.caption(f"▲ 業務分類「{_m_sel_wcat}」で絞り込み中")
+                    if _m_sel_wcats:
+                        st.caption(f"▲ 業務分類「{'・'.join(_m_sel_wcats)}」で絞り込み中")
                     _m_filt_agg = (
                         _m_filt_df.groupby(["ym_label", "display_name"])["amount_num"]
                         .sum().reset_index()
