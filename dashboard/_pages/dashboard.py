@@ -1533,9 +1533,12 @@ with tab5:
                         .reset_index()
                     )
                     _wcat_total.columns = ["業務分類", "金額（円）"]
+                    # Styler を使うと on_select が動作しないため、事前フォーマット済み文字列列で表示
+                    _wcat_display = _wcat_total.copy()
+                    _wcat_display["金額（円）"] = _wcat_display["金額（円）"].apply(lambda x: f"¥{x:,.0f}")
                     with st.expander("業務分類別内訳を表示"):
                         _wcat_ev = st.dataframe(
-                            _wcat_total.style.format({"金額（円）": "¥{:,.0f}"}),
+                            _wcat_display,
                             hide_index=True, use_container_width=True,
                             height=35 * (len(_wcat_total) + 1) + 5,
                             on_select="rerun",
@@ -1746,9 +1749,11 @@ with tab5:
                         .sum().sort_values(ascending=False).reset_index()
                     )
                     _wcat_total_m.columns = ["業務分類", "金額（円）"]
+                    _wcat_display_m = _wcat_total_m.copy()
+                    _wcat_display_m["金額（円）"] = _wcat_display_m["金額（円）"].apply(lambda x: f"¥{x:,.0f}")
                     with st.expander("業務分類別内訳を表示"):
                         _wcat_ev_m = st.dataframe(
-                            _wcat_total_m.style.format({"金額（円）": "¥{:,.0f}"}),
+                            _wcat_display_m,
                             hide_index=True, use_container_width=True,
                             height=35 * (len(_wcat_total_m) + 1) + 5,
                             on_select="rerun",
