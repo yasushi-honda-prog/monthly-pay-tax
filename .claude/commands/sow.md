@@ -131,17 +131,48 @@ git diff HEAD~$(git log --oneline --since="$(date +%Y-%m-%d) 00:00" | wc -l) HEA
 **対象ドキュメント**: `活動時間・報酬マネジメントダッシュボード機能拡張_作業範囲記述書`
 - Doc ID: `1-ZoJpStrmEngNZ60GMdgyppM3gzYKFIlA5szAp2SJYc`
 
-#### 3-1. Playwright でドキュメントを開き、新タブを追加
-1. `https://docs.google.com/document/d/1-ZoJpStrmEngNZ60GMdgyppM3gzYKFIlA5szAp2SJYc/edit` を開く
-2. 「タブを追加」ボタンをクリック
-3. タブ名を `SOW-YYYYMMDD-TDKY` に変更
+#### 3-1. Google Doc でタブを追加
+1. `https://docs.google.com/document/d/1-ZoJpStrmEngNZ60GMdgyppM3gzYKFIlA5szAp2SJYc/edit` を Playwright で開く
+2. タブパネルの「タブを追加」ボタン（`button[aria-label="タブを追加"]` または `[ref=e414]` 周辺）をクリック
+3. 新タブを右クリック → 名前を変更 → `SOW-YYYYMMDD-TDKY`
+4. URLから `?tab=t.XXXXXXXX` 部分（TAB_ID）をメモする
 
-#### 3-2. 新タブ上で Apps Script を開く
-- メニュー「拡張機能」→「Apps Script」をクリック
+#### 3-2. SOW生成フォーマット Apps Script プロジェクトを開く
 
-#### 3-3. GAS スクリプトを書き込んで実行
+**直接URLで開く（推奨）**:
+```
+https://script.google.com/home/projects/1JaXMKwoZ7KGvCMUZDwyzIVh-qjxdKK2kDMG1AjC5vO8kiu2ju3hQqMQI/edit
+```
 
-以下のテンプレートを**本日の作業内容で埋めて**エディタに貼り付け・実行する。
+#### 3-3. Monaco editor API でスクリプトを設定
+
+Playwright の `page.evaluate()` で Monaco editor に直接コードを設定する（タイピングより確実）:
+
+```javascript
+// Playwright run_code_unsafe で実行
+const result = await page.evaluate((code) => {
+  const editors = monaco.editor.getEditors();
+  if (editors && editors.length > 0) {
+    editors[0].getModel().setValue(code);
+    return 'success';
+  }
+  return 'no editor';
+}, newCode);  // newCode = 下記GASスクリプト（本日の内容で埋めたもの）
+```
+
+その後 **Ctrl+S で保存**し、▷実行ボタンを座標でクリック（Apps Script エディタでの座標: 約 x=440, y=83）:
+```javascript
+await page.keyboard.press('Control+s');
+await page.waitForTimeout(2000);
+await page.mouse.click(440, 83);  // ▷実行ボタン
+await page.waitForTimeout(5000);  // 実行完了を待つ
+```
+
+実行ログに「実行完了」が表示されれば成功。
+
+#### 3-4. GAS スクリプトテンプレート
+
+以下のテンプレートを**本日の作業内容で埋めて** Monaco editor にセットする。
 **フォント・サイズ・色は必ず全属性を明示設定すること（省略禁止。省略するとArialになる）。**
 
 ```javascript
