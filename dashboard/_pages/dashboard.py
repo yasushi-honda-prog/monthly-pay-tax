@@ -1432,7 +1432,9 @@ with tab5:
             _widget_key = f"chart_{chart_key}_{st.session_state[_ver_key]}"
             _sb_key = f"sb_cost_{chart_key}"
             _last_chart_sel_key = f"_last_chart_sel_{chart_key}"
-            _all_groups = sorted(df["cost_group"].unique().tolist())
+            _existing_groups = set(df["cost_group"].unique())
+            _all_groups = [g for g in _COST_COLOR_DOMAIN if g in _existing_groups] + \
+                          sorted([g for g in _existing_groups if g not in _COST_COLOR_DOMAIN])
 
             bar = alt.Chart(agg).mark_bar().encode(
                 x=alt.X("年月:O", title=x_title, sort=_cost_ym_order,
@@ -1614,7 +1616,12 @@ with tab5:
             )
             pivot_c = pivot_c[sorted(pivot_c.columns, key=lambda c: _cost_ym_sort.get(c, 9999))]
             pivot_c["合計"] = pivot_c.sum(axis=1)
-            pivot_c = pivot_c.sort_values("合計", ascending=False)
+            # 行をスプレッドシートの隊順に並び替え（未登録は末尾）
+            _domain_idx = {v: i for i, v in enumerate(_COST_COLOR_DOMAIN)}
+            pivot_c = pivot_c.iloc[sorted(
+                range(len(pivot_c)),
+                key=lambda i: _domain_idx.get(str(pivot_c.index[i]), 999)
+            )]
             pivot_display = pivot_c.reset_index()
             _num_cols = [c for c in pivot_display.columns if c != "分類"]
             st.dataframe(
@@ -1669,7 +1676,9 @@ with tab5:
 
             _sb_key = f"m_sb_{chart_key}"
             _last_chart_sel_key = f"_m_last_{chart_key}"
-            _all_groups = sorted(df["cost_group"].unique().tolist())
+            _existing_groups = set(df["cost_group"].unique())
+            _all_groups = [g for g in _COST_COLOR_DOMAIN if g in _existing_groups] + \
+                          sorted([g for g in _existing_groups if g not in _COST_COLOR_DOMAIN])
             _color_map = dict(zip(_COST_COLOR_DOMAIN, _COST_COLOR_RANGE))
             # 短縮名マップ（凡例表示専用）
             _short_map = {g: _COST_GROUP_SHORT.get(g, g) for g in _all_groups}
