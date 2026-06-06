@@ -4,6 +4,8 @@ BigQueryのpay_reportsデータセットを可視化。
 BQ VIEWs (v_gyomu_enriched, v_hojo_enriched, v_monthly_compensation) 経由でデータを取得。
 """
 
+from __future__ import annotations
+
 import logging
 import re
 from datetime import date as _date
@@ -533,6 +535,10 @@ def _render_gyomu_list_tab(
     selected_year: int,
     selected_month: str,
     selected_members: list,
+    range_start_year: int | None,
+    range_start_month: int | None,
+    range_end_year: int | None,
+    range_end_month: int | None,
     *,
     key_prefix: str,
     wam_only: bool = False,
@@ -543,6 +549,9 @@ def _render_gyomu_list_tab(
     tab3 (key_prefix="list") と tab_wam (key_prefix="wam_list") を同じページに
     並存させるため、widget key と reset counter を key_prefix から派生させる。
     wam_only=True なら work_category が「（WAM）」プレフィックスの行のみ表示する。
+
+    selected_month == "期間指定" のときは range_*_year/month で年またぎ範囲指定する
+    (tab1 月別報酬サマリーと同じパターン)。それ以外のときは range_* は使われない。
     """
     try:
         df_gyomu_all = load_gyomu_with_members()
@@ -562,10 +571,24 @@ def _render_gyomu_list_tab(
 
     # 期間・メンバー絞り込みまでをベースラインとして保持
     # (フィルタ後件数 vs ベース件数を比較表示するため)
-    result_base = df_gyomu_all[df_gyomu_all["year"] == selected_year]
     if selected_month != "期間指定":
+        result_base = df_gyomu_all[df_gyomu_all["year"] == selected_year]
         month_val = int(selected_month.replace("月", ""))
         result_base = result_base[result_base["month"] == month_val]
+    else:
+        # 期間指定: 年またぎ範囲対応 (tab1 と同じ year*100+month ベース)
+        _start_ym = range_start_year * 100 + range_start_month
+        _end_ym = range_end_year * 100 + range_end_month
+        if _end_ym < _start_ym:
+            st.warning("終了年月が開始年月より前になっています")
+            result_base = df_gyomu_all.iloc[0:0]
+        else:
+            # month は NaN 含む可能性があるため to_numeric で安全変換 (NaN は比較で False)
+            _ym_num = (
+                df_gyomu_all["year"].astype(int) * 100
+                + pd.to_numeric(df_gyomu_all["month"], errors="coerce")
+            )
+            result_base = df_gyomu_all[(_ym_num >= _start_ym) & (_ym_num <= _end_ym)]
     if selected_members:
         result_base = result_base[result_base["nickname"].isin(selected_members)]
 
@@ -1418,6 +1441,10 @@ with tab3:
         selected_year=selected_year,
         selected_month=selected_month,
         selected_members=selected_members,
+        range_start_year=range_start_year,
+        range_start_month=range_start_month,
+        range_end_year=range_end_year,
+        range_end_month=range_end_month,
         key_prefix="list",
         wam_only=False,
     )
@@ -1430,6 +1457,10 @@ with tab_wam:
         selected_year=selected_year,
         selected_month=selected_month,
         selected_members=selected_members,
+        range_start_year=range_start_year,
+        range_start_month=range_start_month,
+        range_end_year=range_end_year,
+        range_end_month=range_end_month,
         key_prefix="wam_list",
         wam_only=True,
         empty_message="対象期間にWAM業務報告 (業務分類が「（WAM）」始まり) がありません",
