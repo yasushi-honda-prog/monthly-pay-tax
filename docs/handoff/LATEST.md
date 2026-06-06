@@ -1,11 +1,24 @@
 # ハンドオフメモ - monthly-pay-tax
 
-**更新日**: 2026-06-04（業務委託費分析タブを隊分類集計に対応 PR #165/#166/#167）
+**更新日**: 2026-06-06（BigQuery データコネクタ接続権限ドキュメント追加 PR #173 + Mermaid syntax error 修正 PR #174）
 **フェーズ**: WAM助成金対応 **技術側完了** + **CI/CD 自動デプロイ稼働中** + **管理機能拡充フェーズ完了** + **運用ドキュメント基盤稼働** + **手動同期 UI 稼働** + **データ安全性向上フェーズ完了** + **snapshot 障害対応・耐障害性強化完了**
-**最新デプロイ**: PR #167 (f35979c) Dashboard デプロイ完了（2026-06-04）/ PR #155 (832659d) Collector → `pay-collector-00035-gcd`（2026-05-31）
+**最新デプロイ**: PR #174 (fb8035a) Dashboard デプロイ完了（2026-06-06）/ PR #155 (832659d) Collector → `pay-collector-00035-gcd`（2026-05-31）
 **Cloud Run設定**: 2026-04-07 `--no-cpu-throttling --max-instances=3` 適用済み（ADR 0004 / 効果測定 2026-05-03 追記）+ pay-dashboard は PR #141 で `--timeout 900` 適用 + pay-collector に `--update-secrets=CHAT_WEBHOOK_URL=chat-webhook-url:latest`（PR #148）
 **CI/CD**: ADR-0006、main push + パスフィルタで自動デプロイ、deploy 内に test gate 配置（PR #126）。`docs/operations/**` を paths trigger に追加（PR #139）
 **テストスイート**: Dashboard **338** + Cloud Run **100** = **438テスト全PASS**（CI 自動実行）+ scripts/tests **26**（collect_gas_bindings、ローカル実行・CI対象外）
+
+## 🆕 2026-06-06 セッション完了サマリー（BigQuery データコネクタ接続権限ドキュメント追加）
+
+| PR | 内容 | マージ |
+|----|------|--------|
+| #173 | `docs/operations/20260606_BigQuery_データコネクタ接続権限.md` 新規追加（接続可能 5 名 / 仕組み / 追加手順 / セキュリティ・課金注意事項） | 825ebd4 |
+| #174 | §3.3 IAM 構造図 Mermaid syntax error 修正（subgraph/node/edge ラベルを `"..."` ラップ、mermaid-cli 11.15.0 ローカル検証済） | fb8035a |
+
+- ダッシュボードの「運用ドキュメント」ページ先頭から user/checker/admin 全員が閲覧可
+- mermaid 11.15.0 で subgraph/node ラベルに全角括弧 `（）`・スラッシュ・`@` を含む場合は **`"..."` 引用符ラップ必須**（再発防止メモ）
+- 本田様の本番実機 §3.3 レンダリング OK 確認済み
+
+---
 
 ## 🆕 2026-06-04 セッション完了サマリー（業務委託費分析タブ 隊分類対応）
 
