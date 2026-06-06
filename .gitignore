@@ -13,6 +13,7 @@ __pycache__/
 .playwright-mcp/
 # Playwright MCP の E2E スクリーンショット (一時的な検証アーティファクト)
 e2e-*.png
+prod-*.png
 .claude/settings.local.json
 .serena/
 # GAS Script ID 収集スクリプトのローカル生成物（認証プロファイル / 進捗 / 試行ログ）
