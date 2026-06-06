@@ -1215,6 +1215,14 @@ with tab3:
 
         total_base = len(result_base)
 
+        # Streamlit widget の value は session_state.pop() / on_click callback では
+        # 確実にクリアできない (widget 内部キャッシュが残るため、ユーザー入力後の値が復元される)。
+        # widget key に counter を含めて、リセット時に counter++ することで
+        # 新しい widget としてマウントさせるのが確実な公式パターン。
+        if "list_reset_counter" not in st.session_state:
+            st.session_state["list_reset_counter"] = 0
+        _rc = st.session_state["list_reset_counter"]
+
         # --- フィルタ行 1: 活動分類 → 業務分類(依存) → スポンサー ---
         fcol1, fcol2, fcol3 = st.columns(3)
         with fcol1:
@@ -1222,7 +1230,7 @@ with tab3:
                 result_base["activity_category"].dropna().unique().tolist()
             )
             sel_cat = st.selectbox(
-                "活動分類", categories, key="list_cat", label_visibility="collapsed",
+                "活動分類", categories, key=f"list_cat_{_rc}", label_visibility="collapsed",
             )
 
         # 活動分類で絞った中間結果から、業務分類とスポンサーの選択肢を動的生成
@@ -1238,7 +1246,7 @@ with tab3:
             # 活動分類変更で選択肢から外れた業務分類は自動的に除外される
             # (st.multiselect は options に無い session_state 値を黙って捨てる)
             sel_wcat = st.multiselect(
-                "業務分類", work_categories, key="list_wcat",
+                "業務分類", work_categories, key=f"list_wcat_{_rc}",
                 placeholder="全業務分類", label_visibility="collapsed",
             )
 
@@ -1246,7 +1254,7 @@ with tab3:
             sponsor_series = result_after_cat["sponsor"].dropna().astype(str).str.strip()
             sponsors = sorted(sponsor_series[sponsor_series != ""].unique().tolist())
             sel_sponsor = st.multiselect(
-                "スポンサー", sponsors, key="list_sponsor",
+                "スポンサー", sponsors, key=f"list_sponsor_{_rc}",
                 placeholder="全スポンサー", label_visibility="collapsed",
             )
 
@@ -1254,18 +1262,13 @@ with tab3:
         scol1, scol2 = st.columns([5, 1])
         with scol1:
             keyword = st.text_input(
-                "検索", key="list_keyword",
+                "検索", key=f"list_keyword_{_rc}",
                 placeholder="🔍 メンバー・内容・スポンサー・業務分類を横断検索 (部分一致)",
                 label_visibility="collapsed",
             )
         with scol2:
-            # Streamlit の widget value は `if st.button(): session_state.pop(); st.rerun()`
-            # パターンでは widget の内部キャッシュが残るため確実にクリアできない。
-            # on_click callback は次回 rerun の widget 再描画前に実行されるため、
-            # session_state を pop した状態で widget が再マウント → default に戻る。
             def _reset_list_filters() -> None:
-                for _k in ("list_cat", "list_wcat", "list_sponsor", "list_keyword"):
-                    st.session_state.pop(_k, None)
+                st.session_state["list_reset_counter"] += 1
             st.button(
                 "リセット", key="list_reset", use_container_width=True,
                 help="活動分類・業務分類・スポンサー・検索キーワードをクリア",
