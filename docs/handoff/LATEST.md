@@ -1,9 +1,9 @@
 # ハンドオフメモ - monthly-pay-tax
 
-**更新日**: 2026-06-06（WAM業務報告タブ新設 PR #183 + 期間指定モード対応 PR #185 + 報告者数 KPI 改善 PR #187 マージ済、Issue #184 close 済）
-**フェーズ**: WAM助成金対応 **技術側完了** + **CI/CD 自動デプロイ稼働中** + **管理機能拡充フェーズ完了** + **運用ドキュメント基盤稼働** + **手動同期 UI 稼働** + **データ安全性向上フェーズ完了** + **snapshot 障害対応・耐障害性強化完了** + **業務報告一覧タブ UX 改善完了** + **WAM業務報告タブ稼働中** + **報告者数 KPI 明確化**
-**最新デプロイ**: PR #187 Dashboard デプロイ完了（2026-06-06、Playwright MCP 実機検証済）/ PR #155 (832659d) Collector → `pay-collector-00035-gcd`（2026-05-31）
-**Cloud Run設定**: 2026-04-07 `--no-cpu-throttling --max-instances=3` 適用済み（ADR 0004 / 効果測定 2026-05-03 追記）+ pay-dashboard は PR #141 で `--timeout 900` 適用 + pay-collector に `--update-secrets=CHAT_WEBHOOK_URL=chat-webhook-url:latest`（PR #148）
+**更新日**: 2026-06-07（WAM業務報告タブ新設 PR #183 + 期間指定モード対応 PR #185 + 報告者数 KPI 改善 PR #187 + sessionAffinity ADR PR #188 マージ済、Issue #184 close 済、よもぎ問題解消 sessionAffinity 設定変更で対応）
+**フェーズ**: WAM助成金対応 **技術側完了** + **CI/CD 自動デプロイ稼働中** + **管理機能拡充フェーズ完了** + **運用ドキュメント基盤稼働** + **手動同期 UI 稼働** + **データ安全性向上フェーズ完了** + **snapshot 障害対応・耐障害性強化完了** + **業務報告一覧タブ UX 改善完了** + **WAM業務報告タブ稼働中** + **報告者数 KPI 明確化** + **OAuth リダイレクトループ対応 (sessionAffinity)**
+**最新デプロイ**: pay-dashboard `pay-dashboard-00282-mgf`（2026-06-07、sessionAffinity 有効化 + PR #188 含む）/ PR #155 (832659d) Collector → `pay-collector-00035-gcd`（2026-05-31）
+**Cloud Run設定**: 2026-04-07 `--no-cpu-throttling --max-instances=3` 適用済み（ADR 0004 / 効果測定 2026-05-03 追記）+ pay-dashboard は PR #141 で `--timeout 900` 適用 + **2026-06-07 `--session-affinity` 有効化（ADR-0007、OAuth リダイレクトループ対応）** + pay-collector に `--update-secrets=CHAT_WEBHOOK_URL=chat-webhook-url:latest`（PR #148）
 **CI/CD**: ADR-0006、main push + パスフィルタで自動デプロイ、deploy 内に test gate 配置（PR #126）。`docs/operations/**` を paths trigger に追加（PR #139）
 **テストスイート**: Dashboard **352** + Cloud Run **100** = **452テスト全PASS**（CI 自動実行）+ scripts/tests **26**（collect_gas_bindings、ローカル実行・CI対象外）
 
@@ -15,7 +15,8 @@
 |----|------|--------|------|
 | #183 | feat: WAM業務報告タブを新設（6タブ目、tab3 ロジックを `_render_gyomu_list_tab` ヘルパー化 + NFKC正規化 WAM 判定純関数 `filter_wam_only`） | 3777cf8 | 単体テスト 14 件追加、Playwright MCP 実機検証済 |
 | #185 | fix: 業務報告一覧・WAM業務報告タブで「期間指定」モード対応（旧 tab3 由来の既存バグ修正、tab1 と同じ `year*100+month` ベース絞り込みに統一） | 6c36540 | Issue #184 auto-close、Playwright MCP 実機検証済 |
-| #187 | feat: 「メンバー数」KPI ラベルを「報告者数 X / Y 名」表記に変更（業務報告一覧 + WAM業務報告、本田様指摘「198 vs 100 の不一致に見える」UX 改善） | (squashed) | 絞り込みなし時=分母 198 / 絞り込みあり時=選択数、Playwright MCP 実機検証済 |
+| #187 | feat: 「メンバー数」KPI ラベルを「報告者数 X / Y 名」表記に変更（業務報告一覧 + WAM業務報告、本田様指摘「198 vs 100 の不一致に見える」UX 改善） | 1ed6d11 | 絞り込みなし時=分母 198 / 絞り込みあり時=選択数、Playwright MCP 実機検証済 |
+| #188 | docs: ADR-0007 sessionAffinity 有効化 + OAuth リダイレクトループ切り分け運用ドキュメント | ed3ed22 | よもぎログイン問題の根本対応の記録、Cloud Run 設定変更は本番反映済 |
 
 ### 完成機能（実機検証済）
 
@@ -46,19 +47,38 @@
 
 - Close 数: 1 件 (#184、PR #185 auto-close)
 - 起票数: 1 件 (#184、Codex PR diff review で発見)
-- Net: 0 件 (起票と close が同セッション内で完結、機能追加 PR 3 件分の価値追加あり)
+- Net: 0 件 (起票と close が同セッション内で完結、機能追加 PR 4 件 + ADR 1 件分の価値追加あり)
 
-### 🛟 セッション末で受領した障害報告（次セッション条件待ち）
+### 🛟 セッション中の障害報告対応（解消済、ユーザー再アクセス確認待ち）
 
-**よもぎ (asayo-shimizu@tadakayo.jp) ダッシュボードリダイレクト問題**
+**よもぎ (asayo-shimizu@tadakayo.jp) ダッシュボードリダイレクト問題 — 解消済**
 
-- BQ `dashboard_users` 登録確認済: `role = "viewer"`、`display_name = "よもぎ"`、`created_at = 2026-02-28`
-- コード上は `viewer` も `app.py:76` の else 分岐で正規アクセス可（base + utility pages）
-- サーバー側ロジックでは「リダイレクトループ」を再現できない
-- 推定原因: クライアント環境固有（複数 Google アカウント同時ログイン / Cookie 破損 / Safari ITP / ブラウザ拡張干渉）
-- 次セッション対応: 本田様からよもぎへの確認依頼結果を受領後、症状を切り分け
-  - 切り分け項目: ブラウザ種類 / 複数アカウント有無 / シークレットウィンドウでの再現 / リダイレクト発生タイミング (Google ログイン前/後/ループ)
-  - 切り分け結果がサーバー側に切り戻る (例: `viewer` 専用の処理問題) なら hotfix PR、クライアント側ならよもぎへのガイド
+経緯:
+1. **症状報告**: ダッシュボードがリダイレクトされて見れない
+2. **BQ 登録確認**: `dashboard_users` に登録済 (`role=viewer`, `display_name=よもぎ`, `created_at=2026-02-28`)
+3. **コード確認**: `viewer` は `lib/auth.py:require_user` で正規ロール、`app.py:76` の else 分岐でアクセス可能 → サーバー側ロジックには欠陥なし
+4. **Cloud Run ログ調査** (`gcloud logging read .../oauth2callback`):
+   - `/oauth2callback` が約 10 分で 13 回頻発
+   - **同じ `state` パラメータが数秒間隔で複数回呼び出されている** (例: `qAD9Fag...` を 22:26:16 と 22:26:19 で再呼出)
+   - `prompt=none` (silent re-auth) 連発
+   - → OAuth セッション確定できず再認証ループ
+5. **根本原因特定**: ADR-0004 `max-instances=3` + **`sessionAffinity` 未設定** で別インスタンスへのルーティング時に Streamlit OIDC state 喪失
+6. **修正実施** (gcloud で直接): `gcloud run services update pay-dashboard --session-affinity --region=asia-northeast1`
+7. **本番反映確認**: 新リビジョン `pay-dashboard-00282-mgf` トラフィック 100%、annotation `run.googleapis.com/sessionAffinity: true` 設定済
+8. **PR #188 で ADR-0007 + 運用ドキュメント (切り分け手順) を記録**
+9. **よもぎへの再アクセス依頼準備完了** (Cookie クリア + 再アクセス + 結果報告依頼)
+
+**現状: 条件待ち (よもぎさんの再アクセス結果)**
+- 解消確認なら完全クローズ
+- 再発する場合は別原因 (OOM / Cookie / マルチアカウント)、運用ドキュメント §3 のフローチャートで切り分け
+
+### 🔭 副次的に発見した別件（次セッション条件待ち）
+
+**OOM (Cloud Run pay-dashboard Memory 512MiB exceeded)**
+- 直近 7 日で 4 件発生 (sessionAffinity 修正で OAuth ループは解消するが OOM は別問題)
+- 運用ドキュメント §3.4 に判断基準 (直近 7 日で 5 件以上で memory 増強検討)
+- 対応案: `gcloud run services update pay-dashboard --memory=1Gi` + ADR-0008 で記録
+- **trigger**: OOM 件数が閾値超過 OR 本田様明示指示
 
 ---
 
