@@ -1204,26 +1204,88 @@ with tab3:
         df_gyomu_all["year"] = df_gyomu_all["year"].astype(int)
         df_gyomu_all["display_name"] = df_gyomu_all["nickname"].map(lambda n: name_map.get(n, n))
 
-        result = df_gyomu_all[df_gyomu_all["year"] == selected_year]
+        # 期間・メンバー絞り込みまでをベースラインとして保持
+        # (フィルタ後件数 vs ベース件数を比較表示するため)
+        result_base = df_gyomu_all[df_gyomu_all["year"] == selected_year]
         if selected_month != "期間指定":
             month_val = int(selected_month.replace("月", ""))
-            result = result[result["month"] == month_val]
-
-        categories = ["活動分類"] + sorted(
-            result["activity_category"].dropna().unique().tolist()
-        )
-        work_categories = sorted(
-            result["work_category"].dropna().unique().tolist()
-        )
-        sel_cat = st.selectbox("活動分類", categories, key="list_cat", label_visibility="collapsed")
-        sel_wcat = st.multiselect("業務分類", work_categories, key="list_wcat", placeholder="全業務分類", label_visibility="collapsed")
-
+            result_base = result_base[result_base["month"] == month_val]
         if selected_members:
-            result = result[result["nickname"].isin(selected_members)]
-        if sel_cat != "活動分類":
-            result = result[result["activity_category"] == sel_cat]
+            result_base = result_base[result_base["nickname"].isin(selected_members)]
+
+        total_base = len(result_base)
+
+        # --- フィルタ行 1: 活動分類 → 業務分類(依存) → スポンサー ---
+        fcol1, fcol2, fcol3 = st.columns(3)
+        with fcol1:
+            categories = ["活動分類"] + sorted(
+                result_base["activity_category"].dropna().unique().tolist()
+            )
+            sel_cat = st.selectbox(
+                "活動分類", categories, key="list_cat", label_visibility="collapsed",
+            )
+
+        # 活動分類で絞った中間結果から、業務分類とスポンサーの選択肢を動的生成
+        result_after_cat = (
+            result_base if sel_cat == "活動分類"
+            else result_base[result_base["activity_category"] == sel_cat]
+        )
+
+        with fcol2:
+            work_categories = sorted(
+                result_after_cat["work_category"].dropna().unique().tolist()
+            )
+            # 活動分類変更で選択肢から外れた業務分類は自動的に除外される
+            # (st.multiselect は options に無い session_state 値を黙って捨てる)
+            sel_wcat = st.multiselect(
+                "業務分類", work_categories, key="list_wcat",
+                placeholder="全業務分類", label_visibility="collapsed",
+            )
+
+        with fcol3:
+            sponsor_series = result_after_cat["sponsor"].dropna().astype(str).str.strip()
+            sponsors = sorted(sponsor_series[sponsor_series != ""].unique().tolist())
+            sel_sponsor = st.multiselect(
+                "スポンサー", sponsors, key="list_sponsor",
+                placeholder="全スポンサー", label_visibility="collapsed",
+            )
+
+        # --- フィルタ行 2: キーワード検索 + リセット ---
+        scol1, scol2 = st.columns([5, 1])
+        with scol1:
+            keyword = st.text_input(
+                "検索", key="list_keyword",
+                placeholder="🔍 メンバー・内容・スポンサー・業務分類を横断検索 (部分一致)",
+                label_visibility="collapsed",
+            )
+        with scol2:
+            if st.button("リセット", key="list_reset", use_container_width=True,
+                         help="活動分類・業務分類・スポンサー・検索キーワードをクリア"):
+                for _k in ("list_cat", "list_wcat", "list_sponsor", "list_keyword"):
+                    st.session_state.pop(_k, None)
+                st.rerun()
+
+        # --- フィルタ適用 ---
+        result = result_after_cat
         if sel_wcat:
             result = result[result["work_category"].isin(sel_wcat)]
+        if sel_sponsor:
+            result = result[result["sponsor"].astype(str).str.strip().isin(sel_sponsor)]
+        if keyword:
+            kw = keyword.strip().lower()
+            # regex=False: 検索欄に [ や ( 等の正規表現記号を入れても re.error で落ちない
+            def _col_match(col: str) -> "pd.Series":
+                return result[col].fillna("").astype(str).str.lower().str.contains(
+                    kw, regex=False, na=False,
+                )
+            mask = (
+                _col_match("nickname")
+                | _col_match("description")
+                | _col_match("sponsor")
+                | _col_match("work_category")
+                | _col_match("activity_category")
+            )
+            result = result[mask]
 
         result = add_gyomu_date_dt(result)
         result["amount_num"] = clean_numeric_series(result["amount"])
@@ -1236,7 +1298,14 @@ with tab3:
         with k3:
             render_kpi("メンバー数", f"{result['nickname'].nunique()}")
 
-        st.markdown(f'<div class="count-badge">{len(result):,} 件</div>', unsafe_allow_html=True)
+        # 絞り込み中は「X 件 / 全 Y 件中」、未絞り込み時は単純表示
+        if len(result) < total_base:
+            st.markdown(
+                f'<div class="count-badge">{len(result):,} 件 / 全 {total_base:,} 件中</div>',
+                unsafe_allow_html=True,
+            )
+        else:
+            st.markdown(f'<div class="count-badge">{len(result):,} 件</div>', unsafe_allow_html=True)
         st.dataframe(
             result[
                 [
