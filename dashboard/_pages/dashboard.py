@@ -1316,15 +1316,30 @@ with tab3:
             )
         else:
             st.markdown(f'<div class="count-badge">{len(result):,} 件</div>', unsafe_allow_html=True)
+
+        # st.dataframe (glide-data-grid) は row_height/width だけでは長文を折返さない。
+        # 「内容」列を Python 側で固定文字数ごとに改行を入れて pre-format する。
+        # 日本語混在 (半角/全角) を考慮して 22 文字 / 行で改行 (経験則: large 列幅で 2 行 ≒ 40 文字)。
+        def _wrap_jp(s: object, width: int = 22) -> str:
+            if s is None or (isinstance(s, float) and pd.isna(s)):
+                return ""
+            text = str(s)
+            if len(text) <= width:
+                return text
+            return "\n".join(text[i:i + width] for i in range(0, len(text), width))
+
+        view = result[
+            [
+                "display_name", "source_url", "date_dt", "day_of_week",
+                "activity_category", "work_category",
+                "sponsor", "description",
+                "unit_price", "work_hours", "travel_distance_km", "amount",
+            ]
+        ].copy()
+        view["description"] = view["description"].apply(_wrap_jp)
+
         st.dataframe(
-            result[
-                [
-                    "display_name", "source_url", "date_dt", "day_of_week",
-                    "activity_category", "work_category",
-                    "sponsor", "description",
-                    "unit_price", "work_hours", "travel_distance_km", "amount",
-                ]
-            ].rename(columns={
+            view.rename(columns={
                 "display_name": "メンバー",
                 "source_url": "URL",
                 "date_dt": "日付",
@@ -1341,7 +1356,7 @@ with tab3:
             column_config={
                 "URL": st.column_config.LinkColumn(display_text="開く"),
                 "日付": st.column_config.DateColumn(format="M/D"),
-                # 「内容」列は長文が多いので幅を広げ、row_height で折返し可視範囲を確保
+                # 「内容」: pre-format で改行挿入済み + 列幅 large + row_height で wrap を可視化
                 "内容": st.column_config.TextColumn("内容", width="large"),
                 "業務分類": st.column_config.TextColumn("業務分類", width="medium"),
                 "活動分類": st.column_config.TextColumn("活動分類", width="medium"),
@@ -1350,7 +1365,7 @@ with tab3:
             use_container_width=True,
             hide_index=True,
             height=600,
-            row_height=60,
+            row_height=66,  # 3 行分の表示余地 (1 行 ≒ 22px)
         )
 
 
