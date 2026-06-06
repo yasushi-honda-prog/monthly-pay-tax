@@ -1341,10 +1341,16 @@ with tab3:
             column_config={
                 "URL": st.column_config.LinkColumn(display_text="開く"),
                 "日付": st.column_config.DateColumn(format="M/D"),
+                # 「内容」列は長文が多いので幅を広げ、row_height で折返し可視範囲を確保
+                "内容": st.column_config.TextColumn("内容", width="large"),
+                "業務分類": st.column_config.TextColumn("業務分類", width="medium"),
+                "活動分類": st.column_config.TextColumn("活動分類", width="medium"),
+                "スポンサー": st.column_config.TextColumn("スポンサー", width="medium"),
             },
             use_container_width=True,
             hide_index=True,
             height=600,
+            row_height=60,
         )
 
 
