@@ -1259,11 +1259,18 @@ with tab3:
                 label_visibility="collapsed",
             )
         with scol2:
-            if st.button("リセット", key="list_reset", use_container_width=True,
-                         help="活動分類・業務分類・スポンサー・検索キーワードをクリア"):
+            # Streamlit の widget value は `if st.button(): session_state.pop(); st.rerun()`
+            # パターンでは widget の内部キャッシュが残るため確実にクリアできない。
+            # on_click callback は次回 rerun の widget 再描画前に実行されるため、
+            # session_state を pop した状態で widget が再マウント → default に戻る。
+            def _reset_list_filters() -> None:
                 for _k in ("list_cat", "list_wcat", "list_sponsor", "list_keyword"):
                     st.session_state.pop(_k, None)
-                st.rerun()
+            st.button(
+                "リセット", key="list_reset", use_container_width=True,
+                help="活動分類・業務分類・スポンサー・検索キーワードをクリア",
+                on_click=_reset_list_filters,
+            )
 
         # --- フィルタ適用 ---
         result = result_after_cat
