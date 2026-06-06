@@ -532,6 +532,7 @@ st.markdown("""
 # --- 業務報告一覧 / WAM業務報告 タブ本体（同じテーブルビューを key_prefix で共存） ---
 def _render_gyomu_list_tab(
     name_map: dict,
+    all_members: list,
     selected_year: int,
     selected_month: str,
     selected_members: list,
@@ -709,7 +710,12 @@ def _render_gyomu_list_tab(
     with k2:
         render_kpi("件数", f"{len(result):,}")
     with k3:
-        render_kpi("メンバー数", f"{result['nickname'].nunique()}")
+        # 「報告者数」= 当該期間に業務報告 (gyomu_reports) を提出した distinct メンバー数。
+        # 分母は: 絞り込みなし → 全メンバー (all_members 198 名)、絞り込みあり → 選択メンバー数。
+        # 「メンバー数」ラベルだと「全メンバー数」と誤読されるため (PR #186 で本田様指摘)、
+        # 定義に忠実な「報告者数」+ 分母併記に変更。
+        _reporter_total = len(selected_members) if selected_members else len(all_members)
+        render_kpi("報告者数", f"{result['nickname'].nunique()} / {_reporter_total} 名")
 
     # 絞り込み中は「X 件 / 全 Y 件中」、未絞り込み時は単純表示
     if len(result) < total_base:
@@ -1438,6 +1444,7 @@ with tab2:
 with tab3:
     _render_gyomu_list_tab(
         name_map=name_map,
+        all_members=all_members,
         selected_year=selected_year,
         selected_month=selected_month,
         selected_members=selected_members,
@@ -1454,6 +1461,7 @@ with tab3:
 with tab_wam:
     _render_gyomu_list_tab(
         name_map=name_map,
+        all_members=all_members,
         selected_year=selected_year,
         selected_month=selected_month,
         selected_members=selected_members,
