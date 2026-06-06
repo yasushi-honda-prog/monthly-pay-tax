@@ -1258,20 +1258,36 @@ with tab3:
                 placeholder="全スポンサー", label_visibility="collapsed",
             )
 
-        # --- フィルタ行 2: キーワード検索 + リセット ---
-        scol1, scol2 = st.columns([5, 1])
+        # --- フィルタ行 2: キーワード検索 + 検索対象選択 + リセット ---
+        # 検索対象ラベル → 実カラム名のマッピング
+        _SEARCH_TARGET_MAP: dict[str, str] = {
+            "メンバー": "nickname",
+            "内容": "description",
+            "スポンサー": "sponsor",
+            "業務分類": "work_category",
+            "活動分類": "activity_category",
+        }
+        scol1, scol2, scol3 = st.columns([3, 2, 1])
         with scol1:
             keyword = st.text_input(
                 "検索", key=f"list_keyword_{_rc}",
-                placeholder="🔍 メンバー・内容・スポンサー・業務分類を横断検索 (部分一致)",
+                placeholder="🔍 キーワード入力 (部分一致)",
                 label_visibility="collapsed",
             )
         with scol2:
+            sel_targets = st.multiselect(
+                "検索対象", list(_SEARCH_TARGET_MAP.keys()),
+                key=f"list_search_targets_{_rc}",
+                placeholder="検索対象 (空=全カラム横断)",
+                label_visibility="collapsed",
+                help="検索対象カラムを限定したい場合は選択 (複数選択可)。空の場合は全カラム横断検索。",
+            )
+        with scol3:
             def _reset_list_filters() -> None:
                 st.session_state["list_reset_counter"] += 1
             st.button(
                 "リセット", key="list_reset", use_container_width=True,
-                help="活動分類・業務分類・スポンサー・検索キーワードをクリア",
+                help="活動分類・業務分類・スポンサー・検索キーワード・検索対象をクリア",
                 on_click=_reset_list_filters,
             )
 
@@ -1283,18 +1299,19 @@ with tab3:
             result = result[result["sponsor"].astype(str).str.strip().isin(sel_sponsor)]
         if keyword:
             kw = keyword.strip().lower()
+            # 検索対象が空なら全カラム横断、選択ありなら選択カラムのみ OR 検索
+            _target_cols = (
+                [_SEARCH_TARGET_MAP[t] for t in sel_targets]
+                if sel_targets else list(_SEARCH_TARGET_MAP.values())
+            )
             # regex=False: 検索欄に [ や ( 等の正規表現記号を入れても re.error で落ちない
             def _col_match(col: str) -> "pd.Series":
                 return result[col].fillna("").astype(str).str.lower().str.contains(
                     kw, regex=False, na=False,
                 )
-            mask = (
-                _col_match("nickname")
-                | _col_match("description")
-                | _col_match("sponsor")
-                | _col_match("work_category")
-                | _col_match("activity_category")
-            )
+            mask = _col_match(_target_cols[0])
+            for _c in _target_cols[1:]:
+                mask = mask | _col_match(_c)
             result = result[mask]
 
         result = add_gyomu_date_dt(result)
