@@ -44,7 +44,7 @@ SA鍵ファイルは使わない（ローカル開発時のみ `SA_KEY_PATH` 環
   - `tests/` - ユニットテスト（100テスト: Sheets APIスロットリング、グループ一覧、dashboard_users同期、グループ自動同期 ON/OFF、立替金シート収集、タダメンM収集、手動同期エンドポイント、snapshotバックアップ、Step5 fail-safe（snapshot失敗日のスキップ）、Chat障害通知）
 - `dashboard/` - Streamlitダッシュボード（マルチページ構成）
   - `app.py` - エントリポイント（認証 + st.navigation ルーター）
-  - `_pages/dashboard.py` - 5タブ（月別報酬サマリー/スポンサー別業務委託費/業務報告一覧/グループ別/業務委託費分析）
+  - `_pages/dashboard.py` - 6タブ（月別報酬サマリー/スポンサー別業務委託費/業務報告一覧/WAM業務報告/グループ別/業務委託費分析）
   - `_pages/report_input.py` - 報告入力（業務報告・補助報告のアプリ入力プロトタイプ）
   - `_pages/check_management.py` - 業務チェック管理表（checker/admin専用、BQ DML）
   - `_pages/wam_monthly.py` - WAM立替金確認（checker/admin、6タブ: PJ別サマリー/メンバー別明細/領収書添付状況/月別報酬・振込確認/支払明細書PDF/年間支払調書データ。Tab4 振込CSV・Tab5 支払明細書PDF・Tab6 年間支払調書CSVには氏名/口座/住所等の個人情報を含む）
@@ -300,7 +300,7 @@ GASバインドSSのスプレッドシート関数パイプラインをSQLで再
 
 | ページ | ファイル | アクセス権 |
 |--------|---------|-----------|
-| ダッシュボード（5タブ） | `_pages/dashboard.py` | user/checker/admin |
+| ダッシュボード（6タブ） | `_pages/dashboard.py` | user/checker/admin |
 | 報告入力 | `_pages/report_input.py` | user/checker/admin |
 | 業務チェック | `_pages/check_management.py` | checker/admin |
 | アーキテクチャ | `_pages/architecture.py` | user/checker/admin |
