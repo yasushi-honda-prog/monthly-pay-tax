@@ -1,13 +1,59 @@
 # ハンドオフメモ - monthly-pay-tax
 
-**更新日**: 2026-06-06（BigQuery データコネクタ接続権限ドキュメント追加 PR #173 + Mermaid syntax error 修正 PR #174）
-**フェーズ**: WAM助成金対応 **技術側完了** + **CI/CD 自動デプロイ稼働中** + **管理機能拡充フェーズ完了** + **運用ドキュメント基盤稼働** + **手動同期 UI 稼働** + **データ安全性向上フェーズ完了** + **snapshot 障害対応・耐障害性強化完了**
-**最新デプロイ**: PR #174 (fb8035a) Dashboard デプロイ完了（2026-06-06）/ PR #155 (832659d) Collector → `pay-collector-00035-gcd`（2026-05-31）
+**更新日**: 2026-06-06（業務報告一覧タブ UX 改善: PR #176/#178/#180/#181 マージ済 + 失敗→修正 PR #177/#179 含む）
+**フェーズ**: WAM助成金対応 **技術側完了** + **CI/CD 自動デプロイ稼働中** + **管理機能拡充フェーズ完了** + **運用ドキュメント基盤稼働** + **手動同期 UI 稼働** + **データ安全性向上フェーズ完了** + **snapshot 障害対応・耐障害性強化完了** + **業務報告一覧タブ UX 改善完了**
+**最新デプロイ**: PR #181 (735e103) Dashboard デプロイ完了（2026-06-06）/ PR #155 (832659d) Collector → `pay-collector-00035-gcd`（2026-05-31）
 **Cloud Run設定**: 2026-04-07 `--no-cpu-throttling --max-instances=3` 適用済み（ADR 0004 / 効果測定 2026-05-03 追記）+ pay-dashboard は PR #141 で `--timeout 900` 適用 + pay-collector に `--update-secrets=CHAT_WEBHOOK_URL=chat-webhook-url:latest`（PR #148）
 **CI/CD**: ADR-0006、main push + パスフィルタで自動デプロイ、deploy 内に test gate 配置（PR #126）。`docs/operations/**` を paths trigger に追加（PR #139）
 **テストスイート**: Dashboard **338** + Cloud Run **100** = **438テスト全PASS**（CI 自動実行）+ scripts/tests **26**（collect_gas_bindings、ローカル実行・CI対象外）
 
-## 🆕 2026-06-06 セッション完了サマリー（BigQuery データコネクタ接続権限ドキュメント追加）
+## 🆕 2026-06-06 セッション完了サマリー（業務報告一覧タブ UX 改善 — 全 7 機能 E2E 検証済）
+
+ユーザー要望: 「業務報告一覧」タブを依存型ドロップダウン + 検索窓 + スポンサー抽出で「ベストプラクティス UX」化。実装 → E2E (Playwright MCP) → ユーザー追加要望 → 再修正 を 6 PR で完走。
+
+| PR | 内容 | マージ | 備考 |
+|----|------|--------|------|
+| #176 | feat: 依存型ドロップダウン (活動分類 → 業務分類/スポンサー) + キーワード横断検索 + 件数バッジ「X 件 / 全 Y 件中」 | fc3815a | 初版 UX 改善 |
+| #177 | fix: リセットボタン on_click callback パターン | 1084426 | ❌ widget cache 残存で効かず → #178 で再修正 |
+| #178 | fix: リセットボタン widget key counter 方式（確実版） | f6669c8 | ✅ Streamlit 公式パターン、E2E 検証済 |
+| #179 | feat: 内容列の width="large" + row_height=60 | c2491d8 | ❌ glide-data-grid は自動 wrap せず → #180 で根本対応 |
+| #180 | fix: 内容列の Python pre-format wrap（22 文字ごとに改行挿入） | c2491d8 | ✅ wrap 表示完全動作 |
+| #181 | feat: 検索対象カラムを multiselect で選択可能に（空=全カラム横断、選択=ピンポイント） | 735e103 | ✅ E2E 5 シナリオ全 PASS |
+
+### 完成機能（全 7 項目 E2E 検証済）
+
+1. ✅ **依存型ドロップダウン** — 活動分類 → 業務分類/スポンサーの選択肢を当該活動分類のものだけに動的絞込
+2. ✅ **キーワード横断検索** — 5 カラム OR、`regex=False` で `[` `(` 等の正規表現記号エラー回避
+3. ✅ **検索対象カラム選択** — multiselect、空=全カラム横断、選択あり=選択カラムのみ OR
+4. ✅ **スポンサー multiselect フィルタ** — 依存型と連動
+5. ✅ **件数バッジ「X 件 / 全 Y 件中」** — 絞込効果の可視化
+6. ✅ **リセットボタン** — `list_reset_counter` を widget key suffix に含める方式で確実クリア
+7. ✅ **内容列の wrap 表示** — Python 側で 22 文字ごとに改行挿入 + `row_height=66`
+
+### E2E 検証シナリオ（Playwright MCP）
+
+| シナリオ | 期待 | 実測 | 結果 |
+|---------|------|------|------|
+| 「神奈川」全カラム横断 | description / sponsor / activity_category 全マッチ | 43 件 | ✅ |
+| 「神奈川」検索対象「内容」のみ | description のみ | 26 件（43→26 絞込） | ✅ |
+| 「藤田」全カラム横断 | description 1 件のみ（nickname に「藤田」非含） | 1 件 | ✅ |
+| 「藤田」検索対象「メンバー」のみ | nickname に「藤田」非含 | 0 件 | ✅ |
+| 「藤田」検索対象「メンバー」+「内容」 | OR 結合 0+1=1 件 | 1 件 | ✅ |
+| リセット押下 | 全フィルタクリア・count=1,075 | バッジ「1,075 件」、tags 空、kw 空 | ✅ |
+
+### 学び（本セッションの試行錯誤から得た知見）
+
+1. **Streamlit widget value のクリア方法**: `session_state.pop()` も `on_click` callback も widget 内部 cache を消せない。確実に default に戻すには **widget key に counter を含めて毎回 new mount** させる（PR #178）
+2. **`st.dataframe` (glide-data-grid) は自動 wrap しない**: `row_height` を増やしても空白行高が広がるだけ。長文を折返すには **Python 側で改行を pre-insert** する必要がある（PR #180）
+3. **executor の責任放棄禁止**: E2E で AI が確認済みの作業を「実機での最終確認をお願いします」と decision-maker に丸投げするのは 4 原則 §1 違反の逆向き越権（under-execution）。確認済みは確認済みと明示する
+
+### Cleanup
+
+- `e2e-*.png`（Playwright スクリーンショット 9 枚）を削除、`.gitignore` に `e2e-*.png` を追加（executor 責任）
+
+---
+
+## 🗂️ 2026-06-06 セッション完了サマリー（BigQuery データコネクタ接続権限ドキュメント追加）
 
 | PR | 内容 | マージ |
 |----|------|--------|
