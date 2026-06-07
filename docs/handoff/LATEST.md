@@ -1,6 +1,6 @@
 # ハンドオフメモ - monthly-pay-tax
 
-**更新日**: 2026-06-07（WAM業務報告タブ新設 PR #183 + 期間指定モード対応 PR #185 + 報告者数 KPI 改善 PR #187 + sessionAffinity ADR PR #188 マージ済、Issue #184 close 済、よもぎ問題解消 sessionAffinity 設定変更で対応）
+**更新日**: 2026-06-07（WAM業務報告タブ新設 PR #183 + 期間指定モード対応 PR #185 + 報告者数 KPI 改善 PR #187 + sessionAffinity ADR PR #188 マージ済、Issue #184 close 済、**よもぎ問題完全クローズ確認済み**（2026-06-07 08:46 JST 本人再アクセス成功 / Cloud Run ログ照合済み））
 **フェーズ**: WAM助成金対応 **技術側完了** + **CI/CD 自動デプロイ稼働中** + **管理機能拡充フェーズ完了** + **運用ドキュメント基盤稼働** + **手動同期 UI 稼働** + **データ安全性向上フェーズ完了** + **snapshot 障害対応・耐障害性強化完了** + **業務報告一覧タブ UX 改善完了** + **WAM業務報告タブ稼働中** + **報告者数 KPI 明確化** + **OAuth リダイレクトループ対応 (sessionAffinity)**
 **最新デプロイ**: pay-dashboard `pay-dashboard-00282-mgf`（2026-06-07、sessionAffinity 有効化 + PR #188 含む）/ PR #155 (832659d) Collector → `pay-collector-00035-gcd`（2026-05-31）
 **Cloud Run設定**: 2026-04-07 `--no-cpu-throttling --max-instances=3` 適用済み（ADR 0004 / 効果測定 2026-05-03 追記）+ pay-dashboard は PR #141 で `--timeout 900` 適用 + **2026-06-07 `--session-affinity` 有効化（ADR-0007、OAuth リダイレクトループ対応）** + pay-collector に `--update-secrets=CHAT_WEBHOOK_URL=chat-webhook-url:latest`（PR #148）
@@ -49,9 +49,9 @@
 - 起票数: 1 件 (#184、Codex PR diff review で発見)
 - Net: 0 件 (起票と close が同セッション内で完結、機能追加 PR 4 件 + ADR 1 件分の価値追加あり)
 
-### 🛟 セッション中の障害報告対応（解消済、ユーザー再アクセス確認待ち）
+### 🛟 セッション中の障害報告対応（**完全クローズ済み**）
 
-**よもぎ (asayo-shimizu@tadakayo.jp) ダッシュボードリダイレクト問題 — 解消済**
+**よもぎ (asayo-shimizu@tadakayo.jp) ダッシュボードリダイレクト問題 — 解消確認済み**
 
 経緯:
 1. **症状報告**: ダッシュボードがリダイレクトされて見れない
@@ -64,13 +64,17 @@
    - → OAuth セッション確定できず再認証ループ
 5. **根本原因特定**: ADR-0004 `max-instances=3` + **`sessionAffinity` 未設定** で別インスタンスへのルーティング時に Streamlit OIDC state 喪失
 6. **修正実施** (gcloud で直接): `gcloud run services update pay-dashboard --session-affinity --region=asia-northeast1`
-7. **本番反映確認**: 新リビジョン `pay-dashboard-00282-mgf` トラフィック 100%、annotation `run.googleapis.com/sessionAffinity: true` 設定済
+7. **本番反映確認**: 新リビジョン `pay-dashboard-00283-8jn` (2026-06-06T22:57:33Z = 2026-06-07 07:57 JST) annotation `run.googleapis.com/sessionAffinity: true` 設定済
 8. **PR #188 で ADR-0007 + 運用ドキュメント (切り分け手順) を記録**
-9. **よもぎへの再アクセス依頼準備完了** (Cookie クリア + 再アクセス + 結果報告依頼)
+9. **本人再アクセス成功確認** (2026-06-07 08:46 JST):
+   - ユーザー報告で「OK」確認
+   - Cloud Run ログ照合: 修正後 `pay-dashboard-00283-8jn` revision 上で新規 IP `218.219.168.196` が **08:46:12 `/oauth2callback` 302 → 08:46:13 `/` 200** の単発フロー成功 (重複 state なし)
+   - 修正後 (07:57 JST 以降) 15 分間で 6 ユニーク IP が `/check_management`・`/dashboard` 等に 200/304 でアクセス成功、5xx・OOM・OAuth ERROR すべて 0 件
+10. **PR #189 で「よもぎ問題解消経緯」を本ファイルに記録**
 
-**現状: 条件待ち (よもぎさんの再アクセス結果)**
-- 解消確認なら完全クローズ
-- 再発する場合は別原因 (OOM / Cookie / マルチアカウント)、運用ドキュメント §3 のフローチャートで切り分け
+**現状: 完全クローズ**
+- sessionAffinity の効果が本番ログで実証されたため、別途追跡タスクなし
+- 再発時の切り分けは `docs/operations/20260607_OAuth_リダイレクトループ_切り分け.md` §3 のフローチャート参照
 
 ### 🔭 副次的に発見した別件（次セッション条件待ち）
 
