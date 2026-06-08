@@ -56,7 +56,8 @@ SA鍵ファイルは使わない（ローカル開発時のみ `SA_KEY_PATH` 環
   - `lib/auth.py` - Streamlit OIDC認証 + BQホワイトリスト照合
   - `lib/bq_client.py` - 共有BQクライアント
   - `lib/receipt_pdf.py` - 支払明細書PDF生成
-  - `lib/styles.py` - 共有CSS
+  - `lib/styles.py` - 共有CSS（ダッシュボード全体のベーススタイル）
+  - `lib/doc_styles.py` - 説明系ページ専用の共通CSS + パーツヘルパー（ヒーロー / セクションヘッダー / ロール説明カード / `ROLE_DEFINITIONS`）。help / architecture / operations_docs / user_management で再利用
   - `lib/constants.py` - 定数
   - `lib/mermaid_renderer.py` - Mermaid図レンダリング共通モジュール（dark/lightテーマ対応）
   - `lib/ui_helpers.py` - 共通UIユーティリティ（KPI表示・数値変換・年月セレクタ）
