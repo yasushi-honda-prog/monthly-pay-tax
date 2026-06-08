@@ -1,11 +1,56 @@
 # ハンドオフメモ - monthly-pay-tax
 
-**更新日**: 2026-06-07（WAM業務報告タブ新設 PR #183 + 期間指定モード対応 PR #185 + 報告者数 KPI 改善 PR #187 + sessionAffinity ADR PR #188 マージ済、Issue #184 close 済、**よもぎ問題完全クローズ確認済み**（2026-06-07 08:46 JST 本人再アクセス成功 / Cloud Run ログ照合済み））
-**フェーズ**: WAM助成金対応 **技術側完了** + **CI/CD 自動デプロイ稼働中** + **管理機能拡充フェーズ完了** + **運用ドキュメント基盤稼働** + **手動同期 UI 稼働** + **データ安全性向上フェーズ完了** + **snapshot 障害対応・耐障害性強化完了** + **業務報告一覧タブ UX 改善完了** + **WAM業務報告タブ稼働中** + **報告者数 KPI 明確化** + **OAuth リダイレクトループ対応 (sessionAffinity)**
-**最新デプロイ**: pay-dashboard `pay-dashboard-00282-mgf`（2026-06-07、sessionAffinity 有効化 + PR #188 含む）/ PR #155 (832659d) Collector → `pay-collector-00035-gcd`（2026-05-31）
+**更新日**: 2026-06-08（説明系4ページのトンマナ統一 + ロール説明追加 PR #191 + Mermaid 構文修正 PR #192 + 6/6-7 機能のヘルプ反映 PR #193 マージ済、Playwright MCP で本番実機検証完走、共通ドキュメント CSS `lib/doc_styles.py` を新設）
+**フェーズ**: WAM助成金対応 **技術側完了** + **CI/CD 自動デプロイ稼働中** + **管理機能拡充フェーズ完了** + **運用ドキュメント基盤稼働** + **手動同期 UI 稼働** + **データ安全性向上フェーズ完了** + **snapshot 障害対応・耐障害性強化完了** + **業務報告一覧タブ UX 改善完了** + **WAM業務報告タブ稼働中** + **報告者数 KPI 明確化** + **OAuth リダイレクトループ対応 (sessionAffinity)** + **説明系ページのトンマナ統一 + ロール説明強化完了**
+**最新デプロイ**: pay-dashboard `pay-dashboard-00286-vtd`（2026-06-08、PR #193 含む）/ PR #155 (832659d) Collector → `pay-collector-00035-gcd`（2026-05-31）
 **Cloud Run設定**: 2026-04-07 `--no-cpu-throttling --max-instances=3` 適用済み（ADR 0004 / 効果測定 2026-05-03 追記）+ pay-dashboard は PR #141 で `--timeout 900` 適用 + **2026-06-07 `--session-affinity` 有効化（ADR-0007、OAuth リダイレクトループ対応）** + pay-collector に `--update-secrets=CHAT_WEBHOOK_URL=chat-webhook-url:latest`（PR #148）
 **CI/CD**: ADR-0006、main push + パスフィルタで自動デプロイ、deploy 内に test gate 配置（PR #126）。`docs/operations/**` を paths trigger に追加（PR #139）
 **テストスイート**: Dashboard **352** + Cloud Run **100** = **452テスト全PASS**（CI 自動実行）+ scripts/tests **26**（collect_gas_bindings、ローカル実行・CI対象外）
+
+## 🆕 2026-06-08 セッション完了サマリー（説明系4ページのトンマナ統一 + ロール説明追加 + Mermaid 構文修正 + 6/6-7 機能のヘルプ反映 — Playwright MCP で本番実機検証完走）
+
+ユーザー要望: ユーザー管理ビューでロール説明を分かりやすく / ヘルプ・その他ドキュメントページを最新化 / 説明系ページのトンマナを揃える。新規 `lib/doc_styles.py` で共通CSS + `ROLE_DEFINITIONS` を一元化し、4 ページが同じトンマナを共有する構造に転換。
+
+| PR | 内容 | マージ | 備考 |
+|----|------|--------|------|
+| #191 | feat(docs): 説明系4ページのトンマナ統一 + ロール説明の追加（新規 `lib/doc_styles.py` + help / architecture / operations_docs / user_management 一括更新） | 0aac7e7 | comment-analyzer Critical 1 件・Medium 2 件をフォローアップコミットで反映 |
+| #192 | fix(architecture): Mermaid シリンダー記法 `[(...)]` 衝突を回避（`P1B[(仮) 報告入力]` 等をダブルクォート囲みに） | a3acae4 | PR #191 で導入された半角括弧ラベルが本番で `Syntax error in text` を発生させた hotfix |
+| #193 | feat(help): 2026-06-06〜07 のダッシュボード機能追加をヘルプに反映（業務報告一覧 UX 改善 / 期間指定モード / WAMタブ / 報告者数 KPI / 内容列折り返し / 検索 multiselect） | 3003e64 | comment-analyzer Critical 2 件・Improvement 4 件をフォローアップコミットで反映 |
+
+### 完成機能（実機検証済）
+
+1. ✅ **共通ドキュメント CSS モジュール** — `lib/doc_styles.py` で hero / section header / role cards / tips / glossary pills / status pill / tag pill を一元定義。`ROLE_DEFINITIONS` で 4 ロール（user / viewer / checker / admin）の権限を 1 箇所で管理し、`auth.py` の `require_*()` と整合
+2. ✅ **ユーザー管理ロール説明セクション** — 冒頭に「ロールの種類と権限」カードを追加。`viewer` を「歴史的互換ロール」と明示
+3. ✅ **ヘルプ ページ一覧と実装の整合性確保** — 「(仮) 報告入力」を admin 専用に修正、`運用ドキュメント` / `GAS管理` を新規追加（旧表示は user 全員になっていた）
+4. ✅ **アーキテクチャ ページ構成と権限マトリックス更新** — Mermaid graph と表に `viewer` 列 + `運用ドキュメント` / `GAS管理` / `(仮)報告入力` 行を追加
+5. ✅ **運用ドキュメント status バッジ / tags ピル** — `active` / `draft` / `archived` を色分け表示、tags を pill 化
+6. ✅ **6/6-7 機能のヘルプ反映** — 新セクション「業務報告一覧 / WAM業務報告 タブの詳細機能」(6 カード) + FAQ 4 件追加
+7. ✅ **HeroColor / SectionColor の Literal 型** — type-design-analyzer の推奨でカラー候補値を型システムで表現、silent fallback の挙動を docstring に明記
+
+### 実機検証（Playwright MCP、本番環境）
+
+| シナリオ | 結果 |
+|---------|------|
+| アーキテクチャページ: Mermaid 9 図すべて正常描画（特に section 5・6 の `(仮)` ラベル） | ✅ |
+| 運用ドキュメント: 緑ヒーロー / status バッジ / tags ピル / 5 ドキュメント全件選択肢表示 | ✅ |
+| BigQuery データコネクタ ドキュメント: 5 名のアカウントメール全件表示 | ✅ |
+| ヘルプ: 11 セクション / 4 ロールカード / 10 ページカード | ✅ |
+| ヘルプ: 新セクション「業務報告一覧 / WAM業務報告 タブの詳細機能」(6 カード) + FAQ 4 件追加 | ✅ |
+| ユーザー管理: 紫ヒーロー / 4 ロールカード / 5 セクション | ✅ |
+
+### 工程プロセスのハイライト
+
+1. **sessionAffinity トラブル再現**: Playwright 初回アクセスがデプロイ完了の 30 秒前で、PR #191 リビジョン (00284) に固着して PR #192 の修正が反映されない事象を実体験。`browser_close` → 再ナビゲートで最新リビジョン (00285) に切り替わり原因特定（ADR-0007 の sessionAffinity 設計が実機で観測可能と確認）
+2. **comment-analyzer の高効用**: PR #191 で `viewer` ロール説明に「報告入力(WIP)」誤記を発見、PR #193 で「期間モード」というラベル不在 / 「198」ハードコード / 「検索対象カラム」用語不一致を発見。いずれも実コードと突き合わせた精度の高い指摘で即時反映
+3. **executor 責任の cleanup**: Playwright 検証スクショ 2 件（`help_new_section.png` / `user_management_role_cards.png`）はローカル削除（既存 `e2e-*.png` / `prod-*.png` パターンに該当しないため削除選択）
+
+### Issue Net 変化
+
+- Close 数: 0 件
+- 起票数: 0 件
+- Net: 0 件（機能追加 PR 3 件分の価値追加あり、Issue 化を要する課題は発生せず）
+
+---
 
 ## 🆕 2026-06-06 セッション完了サマリー（WAM業務報告タブ新設 + 期間指定モード対応 — Playwright MCP で本番実機検証完走）
 
@@ -285,147 +330,6 @@
 - **実投稿確認**: ユーザー判断で疎通テスト投稿は実施済み（HTTP 200）。新文面（PR #149）での確認は「不要」と判断 → 次回実障害時に自然確認
 - 既存 Open Issue #94 / #58 / #54 は外部ブロッカー待ちで据え置き
 
-## 🆕 2026-05-17 セッション完了サマリー
-
-| PR | 内容 | マージ | 備考 |
-|----|------|--------|------|
-| #141 | admin 画面に手動同期ボタン (4 種) + Cloud Run /sync/* 3 endpoint + OIDC ヘルパ + dashboard `--timeout 900` | 9c4b72c | Cloud Run tests +7 件 (63→70)、Codex review High 指摘反映 |
-| #142 | CLAUDE.md の IAM 設定を「既存環境で付与済」に明示 | 02cd7e9 | 訂正 PR、新規環境構築時のみ実行する手順として整理 |
-| #143 | 活動分類 rename 手順書から重複セクション 4.3 を削除 | 1fff689 | 4.2 表に Playwright 行 1 行追加 + 4.3 (11 行) 削除、情報集約 |
-
-### Connected Sheets 連携の入口整備
-- ユーザーが `v_monthly_compensation` を Google Sheets の「データコネクタ → BigQuery」で接続成功 → BQ VIEW を Sheets に出す導線が完成
-- これに合わせて「BQ 側を今すぐ最新化したい」ニーズに応える手動同期ボタンを admin 画面に追加（PR #141）
-
-### 追加された手動同期エンドポイント（pay-collector）
-
-| ボタン | エンドポイント | 想定所要時間 | 対象テーブル |
-|---|---|---|---|
-| メイン報告 | `POST /sync/main-reports` | 約 5.5 分 | gyomu_reports / hojo_reports / members / groups_master（Step 1-3 + Step 4 グループ情報復元込み） |
-| 立替金 | `POST /sync/reimbursement` | 約 1 分 | reimbursement_items |
-| タダメンM | `POST /sync/member-master` | 数十秒 | member_master |
-| グループ情報のみ | `POST /update-groups`（既存） | 約 2 分 | members / groups_master / dashboard_users |
-
-実装は WRITE_TRUNCATE（既存パターン踏襲）、同時実行ロックなし、実行履歴永続化なし。dashboard / pay-collector は共通 SA `pay-collector@` で動作する self-invoke 構成。
-
-### Codex review 経由で発見・修正した設計欠陥（PR #141 内）
-**High**: `/sync/main-reports` が `run_collection()` だけ呼ぶと `members.groups` が空文字で WRITE_TRUNCATE される（通常バッチ POST / は直後の Step 4 で復元している前提が単独 endpoint では崩れる）→ ダッシュボードのグループ別表示が壊れる。修正: `sync_main_reports` 内で続けて `update_member_groups_from_bq()` を呼ぶよう変更、所要時間 4 分 → 5.5 分に再設定。
-
-**Medium 反映**: 同期成功直後に `st.cache_data.clear()` を呼ぶ（BQ 更新済みでも dashboard が最大 1 時間古いまま見える問題を解消）。
-**Medium 見送り**: `bq_loader.load_all()` の `-1` failure をエラー扱いにする partial_error 検知ロジックは「無理のない範囲」で見送り。
-**Low 反映**: 関数外途中 import (`# noqa: E402`) を先頭の import 群に移動。
-
-### IAM 既付与の確認（PR #142 の経緯）
-PR #141 description / CLAUDE.md で「`pay-collector@` SA に `roles/run.invoker` 付与必須」と記載したが、`gcloud run services get-iam-policy` で確認したところ **既に付与済**（既存 `check_management.py` の self-invoke 用途で過去に付与）。CLAUDE.md を「新規環境構築時のみ実行」記述に訂正 + 確認コマンド追加（PR #142）。
-
-教訓を global memory に記録: `feedback_iam_state_check_before_declare.md`
-- IAM 等の運用変更を「必須」と書く前に既存状態を確認する
-- ユーザー明示指示の revocable 運用変更 (IAM 追加等) は AI executor で実行する（decision-maker 領分を過剰に拡大解釈しない）
-
-### 設計判断ログ（Codex セカンドオピニオン 2 回経由で合意）
-| 判断 | 採用理由 |
-|---|---|
-| 同時実行ロックなし | 朝 6 時バッチと手動操作の時間帯衝突は実運用上稀、WRITE_TRUNCATE で「最新が勝つ」前提を許容 |
-| 実行履歴永続化なし | BQ `ingested_at` + テーブルメタデータ `modified` で代替（既存「BQ テーブル情報」セクションで表示済） |
-| dashboard 側テスト省略 | 運用 2 名で手動 UI 検証即気付ける、過剰実装回避 |
-| pay-dashboard 専用 SA 分離 | Phase 1 では self-invoke 採用、`cloud_run_client.py` に TODO 残し |
-| メンバー単位の部分更新 | WRITE_TRUNCATE 設計のため別 PR で要件確定後に着手（Phase 3 候補） |
-| Cloud Tasks / 202 accepted 非同期化 | Phase 2 候補（実行履歴永続化が必要になった時点で検討） |
-
-### Issue 変化（Net 0）
-- Close: 0 件
-- 起票: 0 件
-- Net: **0 件**
-
-**理由言語化**: 今セッションはユーザー要望「無理のない範囲で機能追加」「過剰実装回避」を主軸とし、CLAUDE.md triage 基準（実害/再現バグ/CI破壊/rating≥7/明示指示）に該当する事象なし。Codex review の Medium 指摘 (`-1` failure 検知) も「無理のない範囲」で PR コメント記録に留めた。既存 Open Issue (#94 / #58 / #54) は前提条件未満（GCP 課金権限取得 / 外部ツール所在確認 / Phase 0 回答受領）のため着手不可。質的な進展は ① 機能追加 PR 1 件 ② doc 整備 PR 2 件 ③ memory 学習記録 1 件 ④ 既存テスト 7 件追加、累計 403 件全 PASS。
-
-### 動作確認まち（ユーザー側）
-1. admin で `pay-dashboard` の「管理設定」→「手動同期」セクション表示確認（4 ボタン + eta caption）
-2. 「タダメンMマスタ」ボタン押下（影響最小、数十秒）→ spinner → 「完了（X 秒、データキャッシュもクリア済）」+ JSON 表示
-3. 「BigQuery テーブル情報」セクションをリロード → `member_master` の「最終更新」が直近 JST に更新
-4. 余裕があれば「メイン報告」ボタン（約 5.5 分）を朝バッチと衝突しない時刻に 1 回試行
-5. PR #143 反映確認（運用ドキュメントページの活動分類 rename 計画書、4.2 表に Playwright 行があり 4.3 セクションが消えている）
-
-### 軽微な保守メモ（前セッションから持ち越し、別 PR スコープ）
-- Node.js 20 deprecation 警告（actions/checkout@v4 等、2026-06-02 以降強制 v24）→ workflow メンテで一括対応
-- `html.escape(code)` 対応（mermaid_renderer + architecture.py 全体整合）
-- selectbox の同名重複対策（`format_func` で DocEntry 直接渡し）
-- dashboard UI の DML 例外ハンドリング統一（PR #132 review I1+I2、rating 7 相当だが頻度低のため起票見送り TODO）
-- `bq_loader.load_all()` の `-1` failure → partial_error 検知（Codex PR #141 review Medium、運用負荷増えたら検討）
-- pay-dashboard 専用 SA 分離（PR #141 cloud_run_client.py TODO、SA 境界の明確化が必要になったら検討）
-
-## 🆕 2026-05-16 セッション完了サマリー
-
-| PR | 内容 | マージ | 備考 |
-|----|------|--------|------|
-| #139 | 運用ドキュメントページを dashboard に追加 + Mermaid renderer 共通化 + 業務報告シート「活動分類」rename 計画書 1本目配置 | 89ec1ca | 新規ページ + `docs/operations/` 基盤 + workflow に docs 同梱ステップ、16 テスト追加 |
-
-### 検証完了事項（業務報告シート「活動分類」カラム名変更）
-ユーザーからの相談を発端に、`活動分類` ヘッダー名の変更が現システムに与える影響を多層検証:
-
-| 観点 | 結論 | 論拠 |
-|------|------|------|
-| Cloud Run collector | **影響なし** | 範囲ベース取得 `B7:K`、ヘッダー行は読み取り範囲外（`data_start_row=7`） |
-| BigQuery スキーマ・VIEW | **影響なし** | 英語識別子 `activity_category` で固定、日本語はコメントのみ |
-| Streamlit dashboard | **影響なし** | BQ 英語列名で参照、UI 表示「活動分類」は内部文字列で独立 |
-| 旧 GAS (`コード.js`) | **影響なし** | 稼働停止中 + 位置ベース参照 |
-| シート内ワークシート関数 / バインド GAS | **影響なし** | ユーザー確認済 |
-
-Codex セカンドオピニオン取得済（4 MINOR / 1 NIT、BLOCKER なし）。実施時は **一時利用スタンドアロン GAS + clasp** が最適解。Playwright MCP は不要（脆い・過剰）。詳細は dashboard「運用ドキュメント」→ `2026-05-16 業務報告シート「活動分類」カラム名変更 計画書` で全員閲覧可。
-
-### 新規追加された基盤
-| 項目 | 内容 |
-|------|------|
-| `dashboard/_pages/operations_docs.py` | 運用ドキュメント表示ページ（frontmatter + Mermaid 自動分割） |
-| `dashboard/lib/mermaid_renderer.py` | Mermaid レンダリング共通モジュール（`architecture.py` から切り出し） |
-| `docs/operations/` | 運用ドキュメント実体（README + 1本目: 活動分類 rename 計画書） |
-| `.github/workflows/deploy-dashboard.yml` | docs/operations を build context に同梱するステップ追加 + paths trigger 拡張 |
-
-### Issue 変化（Net 0）
-- Close: 0 件
-- 起票: 0 件
-- Net: **0 件**（機能追加のみ、既存 Issue とは独立）
-
-### 動作確認まち（ユーザー側）
-1. dashboard で「運用ドキュメント」メニュー表示
-2. selectbox に「2026-05-16 業務報告シート「活動分類」カラム名変更 計画書」が出る
-3. Markdown + Mermaid 図 3個 + 表が描画される
-4. user / checker / admin 各ロールでアクセス可能
-
-## 🆕 2026-05-13 セッション完了サマリー
-
-| PR | 内容 | マージ | 備考 |
-|----|------|--------|------|
-| #135 | 報告入力を (仮) UI ドラフト化、admin 限定に変更 | 0e5bbd3 | `require_user` → `require_admin`、警告バナー追加、ナビ位置 admin_pages へ |
-| #136 | 報告入力の保存処理を dry-run 化（BQ 書き込み無効） | 3dc13a4 | `logger.info` のみ、UI トースト変更、テスト書き換え |
-| #137 | (仮)報告入力に仕様/アーキテクチャ折り畳みメモ追加 | a080907 | `st.expander` + `st.graphviz_chart` × 2、自己完結ドキュメント |
-
-### 方針転換
-- 報告入力ページを「実装着手済みプロトタイプ」→「**UI 提案ドラフト（admin プレビュー）**」に位置づけ直し
-- 本番 BQ への書き込み影響を**完全皆無化**（dry-run）
-- 採用判断後の手順・不採用時の削除対象をページ内 expander に明記（外部 docs 依存なし）
-
-### Issue 変化（Net -1）
-- ✅ Close: **#93**（app_gyomu_reports / app_hojo_reports テーブル作成）— テーブル実体は既に存在しており「達成済み」として close
-- 起票: 0 件
-- Net: **-1 件**（KPI 進捗 +1）
-
-### 「(仮) 報告入力」ページの最終状態（採用判断待ち）
-| 観点 | 状態 |
-|------|------|
-| 表示対象 | admin ロールのみ |
-| 保存処理 | dry-run（BQ 未呼出、`logger.info` のみ） |
-| 仕様ドキュメント | ページ内 expander に折り畳み（admin 自己完結） |
-| 採用時の再開手順 | ページ内 expander §5 に 6 ステップ明記 |
-| 不採用時の削除対象 | ページ内 expander §6 に明記 |
-
----
-
-> **2026-05-02 〜 2026-05-03 セッションの履歴は [archive/2026-05-history.md](archive/2026-05-history.md) へ移動済**（2026-05-17 アーカイブ実施）
-> 含む内容: PR #119 / #121-#124 / #126 / #127 / #128 / #131 / #132 / #133、GitHub Actions CI/CD 導入、グループ自動同期 ON/OFF、ADR-0004 効果測定、業務報告 日付ソート修正、=HYPERLINK() URL 取得対応、deploy test gate
-
----
-
 ## WAM助成金対応 全体状況
 
 ### 要件達成状況
@@ -486,22 +390,38 @@ Codex セカンドオピニオン取得済（4 MINOR / 1 NIT、BLOCKER なし）
 member_master由来のデータ（口座・住所・氏名・フリガナ）は**ダッシュボードUIに一切表示しない**。
 バックエンド処理（振込CSV、支払調書CSV等のファイル出力）でのみ利用。
 
-## 🔴 次セッションの開始点
+## 🔴 次セッションの開始点（A/B/C 分類 × 3 分割配置、2026-06-08 更新）
 
-1. **手動同期ボタン動作確認**（2026-05-17 PR #141 デプロイ後の検証）
-   - admin → 管理設定 → 手動同期セクションで 4 ボタン表示確認
-   - 「タダメンMマスタ」ボタンで影響最小の試行（数十秒）
-   - 「BigQuery テーブル情報」セクションで `member_master` の「最終更新」が JST 直近に更新確認
-2. **PR #143 反映確認** — 運用ドキュメントページの活動分類 rename 計画書、4.2 表に Playwright 行があり 4.3 セクションが消えている
-3. **「(仮) 報告入力」採用判断** — admin が試用後、本採用 / 改変 / 廃止を判断（前セッションから持ち越し）
-   - 本採用 → ページ内 expander §5「dry-run 解除の手順」(6 ステップ) で復活
-   - 廃止 → ページ内 expander §6「不採用時の削除対象」に従って削除
-4. **活動分類 rename 実行判断** — 影響分析完了済（2026-05-16）、新カラム名決定後に手順書 §5「実行フロー（3段階モデル）」に沿って実施
-5. **#94 残作業** — 課金アカウントへの billing.admin 権限取得 + 予算アラート設定（ユーザー側 GCP コンソール操作）
-6. **#58 外部ツール所在確認後** — 連携フォーマット決定 → CSV調整
-7. **#54 Phase 0 回答受領後** — wam_flag UPDATE → ドラフトラベル除去
+### 即着手タスク
+
+即着手タスクなし。executor 領分で「いま着手すべき」と判定できる項目は検出されず。
+
+### 条件待ち（明示 trigger 付き）
+
+| # | 項目 | A/B/C | trigger（充足条件） | 充足時のタスク |
+|---|------|-------|------------------|--------------|
+| 1 | **「(仮) 報告入力」採用判断** | C（起点 unclear） | decision-maker から「本採用 / 改変 / 廃止」の明示指示 | 本採用 → expander §5「dry-run 解除の手順」(6 ステップ) で復活 / 廃止 → expander §6「不採用時の削除対象」に従って削除 |
+| 2 | **#94 Cloud Run コスト監視（ADR-0004 効果測定）** | C（起点 unclear / 効果測定方針未定） | decision-maker から「コスト集計の対象期間 / 比較ベースライン / 閾値」の指示 | BQ billing export または `gcloud billing` でのコスト集計と ADR-0004 適用前後比較 |
+| 3 | **#58 支払調書作成ツールへの連携（Want）** | C（要件 unclear） | decision-maker から「連携先ツール名 / 連携仕様 / Phase」の指示 | 連携 I/F 設計 → impl-plan |
+| 4 | **#54 WAM Phase 0 ステークホルダー確認事項** | C（情報待ち・question） | decision-maker からステークホルダー回答結果共有 | 回答内容を `wam_target_projects.wam_flag` 等に反映 |
+| 5 | **活動分類 rename 実行判断** | C（起点 unclear） | decision-maker から新カラム名 + 実行可否の指示 | 手順書 §5「実行フロー（3段階モデル）」に沿って実施 |
+
+### 却下候補（記録のみ・包括指示の対象外）
+
+| # | 項目 | A/B/C | 着手しない理由 |
+|---|------|-------|--------------|
+| 1 | handoff/LATEST.md の整理・再構成（5/13-5/17 のさらなる archive 化等） | A（housekeeping） | 明示指示なき限り着手不可（4 原則 §1） |
+| 2 | ドキュメント横断 grep / 索引化 | A（housekeeping） | 同上 |
+| 3 | 既存テスト追加カバレッジ向上（452 テスト → さらに増やす） | C（起点 unclear） | AI 起点の C 案発想は 4 原則 §1 違反 |
+| 4 | リファクタ提案（dashboard 共通化 / `lib/doc_styles.py` の `ROLE_DEFINITIONS` を `auth.py` と統合する等） | C（起点 unclear） | 同上 |
+
+### Issue Net 変化（本セッション）
+
+- Close 数: 0 件
+- 起票数: 0 件
+- Net: 0 件（機能追加 PR 3 件分の価値追加、Issue 化を要する課題は発生せず）
 
 ---
 
-> テスト件数は `python3 -m pytest dashboard/tests/ -q && python3 -m pytest cloud-run/tests/ -q` で確認（**403件**、2026-05-17時点 / dashboard 333 + cloud-run 70）
+> テスト件数は `python3 -m pytest dashboard/tests/ -q && python3 -m pytest cloud-run/tests/ -q` で確認（**452件**、2026-06-08時点 / dashboard 352 + cloud-run 100）
 > 過去の変更履歴・ファイル構成・アーキテクチャ図・BQスキーマ・環境情報は CLAUDE.md および `docs/handoff/archive/` を参照
