@@ -7,24 +7,34 @@
 
 from __future__ import annotations
 
+from typing import Literal
+
 import streamlit as st
+
+# render_hero / render_section_header の color パラメータ
+# CSS で定義された値のみ受け付ける（未定義の値を渡すと既定値 (青) で描画される）
+HeroColor = Literal["blue", "green", "purple", "amber"]
+SectionColor = Literal["blue", "green", "purple", "amber", "red"]
 
 
 # ============================================================
 # 共通 CSS
 # ============================================================
-# - .doc-hero          : 各ページ冒頭のヒーロー（青系グラデーション）
-# - .doc-hero.green    : 業務系ページ用（運用ドキュメント）
-# - .doc-hero.purple   : 管理系ページ用（ユーザー管理）
-# - .sh / .sh-icon     : セクションヘッダー（アイコン + タイトル）
-# - .pg / .pc          : ページカードグリッド
-# - .role-cards / .rc  : ロール説明カード
-# - .badge             : ロール色付きバッジ
-# - .tip / .tip-warn   : ティップス / 注意ボックス
-# - .gg / .gi          : 用語集グリッド
-# - .ct                : カラム説明テーブル
-# - .status-pill       : 運用ドキュメントの status バッジ
-# - .tag-pill          : tags ピル
+# - .doc-hero            : 各ページ冒頭のヒーロー（既定は青系グラデーション）
+# - .doc-hero.green      : 業務系ページ用（運用ドキュメント）
+# - .doc-hero.purple     : 管理系ページ用（ユーザー管理）
+# - .doc-hero.amber      : amber バリアント（render_hero(color="amber") 対応）
+#                          ※ render_hero / .doc-hero 側に .doc-hero.red は未定義。
+#                            セクションヘッダ (.sh-icon) のみ red を許容
+# - .sh / .sh-icon       : セクションヘッダー（アイコン + タイトル、色は blue/green/purple/amber/red）
+# - .pg / .pc            : ページカードグリッド
+# - .role-cards / .rc    : ロール説明カード
+# - .badge               : ロール色付きバッジ
+# - .tip / .tip.info / .tip.warn : ティップス / 情報 / 警告ボックス
+# - .gg / .gi            : 用語集グリッド
+# - .ct                  : カラム説明テーブル
+# - .status-pill         : 運用ドキュメントの status バッジ
+# - .tag-pill            : tags ピル
 
 DOC_CSS = """
 <style>
@@ -531,17 +541,22 @@ def apply_doc_styles() -> None:
 # パーツヘルパー
 # ============================================================
 
-def render_hero(title: str, description: str, color: str = "blue") -> None:
+def render_hero(title: str, description: str, color: HeroColor = "blue") -> None:
     """ページ冒頭のヒーローセクションを描画する。
 
     Parameters
     ----------
     title : str
-        ヒーロー見出し。絵文字を含めて良い。
+        ヒーロー見出し。絵文字を含めて良い。**HTML エスケープしないため、
+        信頼できる文字列のみ渡すこと**（ユーザー入力を渡す場合は呼び出し側で
+        ``html.escape()`` する）。
     description : str
-        補足説明。<br> 等の HTML を含めて良い。
-    color : str
-        "blue" (default) / "green" / "purple" / "amber"
+        補足説明。``<br>`` 等の HTML を含めて良い。``title`` と同じく
+        **HTML エスケープしない**。
+    color : HeroColor
+        "blue" (default) / "green" / "purple" / "amber"。
+        これ以外の値（例: "red"）を渡すと CSS に対応クラスが無いため、
+        ベース色 (青) で描画される（silent fallback）。
     """
     cls = "doc-hero"
     if color and color != "blue":
@@ -557,8 +572,21 @@ def render_hero(title: str, description: str, color: str = "blue") -> None:
     )
 
 
-def render_section_header(title: str, icon: str = "📄", color: str = "blue") -> None:
-    """セクションヘッダー（アイコン + タイトル）を描画する。"""
+def render_section_header(
+    title: str, icon: str = "📄", color: SectionColor = "blue"
+) -> None:
+    """セクションヘッダー（アイコン + タイトル）を描画する。
+
+    Parameters
+    ----------
+    title : str
+        セクション見出し。**HTML エスケープしないため、信頼できる文字列のみ渡すこと**。
+    icon : str
+        アイコン絵文字。
+    color : SectionColor
+        "blue" / "green" / "purple" / "amber" / "red"。
+        対応する ``.sh-icon.<color>`` クラスが CSS に必要。
+    """
     st.markdown(
         f"""
 <div class="sh">
@@ -574,14 +602,16 @@ def render_section_header(title: str, icon: str = "📄", color: str = "blue") -
 # ロール権限定義（user_management / help / architecture で共有）
 # ============================================================
 # 実コードと一致させる:
-#   user     : ダッシュボード閲覧 / 報告入力(WIP) - 一般メンバー想定
+#   user     : ダッシュボード / 各種説明ページの閲覧（一般メンバー想定）
 #   viewer   : 同上（user と同等の閲覧専用扱い、historical 互換ロール）
 #   checker  : 上記 + 業務チェック管理 + WAM立替金確認
-#   admin    : 全機能（ユーザー管理 / 管理設定 / GAS管理 / 報告入力）
+#   admin    : 全機能（ユーザー管理 / 管理設定 / GAS管理 / (仮)報告入力）
 #
-# require_user() は user/viewer/checker/admin を許可
-# require_checker() は checker/admin を許可
-# require_admin() は admin のみを許可
+# require_user()    : user / viewer / checker / admin を許可 (dashboard/lib/auth.py)
+# require_checker() : checker / admin を許可 (dashboard/lib/auth.py)
+# require_admin()   : admin のみを許可 (dashboard/lib/auth.py)
+#
+# admin の cannot は意図的に空（全機能アクセス可能のため）
 
 ROLE_DEFINITIONS = [
     {

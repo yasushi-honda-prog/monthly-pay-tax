@@ -131,7 +131,12 @@ def render_doc_body(body: str) -> None:
 
 
 def _render_doc_meta(selected: DocEntry) -> None:
-    """ドキュメントヘッダのメタ情報（日付 / status バッジ / tags ピル）を描画"""
+    """ドキュメントヘッダのメタ情報（日付 / status バッジ / tags ピル）を描画。
+
+    ``status`` は ``active`` / ``draft`` / ``archived`` のいずれかを想定。
+    上記以外の値は ``active`` バッジにフォールバックする。新しい status を
+    追加する場合は `lib/doc_styles.py` の ``.status-pill.<name>`` も追加すること。
+    """
     status = (selected.status or "active").lower()
     status_cls = status if status in {"active", "draft", "archived"} else "active"
     parts = ['<div style="margin: 0.2rem 0 0.6rem 0;">']
