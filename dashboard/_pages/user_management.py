@@ -16,14 +16,41 @@ from lib.constants import (
     MEMBERS_TABLE,
     SYNC_GROUPS_TABLE,
 )
+from lib.doc_styles import (
+    apply_doc_styles,
+    render_hero,
+    render_section_header,
+    render_role_cards,
+)
 
 # --- 認証チェック ---
 email = st.session_state.get("user_email", "")
 role = st.session_state.get("user_role", "")
 require_admin(email, role)
 
-st.header("ユーザー管理")
-st.caption("ダッシュボードにアクセスできるユーザーを管理します")
+# --- 共通トンマナ CSS ---
+apply_doc_styles()
+
+# --- ヒーロー ---
+render_hero(
+    "👥 ユーザー管理",
+    "ダッシュボードにアクセスできるユーザーを管理します。<br>"
+    "ロール・グループ同期・個別追加削除をここから行えます。",
+    color="purple",
+)
+
+# --- ロール説明 ---
+render_section_header("ロールの種類と権限", icon="🎭", color="purple")
+st.caption(
+    "ロールはユーザーがダッシュボードで何を見れるか・操作できるかを決めます。"
+    "登録時は権限が最小の `user` から始めて、必要に応じて昇格させるのが推奨です。"
+)
+render_role_cards()
+st.caption(
+    "🔒 アイコン: 取り消し線は当該ロールが**利用できない**機能を示します。"
+    " `viewer` は歴史的経緯で残る互換ロールで、新規登録には `user` の利用を推奨します。"
+)
+st.divider()
 
 
 # --- ユーザー一覧取得 ---
@@ -319,8 +346,11 @@ def update_role(target_email: str, new_role: str):
 
 
 # --- グループ一括登録 ---
-st.subheader("グループ一括登録")
-st.caption("Googleグループを選択してメンバーを一括登録します")
+render_section_header("グループ一括登録", icon="👥", color="blue")
+st.caption(
+    "Googleグループを選択してメンバーを一括登録します。"
+    "登録したグループは下記「グループ自動同期」で毎朝バッチによる増減反映の対象になります。"
+)
 
 try:
     df_groups = load_groups_master()
@@ -385,7 +415,7 @@ else:
 st.divider()
 
 # --- グループ自動同期 ON/OFF ---
-st.subheader("グループ自動同期 ON/OFF")
+render_section_header("グループ自動同期 ON/OFF", icon="🔄", color="green")
 st.caption(
     "グループ一括登録したグループの自動同期（毎朝6時のバッチでメンバー増減を反映）を切り替えます。"
     " OFFにしてもユーザーアクセス権は維持されます（凍結）。アクセスを止めるには下の「登録ユーザー一覧」から個別削除してください。"
@@ -486,7 +516,11 @@ else:
 st.divider()
 
 # --- ユーザー追加フォーム ---
-st.subheader("個別ユーザー追加")
+render_section_header("個別ユーザー追加", icon="➕", color="blue")
+st.caption(
+    "グループ未所属の方や、グループ全体の権限と異なるロールを付与したい方を個別に追加します。"
+    " tadakayo.jp ドメインのメールアドレスのみ登録可能。"
+)
 with st.form("add_user_form"):
     col1, col2, col3 = st.columns([3, 1, 2])
     with col1:
@@ -512,7 +546,11 @@ with st.form("add_user_form"):
 
 
 # --- ユーザー一覧 ---
-st.subheader("登録ユーザー一覧")
+render_section_header("登録ユーザー一覧", icon="📋", color="amber")
+st.caption(
+    "現在ダッシュボードへアクセスできるユーザー一覧。表示名・ロール変更・削除が行えます。"
+    " 🔒 マークは初期管理者（ロール変更・削除不可）です。"
+)
 try:
     df_users = load_users()
 except Exception as e:
