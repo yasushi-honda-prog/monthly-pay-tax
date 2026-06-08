@@ -255,7 +255,7 @@ graph TD
     APP --> P3[アーキテクチャ<br/>全ロール]
     APP --> P8[運用ドキュメント<br/>全ロール]
     APP --> P4[ヘルプ<br/>全ロール]
-    APP --> P1B[(仮) 報告入力<br/>admin のみ]
+    APP --> P1B["(仮) 報告入力<br/>admin のみ"]
     APP --> P9[GAS管理<br/>admin のみ]
     APP --> P5[ユーザー管理<br/>admin のみ]
     APP --> P6[管理設定<br/>admin のみ]
@@ -289,7 +289,7 @@ graph TD
     BQ -->|未登録| DENY[アクセス拒否]
     BQ -->|user / viewer| VIEW[ダッシュボード<br/>+ アーキテクチャ<br/>+ 運用ドキュメント<br/>+ ヘルプ]
     BQ -->|checker| CHECK[上記 +<br/>業務チェック管理表<br/>+ WAM立替金確認 6タブ]
-    BQ -->|admin| ADMIN[上記 +<br/>ユーザー管理<br/>+ 管理設定<br/>+ GAS管理<br/>+ (仮)報告入力]
+    BQ -->|admin| ADMIN["上記 +<br/>ユーザー管理<br/>+ 管理設定<br/>+ GAS管理<br/>+ (仮)報告入力"]
     ADMIN -->|グループ一括登録| GRP[groups_master<br/>からメンバー取得]
     GRP -->|MERGE INSERT| BQ
     BQ -->|BQ障害時| FB{フォールバック}
