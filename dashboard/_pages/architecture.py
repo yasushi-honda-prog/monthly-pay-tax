@@ -2,15 +2,24 @@
 
 import streamlit as st
 
+from lib.doc_styles import apply_doc_styles, render_hero, render_section_header
 from lib.mermaid_renderer import render_mermaid
 
 
-st.header("アーキテクチャ")
-st.caption("システム構成・データフロー・スキーマの全体像")
+# --- 共通トンマナ CSS ---
+apply_doc_styles()
+
+# --- ヒーロー ---
+render_hero(
+    "🏗️ アーキテクチャ",
+    "システム構成・データフロー・BQスキーマ・認証フロー・<br>"
+    "セキュリティ設計までの全体像を Mermaid 図と表で解説します。",
+    color="blue",
+)
 
 
 # === 1. 全体構成図 ===
-st.subheader("1. 全体構成")
+render_section_header("1. 全体構成", icon="🌐", color="blue")
 st.markdown("""
 毎朝6時にCloud Schedulerがバッチを起動し、約190件のスプレッドシートからデータを収集してBigQueryに書き込みます。
 ダッシュボードはBQ VIEWs経由でデータを取得し、Streamlit OIDC（Google OAuth）でアクセス制御されています。
@@ -55,7 +64,7 @@ st.markdown("""
 
 
 # === 2. データフロー ===
-st.subheader("2. データフロー")
+render_section_header("2. データフロー", icon="🔁", color="blue")
 st.markdown("""
 管理表から190件のスプレッドシートURLを取得し、各シートから業務報告(gyomu)と補助報告(hojo)を収集します。
 メンバーマスタ(members)は管理表のA:K列から取得。立替金シートとタダメンMマスタも定期収集しています。
@@ -93,7 +102,7 @@ graph TD
 
 
 # === 3. BQスキーマ ER図 ===
-st.subheader("3. BQスキーマ")
+render_section_header("3. BQスキーマ", icon="🗄️", color="blue")
 st.markdown("""
 10テーブル + 4 VIEW。`source_url = report_url` でメンバー結合。`member_master`は口座・住所等のセンシティブデータを含む（UI非表示、CSV出力のみ）。
 """)
@@ -180,7 +189,7 @@ erDiagram
 
 
 # === 4. VIEW計算チェーン ===
-st.subheader("4. v_monthly_compensation 計算チェーン")
+render_section_header("4. v_monthly_compensation 計算チェーン", icon="🧮", color="amber")
 st.markdown("""
 月別報酬は6つのCTE（共通テーブル式）を経て最終的な支払額を算出します。
 源泉徴収は `-FLOOR(対象額 * 0.1021)` で計算。法人・寄付シートは源泉免除、士業は全額対象。
@@ -209,7 +218,7 @@ st.markdown("""
 """)
 
 # === 4.5 v_reimbursement_enriched ===
-st.subheader("4.5 v_reimbursement_enriched")
+render_section_header("4.5 v_reimbursement_enriched", icon="💸", color="amber")
 st.markdown("""
 立替金シート明細にメンバー情報とWAM対象PJ判定を結合するVIEW。WAM立替金確認ページのデータソース。
 """)
@@ -232,20 +241,22 @@ st.markdown("""
 
 
 # === 5. ダッシュボード ページ構成 ===
-st.subheader("5. ダッシュボード ページ構成")
+render_section_header("5. ダッシュボード ページ構成", icon="🧭", color="purple")
 st.markdown("""
 マルチページ構成（`st.navigation`）。ロールによってアクセスできるページが異なります。
-ロールは `user` / `checker` / `admin` の3段階です。
+ロールは `user` / `viewer` / `checker` / `admin` の4段階（viewer は user と同等の閲覧専用、歴史的互換ロール）。
 """)
 
 render_mermaid("""
 graph TD
     APP[pay-dashboard<br/>Streamlit App] --> P1[ダッシュボード 6タブ<br/>全ロール]
-    APP --> P1B[報告入力<br/>全ロール]
     APP --> P2[業務チェック<br/>checker / admin]
-    APP --> P3[アーキテクチャ<br/>全ロール]
-    APP --> P4[ヘルプ<br/>全ロール]
     APP --> P7[WAM立替金確認 6タブ<br/>checker / admin]
+    APP --> P3[アーキテクチャ<br/>全ロール]
+    APP --> P8[運用ドキュメント<br/>全ロール]
+    APP --> P4[ヘルプ<br/>全ロール]
+    APP --> P1B[(仮) 報告入力<br/>admin のみ]
+    APP --> P9[GAS管理<br/>admin のみ]
     APP --> P5[ユーザー管理<br/>admin のみ]
     APP --> P6[管理設定<br/>admin のみ]
 
@@ -262,11 +273,11 @@ graph TD
     P7 --> W4[月別報酬・振込確認]
     P7 --> W5[支払明細書]
     P7 --> W6[年間支払調書データ]
-""", height=700)
+""", height=780)
 
 
 # === 6. 認証フロー ===
-st.subheader("6. 認証フロー")
+render_section_header("6. 認証フロー", icon="🔐", color="purple")
 
 render_mermaid("""
 graph TD
@@ -276,9 +287,9 @@ graph TD
     GOOG -->|st.user.email| APP
     APP -->|email照合| BQ[(BQ dashboard_users)]
     BQ -->|未登録| DENY[アクセス拒否]
-    BQ -->|user| VIEW[ダッシュボード<br/>+ 報告入力<br/>+ アーキテクチャ<br/>+ ヘルプ]
+    BQ -->|user / viewer| VIEW[ダッシュボード<br/>+ アーキテクチャ<br/>+ 運用ドキュメント<br/>+ ヘルプ]
     BQ -->|checker| CHECK[上記 +<br/>業務チェック管理表<br/>+ WAM立替金確認 6タブ]
-    BQ -->|admin| ADMIN[上記 +<br/>ユーザー管理<br/>+ 管理設定]
+    BQ -->|admin| ADMIN[上記 +<br/>ユーザー管理<br/>+ 管理設定<br/>+ GAS管理<br/>+ (仮)報告入力]
     ADMIN -->|グループ一括登録| GRP[groups_master<br/>からメンバー取得]
     GRP -->|MERGE INSERT| BQ
     BQ -->|BQ障害時| FB{フォールバック}
@@ -288,25 +299,28 @@ graph TD
 
 
 # === 6.5 ロール権限マトリックス ===
-st.subheader("6.5 ロール権限マトリックス")
+render_section_header("6.5 ロール権限マトリックス", icon="🎭", color="purple")
 
 st.markdown("#### ページ × ロール アクセス可否")
 st.markdown("""
-| ページ / 機能 | user | checker | admin |
-|---|:---:|:---:|:---:|
-| ダッシュボード（6タブ：月別報酬／スポンサー別／業務報告一覧／WAM業務報告／グループ別／業務委託費分析） | ✅ | ✅ | ✅ |
-| 報告入力（業務報告・補助報告） | ✅ | ✅ | ✅ |
-| アーキテクチャ / ヘルプ | ✅ | ✅ | ✅ |
-| 業務チェック管理 | ❌ | ✅ | ✅ |
-| WAM立替金確認（6タブ） | ❌ | ✅ | ✅ |
-| ユーザー管理 | ❌ | ❌ | ✅ |
-| 管理設定 | ❌ | ❌ | ✅ |
+| ページ / 機能 | user | viewer | checker | admin |
+|---|:---:|:---:|:---:|:---:|
+| ダッシュボード（6タブ：月別報酬／スポンサー別／業務報告一覧／WAM業務報告／グループ別／業務委託費分析） | ✅ | ✅ | ✅ | ✅ |
+| アーキテクチャ / 運用ドキュメント / ヘルプ | ✅ | ✅ | ✅ | ✅ |
+| 業務チェック管理 | ❌ | ❌ | ✅ | ✅ |
+| WAM立替金確認（6タブ） | ❌ | ❌ | ✅ | ✅ |
+| (仮) 報告入力 | ❌ | ❌ | ❌ | ✅ |
+| GAS管理 | ❌ | ❌ | ❌ | ✅ |
+| ユーザー管理 | ❌ | ❌ | ❌ | ✅ |
+| 管理設定 | ❌ | ❌ | ❌ | ✅ |
+
+※ `viewer` は user と同等の閲覧専用ロール（歴史的互換）。新規登録は `user` を推奨。
 """)
 
 st.markdown("#### 機密情報 × ロール 露出マトリックス")
 st.caption("各画面・出力ファイルに含まれる個人情報・機密情報のロール別アクセス可否")
 st.markdown("""
-| 出力箇所 | 含む情報 | user | checker | admin |
+| 出力箇所 | 含む情報 | user / viewer | checker | admin |
 |---|---|:---:|:---:|:---:|
 | ダッシュボード6タブ | 集計値 / nickname / 金額 | ✅ | ✅ | ✅ |
 | 業務チェック管理 | 報告URL / チェックステータス / コメント | ❌ | ✅ | ✅ |
@@ -315,7 +329,7 @@ st.markdown("""
 | **WAM Tab5 支払明細書PDF** | **氏名** / 業務委託費・立替経費明細 | ❌ | ✅ | ✅ |
 | **WAM Tab6 年間支払調書CSV** | **氏名 / カナ氏名 / 住所 / 口座 / member_id** | ❌ | ✅ | ✅ |
 | ユーザー管理 | メールアドレス / ロール / source_group | ❌ | ❌ | ✅ |
-| 管理設定 | BQテーブル更新時刻 / システム設定 | ❌ | ❌ | ✅ |
+| 管理設定 | BQテーブル更新時刻 / 手動同期 / システム設定 | ❌ | ❌ | ✅ |
 | **member_master 直接閲覧** | **全口座・住所・カナ等** | (UI非表示) | (UI非表示) | (UI非表示・CSV出力経由のみ) |
 
 ※ 太字は個人情報を含む箇所。`member_master` テーブル自体は UI 非表示で、CSV/PDF 出力経由でのみ部分露出する設計。
@@ -323,15 +337,16 @@ st.markdown("""
 
 st.markdown("#### 設計方針")
 st.markdown("""
-- **checker は限定的な担当者ロール**として運用（業務チェック・WAM立替金確認の実務担当）
-- **admin** はユーザー管理・システム設定を持つ管理者ロール
+- **user / viewer** は閲覧専用の一般メンバー。viewer は歴史的経緯で残る互換ロールで、新規登録は user 推奨
+- **checker** は業務チェック・WAM立替金確認の実務担当ロール
+- **admin** はユーザー管理・システム設定・GAS管理・(仮)報告入力を含む管理者ロール
 - 個人情報（氏名・口座・住所）はすべて checker / admin に統一して可視化（一貫性重視）
-- ロール変更時はこのマトリックスを更新し、`dashboard/app.py` の `*_pages` 配列と整合させる
+- ロール変更時はこのマトリックスを更新し、`dashboard/app.py` の `*_pages` 配列および `lib/doc_styles.py` の `ROLE_DEFINITIONS` と整合させる
 """)
 
 
 # === 7. セキュリティアーキテクチャ ===
-st.subheader("7. セキュリティアーキテクチャ")
+render_section_header("7. セキュリティアーキテクチャ", icon="🛡️", color="red")
 st.markdown("""
 本システムのセキュリティは4つのレイヤーで構成されています。
 """)

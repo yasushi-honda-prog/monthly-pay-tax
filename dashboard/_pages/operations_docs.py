@@ -6,12 +6,14 @@
 
 from __future__ import annotations
 
+import html
 import re
 from dataclasses import dataclass
 from pathlib import Path
 
 import streamlit as st
 
+from lib.doc_styles import apply_doc_styles, render_hero
 from lib.mermaid_renderer import estimate_mermaid_height, render_mermaid
 
 def _resolve_docs_dir() -> Path:
@@ -128,9 +130,36 @@ def render_doc_body(body: str) -> None:
         st.markdown(tail, unsafe_allow_html=True)
 
 
+def _render_doc_meta(selected: DocEntry) -> None:
+    """ドキュメントヘッダのメタ情報（日付 / status バッジ / tags ピル）を描画"""
+    status = (selected.status or "active").lower()
+    status_cls = status if status in {"active", "draft", "archived"} else "active"
+    parts = ['<div style="margin: 0.2rem 0 0.6rem 0;">']
+    if selected.date:
+        parts.append(
+            f'<span class="doc-meta">📅 {html.escape(selected.date)}</span>'
+        )
+    parts.append(
+        f'<span class="status-pill {status_cls}">{html.escape(status.upper())}</span>'
+    )
+    parts.append("</div>")
+    if selected.tags:
+        parts.append('<div style="margin-bottom: 0.6rem;">')
+        for tag in selected.tags:
+            parts.append(f'<span class="tag-pill">#{html.escape(tag)}</span>')
+        parts.append("</div>")
+    st.markdown("".join(parts), unsafe_allow_html=True)
+
+
 def main() -> None:
-    st.header("運用ドキュメント")
-    st.caption("業務報告スプレッドシートの構造変更、運用判断記録などを格納")
+    apply_doc_styles()
+
+    render_hero(
+        "📔 運用ドキュメント",
+        "業務報告スプレッドシートの構造変更、運用判断記録、障害対応手順などを<br>"
+        "時系列で蓄積するページです。Mermaid 図は自動レンダリングされます。",
+        color="green",
+    )
 
     docs = list_docs()
     if not docs:
@@ -145,15 +174,15 @@ def main() -> None:
         "ドキュメントを選択",
         labels,
         index=0,
-        label_visibility="collapsed",
+        help="日付の新しい順に並んでいます。",
     )
     selected = docs[labels.index(selected_label)] if selected_label in labels else docs[0]
 
-    st.subheader(selected.title)
-    meta_bits = [f"作成日: {selected.date}" if selected.date else "", f"status: {selected.status}"]
-    if selected.tags:
-        meta_bits.append("tags: " + ", ".join(selected.tags))
-    st.caption(" / ".join(b for b in meta_bits if b))
+    st.markdown(
+        f'<h2 style="margin: 1rem 0 0.2rem 0; font-weight: 800;">{html.escape(selected.title)}</h2>',
+        unsafe_allow_html=True,
+    )
+    _render_doc_meta(selected)
     st.divider()
 
     render_doc_body(selected.body)
