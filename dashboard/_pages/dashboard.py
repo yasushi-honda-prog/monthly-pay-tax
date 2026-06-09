@@ -820,6 +820,46 @@ def _render_group_tab(
         st.info("グループに所属するメンバーが見つかりません。")
         return
 
+    # ===== 隊フィルタ（gyomuデータの activity_category から隊→メンバーを逆引き）=====
+    try:
+        df_tai_raw = load_gyomu_with_members()
+        tai_to_members: dict[str, set[str]] = {}
+        if not df_tai_raw.empty:
+            _tai_valid = set(_COST_COLOR_DOMAIN)
+            for _, _r in df_tai_raw[["nickname", "activity_category"]].dropna().iterrows():
+                _ac = str(_r["activity_category"]).strip()
+                if _ac in _tai_valid and _r["nickname"]:
+                    if _ac not in tai_to_members:
+                        tai_to_members[_ac] = set()
+                    tai_to_members[_ac].add(_r["nickname"])
+    except Exception:
+        tai_to_members = {}
+
+    available_tai = [t for t in _COST_COLOR_DOMAIN if t in tai_to_members]
+    all_tai_members_set = {m for ms in tai_to_members.values() for m in ms}
+
+    st.markdown('<div style="font-size:0.85rem;color:#888;margin-bottom:2px">隊でフィルタ（複数選択可）</div>', unsafe_allow_html=True)
+    sel_tai = st.multiselect(
+        "隊でフィルタ",
+        available_tai,
+        key="tai_multiselect",
+        placeholder="全隊（絞り込みなし）",
+        label_visibility="collapsed",
+    )
+
+    if sel_tai:
+        _tai_pool: set[str] | None = {m for t in sel_tai for m in tai_to_members.get(t, set())}
+        _tai_label = "・".join(sel_tai) if len(sel_tai) <= 2 else f"{len(sel_tai)} 隊選択"
+    else:
+        _tai_pool = None
+        _tai_label = "全隊"
+    _tai_count = len(_tai_pool) if _tai_pool is not None else len(all_tai_members_set)
+    st.markdown(
+        f'<div class="count-badge">{_tai_label} &nbsp;|&nbsp; {_tai_count} 名</div>',
+        unsafe_allow_html=True,
+    )
+
+    # ===== グループフィルタ =====
     col_grp, col_spacer = st.columns([1, 3])
     with col_grp:
         selected_group = st.selectbox(
@@ -834,6 +874,9 @@ def _render_group_tab(
         group_members = all_group_members
     else:
         group_members = group_to_members.get(selected_group, [])
+    # 隊フィルタを適用
+    if _tai_pool is not None:
+        group_members = [m for m in group_members if m in _tai_pool]
     # サイドバーのメンバーフィルターも適用
     if selected_members:
         group_members = [m for m in group_members if m in selected_members]
@@ -1015,7 +1058,7 @@ tab1, tab2, tab3, tab_wam, tab4, tab5 = st.tabs([
     "スポンサー別業務委託費",
     "業務報告一覧",
     "WAM業務報告",
-    "グループ別",
+    "グループ / 隊別",
     "業務委託費分析",
 ])
 
