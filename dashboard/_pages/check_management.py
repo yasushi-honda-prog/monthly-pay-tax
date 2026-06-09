@@ -364,8 +364,16 @@ if selected_members:
 _total_filtered = len(filtered)
 filtered_display = filtered
 
-# フレーム高さセレクタ（表示行数の目安）
-_height_opts = {"25行分": 870, "50行分": 1720, "100行分": 3420, "自動（全行）": None}
+# フレーム高さセレクタ
+# "全行（スクロール不要）"は行数に応じて動的に計算
+_HEIGHT_SENTINEL = "FULL"
+_height_opts = {
+    "自動": None,
+    "25行分": 870,
+    "50行分": 1720,
+    "100行分": 3420,
+    "全行（スクロール不要）": _HEIGHT_SENTINEL,
+}
 _col_cnt, _col_ht, _col_sp = st.columns([2, 2, 3])
 with _col_cnt:
     st.markdown(f'<div class="count-badge">{_total_filtered} 件</div>', unsafe_allow_html=True)
@@ -377,7 +385,9 @@ with _col_ht:
         key="chk_frame_height",
         label_visibility="collapsed",
     )
-_editor_height = _height_opts[_ht_label]
+_raw_height = _height_opts[_ht_label]
+# 全行表示：1行≈35px + ヘッダー50px
+_editor_height = (_total_filtered * 35 + 50) if _raw_height == _HEIGHT_SENTINEL else _raw_height
 
 
 # --- 一覧テーブル（直接編集） ---
