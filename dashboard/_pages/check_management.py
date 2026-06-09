@@ -33,9 +33,20 @@ st.caption("メンバーの補助＆立替報告を確認・管理します")
 CHECK_STATUSES = ["未確認", "確認中", "確認完了", "差戻し"]
 STATUS_DISPLAY = {
     "未確認": "⬜ 未確認", "確認中": "🔵 確認中",
-    "確認完了": "✅ 確認完了", "差戻し": "🔴 差戻し",
+    "確認完了": "✅ 確認完了", "差戻し": "🔶 個別確認",
 }
 DISPLAY_TO_STATUS = {v: k for k, v in STATUS_DISPLAY.items()}
+
+
+def _derive_status(check1: bool, check2: bool, indiv: bool) -> str:
+    """チェックボックス3値からステータスを導出"""
+    if indiv:
+        return "差戻し"
+    if check2:
+        return "確認完了"
+    if check1:
+        return "確認中"
+    return "未確認"
 
 
 def _is_complete(val) -> bool:
@@ -50,9 +61,12 @@ with st.sidebar:
     )
 
     st.markdown('<div class="sidebar-section-title">フィルタ</div>', unsafe_allow_html=True)
-    status_filter = st.selectbox(
-        "ステータス", ["すべて"] + CHECK_STATUSES, key="chk_filter",
+    # 表示名→内部値マップ（「差戻し」を「個別確認」として表示）
+    _filter_opts = {"すべて": "すべて"} | {STATUS_DISPLAY[s]: s for s in CHECK_STATUSES}
+    _filter_display = st.selectbox(
+        "ステータス", list(_filter_opts.keys()), key="chk_filter",
     )
+    status_filter = _filter_opts[_filter_display]
 
 
 # --- データ読み込み ---
@@ -245,7 +259,7 @@ with k1:
 with k2:
     render_kpi("確認中", str(counts.get("確認中", 0)))
 with k3:
-    render_kpi("差戻し", str(counts.get("差戻し", 0)))
+    render_kpi("個別確認", str(counts.get("差戻し", 0)))
 with k4:
     render_kpi("未確認", str(counts.get("未確認", 0)))
 with k5:
@@ -313,7 +327,9 @@ edit_df = pd.DataFrame({
     "当月入力完了": filtered["monthly_complete"].apply(lambda x: "○" if _is_complete(x) else "").values,
     "DX領収書": filtered["dx_receipt"].fillna("").values,
     "立替領収書": filtered["expense_receipt"].fillna("").values,
-    "ステータス": filtered["check_status"].map(STATUS_DISPLAY).values,
+    "第一弾確認": filtered["check_status"].apply(lambda s: s in ["確認中", "確認完了"]).values,
+    "第二弾確認": filtered["check_status"].apply(lambda s: s == "確認完了").values,
+    "個別確認": filtered["check_status"].apply(lambda s: s == "差戻し").values,
     "メモ": filtered["memo"].fillna("").values,
 })
 
@@ -321,9 +337,9 @@ edited_df = st.data_editor(
     edit_df,
     column_config={
         "URL": st.column_config.LinkColumn(display_text="開く"),
-        "ステータス": st.column_config.SelectboxColumn(
-            options=list(STATUS_DISPLAY.values()), required=True,
-        ),
+        "第一弾確認": st.column_config.CheckboxColumn("第一弾確認", help="第一弾確認者がチェック"),
+        "第二弾確認": st.column_config.CheckboxColumn("第二弾確認", help="第二弾確認者がチェック"),
+        "個別確認": st.column_config.CheckboxColumn("個別確認", help="個別確認が必要な場合にチェック"),
         "メモ": st.column_config.TextColumn(max_chars=1000),
         "時間": st.column_config.NumberColumn(format="%.1f"),
         "報酬": st.column_config.NumberColumn(format="¥%d"),
@@ -341,17 +357,23 @@ edited_df = st.data_editor(
 indices = filtered.index.tolist()
 changes = []
 for i in range(len(edit_df)):
-    orig_display = edit_df.iloc[i]["ステータス"]
+    orig_status = _derive_status(
+        bool(edit_df.iloc[i]["第一弾確認"]),
+        bool(edit_df.iloc[i]["第二弾確認"]),
+        bool(edit_df.iloc[i]["個別確認"]),
+    )
     orig_memo = edit_df.iloc[i]["メモ"]
-    new_display = edited_df.iloc[i]["ステータス"]
+    new_status = _derive_status(
+        bool(edited_df.iloc[i]["第一弾確認"]),
+        bool(edited_df.iloc[i]["第二弾確認"]),
+        bool(edited_df.iloc[i]["個別確認"]),
+    )
     new_memo = edited_df.iloc[i]["メモ"]
-    orig_status = DISPLAY_TO_STATUS.get(orig_display, orig_display)
-    new_status = DISPLAY_TO_STATUS.get(new_display, new_display)
 
     if new_status != orig_status or new_memo != orig_memo:
         actions = []
         if new_status != orig_status:
-            actions.append(f"ステータス: {orig_status} → {new_status}")
+            actions.append(f"ステータス: {STATUS_DISPLAY[orig_status]} → {STATUS_DISPLAY[new_status]}")
         if new_memo != orig_memo:
             actions.append("メモ更新")
         changes.append((indices[i], new_status, new_memo, actions))
