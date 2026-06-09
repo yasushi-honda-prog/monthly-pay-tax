@@ -506,25 +506,8 @@ with st.sidebar:
             for m in display_members:
                 st.session_state[f"sb_{m}"] = False
 
-    # 表示人数セレクタ
-    _sb_height_map = {"全表示": None, "25名": 725, "50名": 1450, "100名": 2900}
-    _sb_height_label = st.selectbox(
-        "表示人数",
-        list(_sb_height_map.keys()),
-        index=0,
-        key="sb_height",
-        label_visibility="collapsed",
-    )
-    _sb_container_height = _sb_height_map[_sb_height_label]
-
     selected_members = []
-    if _sb_container_height:
-        with st.container(height=_sb_container_height):
-            for m in display_members:
-                label = name_map.get(m, m)
-                if st.checkbox(label, key=f"sb_{m}"):
-                    selected_members.append(m)
-    else:
+    with st.container(height=460):
         for m in display_members:
             label = name_map.get(m, m)
             if st.checkbox(label, key=f"sb_{m}"):
