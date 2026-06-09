@@ -362,29 +362,22 @@ if selected_members:
     filtered = filtered[filtered["nickname"].isin(selected_members)]
 
 _total_filtered = len(filtered)
+filtered_display = filtered
 
-# 表示件数セレクタ
-_page_opts = {"全表示": None, "25件": 25, "50件": 50, "100件": 100}
-_col_cnt, _col_sp = st.columns([1, 4])
+# フレーム高さセレクタ（表示行数の目安）
+_height_opts = {"25行分": 870, "50行分": 1720, "100行分": 3420, "自動（全行）": None}
+_col_cnt, _col_ht, _col_sp = st.columns([2, 2, 3])
 with _col_cnt:
-    _page_label = st.selectbox(
-        "表示件数",
-        list(_page_opts.keys()),
+    st.markdown(f'<div class="count-badge">{_total_filtered} 件</div>', unsafe_allow_html=True)
+with _col_ht:
+    _ht_label = st.selectbox(
+        "表示行数",
+        list(_height_opts.keys()),
         index=0,
-        key="chk_page_size",
+        key="chk_frame_height",
         label_visibility="collapsed",
     )
-_page_size = _page_opts[_page_label]
-
-if _page_size and _total_filtered > _page_size:
-    filtered_display = filtered.iloc[:_page_size]
-    st.markdown(
-        f'<div class="count-badge">{_total_filtered} 件中 {_page_size} 件を表示</div>',
-        unsafe_allow_html=True,
-    )
-else:
-    filtered_display = filtered
-    st.markdown(f'<div class="count-badge">{_total_filtered} 件</div>', unsafe_allow_html=True)
+_editor_height = _height_opts[_ht_label]
 
 
 # --- 一覧テーブル（直接編集） ---
@@ -427,6 +420,7 @@ edited_df = st.data_editor(
     use_container_width=True,
     hide_index=True,
     key="check_editor",
+    **({"height": _editor_height} if _editor_height else {}),
 )
 
 # 変更検出 & 一括保存
