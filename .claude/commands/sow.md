@@ -48,8 +48,8 @@ git diff HEAD~$(git log --oneline --since="$(date +%Y-%m-%d) 00:00" | wc -l) HEA
 対象システム：pay-dashboard（Cloud Run / Streamlit）
 報告日：YYYY年M月D日
 作業期間：YYYY年M月D日（曜日）
-作成：Claude Code（AI開発支援）　初期開発：本田康志（ヤスス）
-作業者：しっかり法人を経営し隊／すごいシステムつくり隊　近藤ゆり（ゆり）
+作成：Claude Code（AI開発支援）　設計・開発：本田康志（ヤスス）
+作業者（フロントエンド）：しっかり法人を経営し隊／すごいシステムつくり隊　近藤ゆり（ゆり）
 サービスURL：https://pay-dashboard-209715990891.asia-northeast1.run.app
 
 ---
