@@ -1378,7 +1378,7 @@ with tab2:
         with k3:
             render_kpi("メンバー数", f"{filtered_g['nickname'].nunique()}")
 
-        stab1, stab2 = st.tabs(["メンバー別 月次金額", "活動分類別 金額"])
+        stab1, stab2 = st.tabs(["メンバー別 月次金額", "活動分類 / 隊別 金額"])
 
         with stab1:
             st.subheader("メンバー別 月次金額")
@@ -1421,7 +1421,8 @@ with tab2:
                 )
 
         with stab2:
-            st.subheader("活動分類別 金額")
+            st.subheader("活動分類 / 隊別 金額")
+            st.caption("※ 2026年5月以降は隊名、4月以前は活動分類名で表示されます")
             cat_summary = (
                 filtered_g.groupby("activity_category")["amount_num"]
                 .sum()
@@ -1430,9 +1431,9 @@ with tab2:
             cat_summary = cat_summary[cat_summary > 0]
             if not cat_summary.empty:
                 cat_df = cat_summary.reset_index()
-                cat_df.columns = ["活動分類", "金額"]
+                cat_df.columns = ["活動分類 / 隊", "金額"]
                 chart = alt.Chart(cat_df).mark_bar().encode(
-                    x=alt.X("活動分類:N", sort="-y"),
+                    x=alt.X("活動分類 / 隊:N", sort="-y"),
                     y=alt.Y("金額:Q", axis=alt.Axis(format=",.0f"), stack=False),
                 )
                 st.altair_chart(chart, use_container_width=True)
