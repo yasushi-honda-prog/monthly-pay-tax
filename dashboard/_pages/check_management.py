@@ -257,6 +257,37 @@ completed = counts.get("確認完了", 0)
 progress_val = completed / total if total > 0 else 0
 st.progress(progress_val, text=f"チェック進捗: {completed}/{total} 件完了")
 
+# --- 未締め確認（金額あり・当月入力完了チェックなし）---
+_mishinme = df[
+    (df["total_amount_num"] > 0) &
+    (~df["monthly_complete"].apply(_is_complete))
+].copy()
+if not _mishinme.empty:
+    with st.expander(
+        f"⚠️ 未締め確認（補助＆立替シートに金額あり・当月入力未完了）　{len(_mishinme)} 名",
+        expanded=True,
+    ):
+        st.caption(
+            "補助＆立替シートに金額が入力されているにも関わらず、"
+            "「当月入力完了」チェックボックスがオフのメンバーです。"
+        )
+        _mishinme_display = _mishinme[["nickname", "full_name", "report_url", "total_amount_num",
+                                       "compensation_num", "dx_subsidy_num", "reimbursement_num"]].rename(columns={
+            "nickname": "メンバー",
+            "full_name": "本名",
+            "report_url": "URL",
+            "total_amount_num": "総額",
+            "compensation_num": "報酬",
+            "dx_subsidy_num": "DX補助",
+            "reimbursement_num": "立替",
+        })
+        st.dataframe(
+            _mishinme_display.style.format({c: "¥{:,.0f}" for c in ["総額", "報酬", "DX補助", "立替"]}),
+            column_config={"URL": st.column_config.LinkColumn(display_text="開く")},
+            hide_index=True,
+            use_container_width=True,
+        )
+
 filtered = df.copy()
 if status_filter != "すべて":
     filtered = filtered[filtered["check_status"] == status_filter]
