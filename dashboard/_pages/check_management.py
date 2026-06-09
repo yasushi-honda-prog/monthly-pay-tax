@@ -318,6 +318,41 @@ if not _mishinme.empty:
             use_container_width=True,
         )
 
+# --- エラー値検出（#REF! / #VALUE! 等）---
+_err_cols = {
+    "hours": "時間", "compensation": "報酬",
+    "dx_subsidy": "DX補助", "reimbursement": "立替", "total_amount": "合計金額",
+}
+_err_rows = []
+for _, row in df.iterrows():
+    for col, label in _err_cols.items():
+        val = str(row.get(col, "") or "").strip()
+        if val.startswith("#"):
+            _err_rows.append({
+                "メンバー": row["nickname"],
+                "本名": row.get("full_name", ""),
+                "URL": row.get("report_url", ""),
+                "項目": label,
+                "エラー値": val,
+            })
+
+if _err_rows:
+    _err_df = pd.DataFrame(_err_rows)
+    with st.expander(
+        f"🔴 データエラー検出（#REF! / #VALUE! 等）　{_err_df['メンバー'].nunique()} 名",
+        expanded=True,
+    ):
+        st.caption(
+            "補助＆立替シートの金額欄にエラー値（#REF!、#VALUE! 等）が含まれているメンバーです。"
+            "シートの数式を確認してください。"
+        )
+        st.dataframe(
+            _err_df,
+            column_config={"URL": st.column_config.LinkColumn(display_text="開く")},
+            hide_index=True,
+            use_container_width=True,
+        )
+
 filtered = df.copy()
 if status_filter != "すべて":
     filtered = filtered[filtered["check_status"] == status_filter]
