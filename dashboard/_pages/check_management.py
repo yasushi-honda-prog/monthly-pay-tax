@@ -368,11 +368,11 @@ filtered_display = filtered
 # "全行（スクロール不要）"は行数に応じて動的に計算
 _HEIGHT_SENTINEL = "FULL"
 _height_opts = {
-    "自動": None,
-    "25行分": 870,
-    "50行分": 1720,
-    "100行分": 3420,
-    "全行（スクロール不要）": _HEIGHT_SENTINEL,
+    "自動（1ページの表示件数）": None,
+    "25件": 870,
+    "50件": 1720,
+    "100件": 3420,
+    "全件（スクロール不要）": _HEIGHT_SENTINEL,
 }
 _col_cnt, _col_ht, _col_sp = st.columns([2, 2, 3])
 with _col_cnt:
