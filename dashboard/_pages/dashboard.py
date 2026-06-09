@@ -1799,7 +1799,22 @@ with tab5:
                                 legend=alt.Legend(orient="right", labelFontSize=10, symbolLimit=0)),
                             tooltip=["年月:O", "メンバー:N", alt.Tooltip("金額:Q", format=",.0f")],
                         ).properties(height=_drill_height)
-                        st.altair_chart(_drill_chart, use_container_width=True)
+                        # 月合計ラベルをグラフ上部に表示
+                        _drill_totals = _filt_agg.groupby("年月")["金額"].sum().reset_index()
+                        _drill_totals.columns = ["年月", "合計"]
+                        _drill_totals["label"] = _drill_totals["合計"].apply(lambda x: f"¥{x:,.0f}")
+                        _drill_label = alt.Chart(_drill_totals).mark_text(dy=-8, fontSize=11, color="#888").encode(
+                            x=alt.X("年月:O", sort=_cost_ym_order),
+                            y=alt.Y("合計:Q", stack=False),
+                            text=alt.Text("label:N"),
+                        )
+                        _show_drill_labels = len(_drill_totals) <= 12
+                        _drill_combined = (
+                            (_drill_chart + _drill_label).resolve_scale(color="shared")
+                            if _show_drill_labels
+                            else _drill_chart
+                        )
+                        st.altair_chart(_drill_combined, use_container_width=True)
                         # メンバー別合計
                         _member_total = (
                             _filt_df.groupby("display_name")["amount_num"]
