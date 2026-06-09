@@ -249,27 +249,45 @@ with st.sidebar:
         st.caption(f"{count} / {total_members} 名を選択中")
 
 
+# --- チェック対象の特定（金額あり OR エラー値あり）---
+# エラー値を持つメンバーのセット
+_err_check_cols = ["hours", "compensation", "dx_subsidy", "reimbursement", "total_amount"]
+_has_error_nick = set()
+for _, _row in df.iterrows():
+    for _col in _err_check_cols:
+        if str(_row.get(_col, "") or "").strip().startswith("#"):
+            _has_error_nick.add(_row["nickname"])
+            break
+
+# チェック対象 = 金額あり OR エラー値あり
+_check_target = df[
+    (df["total_amount_num"] > 0) |
+    (df["nickname"].isin(_has_error_nick))
+]
+target_total = len(_check_target)
+target_counts = _check_target["check_status"].value_counts()
+
 # --- KPIカード ---
 total = len(df)
 counts = df["check_status"].value_counts()
 
 k1, k2, k3, k4, k5 = st.columns(5)
 with k1:
-    render_kpi("確認完了", f"{counts.get('確認完了', 0)} / {total}")
+    render_kpi("確認完了", f"{target_counts.get('確認完了', 0)} / {target_total}")
 with k2:
-    render_kpi("確認中", str(counts.get("確認中", 0)))
+    render_kpi("確認中", str(target_counts.get("確認中", 0)))
 with k3:
-    render_kpi("個別確認", str(counts.get("差戻し", 0)))
+    render_kpi("個別確認", str(target_counts.get("差戻し", 0)))
 with k4:
-    render_kpi("未確認", str(counts.get("未確認", 0)))
+    render_kpi("未確認", str(target_counts.get("未確認", 0)))
 with k5:
     mc_done = df["monthly_complete"].apply(_is_complete).sum()
     render_kpi("当月入力完了", f"{mc_done} / {total}")
 
 # --- 進捗バー ---
-completed = counts.get("確認完了", 0)
-progress_val = completed / total if total > 0 else 0
-st.progress(progress_val, text=f"チェック進捗: {completed}/{total} 件完了")
+completed = target_counts.get("確認完了", 0)
+progress_val = completed / target_total if target_total > 0 else 0
+st.progress(progress_val, text=f"チェック進捗: {completed}/{target_total} 件完了（チェック対象のみ）")
 
 # --- 未締め確認（金額あり・当月入力完了チェックなし）---
 _mishinme = df[
@@ -279,7 +297,7 @@ _mishinme = df[
 if not _mishinme.empty:
     with st.expander(
         f"⚠️ 未締め確認（補助＆立替シートに金額あり・当月入力未完了）　{len(_mishinme)} 名",
-        expanded=True,
+        expanded=False,
     ):
         st.caption(
             "補助＆立替シートに金額が入力されているにも関わらず、"
