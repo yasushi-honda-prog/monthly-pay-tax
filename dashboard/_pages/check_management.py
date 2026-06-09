@@ -362,10 +362,30 @@ if selected_members:
     filtered = filtered[filtered["nickname"].isin(selected_members)]
 
 _total_filtered = len(filtered)
-filtered_display = filtered
+
+# チェック対象 / 全員 フィルタ
+_col_scope, _col_cnt, _col_ht, _col_sp = st.columns([2, 2, 2, 1])
+with _col_scope:
+    _scope_label = st.selectbox(
+        "表示対象",
+        ["全員（¥0含む）", "チェック対象のみ"],
+        index=0,
+        key="chk_scope",
+        label_visibility="collapsed",
+    )
+
+if _scope_label == "チェック対象のみ":
+    filtered_display = filtered[
+        (filtered["total_amount_num"] > 0) |
+        (filtered["nickname"].isin(_has_error_nick))
+    ]
+else:
+    filtered_display = filtered
+
+with _col_cnt:
+    st.markdown(f'<div class="count-badge">{len(filtered_display)} 件</div>', unsafe_allow_html=True)
 
 # フレーム高さセレクタ
-# "全行（スクロール不要）"は行数に応じて動的に計算
 _HEIGHT_SENTINEL = "FULL"
 _height_opts = {
     "自動（1ページの表示件数）": None,
@@ -374,9 +394,6 @@ _height_opts = {
     "100件": 3420,
     "全件（スクロール不要）": _HEIGHT_SENTINEL,
 }
-_col_cnt, _col_ht, _col_sp = st.columns([2, 2, 3])
-with _col_cnt:
-    st.markdown(f'<div class="count-badge">{_total_filtered} 件</div>', unsafe_allow_html=True)
 with _col_ht:
     _ht_label = st.selectbox(
         "表示行数",
@@ -386,8 +403,8 @@ with _col_ht:
         label_visibility="collapsed",
     )
 _raw_height = _height_opts[_ht_label]
-# 全行表示：1行≈35px + ヘッダー50px
-_editor_height = (_total_filtered * 35 + 50) if _raw_height == _HEIGHT_SENTINEL else _raw_height
+# 全件（スクロール不要）：表示対象の行数×35px + ヘッダー50px
+_editor_height = (len(filtered_display) * 35 + 50) if _raw_height == _HEIGHT_SENTINEL else _raw_height
 
 
 # --- 一覧テーブル（直接編集） ---
