@@ -235,24 +235,8 @@ with st.sidebar:
             for m in display_members:
                 st.session_state[f"chk_{m}"] = False
 
-    # 表示人数セレクタ
-    _height_map = {"全表示": None, "25名": 725, "50名": 1450, "100名": 2900}
-    _height_label = st.selectbox(
-        "表示人数",
-        list(_height_map.keys()),
-        index=0,
-        key="chk_height",
-        label_visibility="collapsed",
-    )
-    _container_height = _height_map[_height_label]
-
     selected_members = []
-    if _container_height:
-        with st.container(height=_container_height):
-            for m in display_members:
-                if st.checkbox(nick_to_label.get(m, m), key=f"chk_{m}"):
-                    selected_members.append(m)
-    else:
+    with st.container(height=250):
         for m in display_members:
             if st.checkbox(nick_to_label.get(m, m), key=f"chk_{m}"):
                 selected_members.append(m)
@@ -359,7 +343,30 @@ if status_filter != "すべて":
 if selected_members:
     filtered = filtered[filtered["nickname"].isin(selected_members)]
 
-st.markdown(f'<div class="count-badge">{len(filtered)} 件</div>', unsafe_allow_html=True)
+_total_filtered = len(filtered)
+
+# 表示件数セレクタ
+_page_opts = {"全表示": None, "25件": 25, "50件": 50, "100件": 100}
+_col_cnt, _col_sp = st.columns([1, 4])
+with _col_cnt:
+    _page_label = st.selectbox(
+        "表示件数",
+        list(_page_opts.keys()),
+        index=0,
+        key="chk_page_size",
+        label_visibility="collapsed",
+    )
+_page_size = _page_opts[_page_label]
+
+if _page_size and _total_filtered > _page_size:
+    filtered_display = filtered.iloc[:_page_size]
+    st.markdown(
+        f'<div class="count-badge">{_total_filtered} 件中 {_page_size} 件を表示</div>',
+        unsafe_allow_html=True,
+    )
+else:
+    filtered_display = filtered
+    st.markdown(f'<div class="count-badge">{_total_filtered} 件</div>', unsafe_allow_html=True)
 
 
 # --- 一覧テーブル（直接編集） ---
@@ -368,20 +375,20 @@ if filtered.empty:
     st.stop()
 
 edit_df = pd.DataFrame({
-    "名前": filtered["nickname"].values,
-    "URL": filtered["report_url"].values,
-    "時間": filtered["hours_num"].values,
-    "報酬": filtered["compensation_num"].values,
-    "DX補助": filtered["dx_subsidy_num"].values,
-    "立替": filtered["reimbursement_num"].values,
-    "総額": filtered["total_amount_num"].values,
-    "当月入力完了": filtered["monthly_complete"].apply(lambda x: "○" if _is_complete(x) else "").values,
-    "DX領収書": filtered["dx_receipt"].fillna("").values,
-    "立替領収書": filtered["expense_receipt"].fillna("").values,
-    "第一弾確認": filtered["check_status"].apply(lambda s: s in ["確認中", "確認完了"]).values,
-    "第二弾確認": filtered["check_status"].apply(lambda s: s == "確認完了").values,
-    "個別確認": filtered["check_status"].apply(lambda s: s == "差戻し").values,
-    "メモ": filtered["memo"].fillna("").values,
+    "名前": filtered_display["nickname"].values,
+    "URL": filtered_display["report_url"].values,
+    "時間": filtered_display["hours_num"].values,
+    "報酬": filtered_display["compensation_num"].values,
+    "DX補助": filtered_display["dx_subsidy_num"].values,
+    "立替": filtered_display["reimbursement_num"].values,
+    "総額": filtered_display["total_amount_num"].values,
+    "当月入力完了": filtered_display["monthly_complete"].apply(lambda x: "○" if _is_complete(x) else "").values,
+    "DX領収書": filtered_display["dx_receipt"].fillna("").values,
+    "立替領収書": filtered_display["expense_receipt"].fillna("").values,
+    "第一弾確認": filtered_display["check_status"].apply(lambda s: s in ["確認中", "確認完了"]).values,
+    "第二弾確認": filtered_display["check_status"].apply(lambda s: s == "確認完了").values,
+    "個別確認": filtered_display["check_status"].apply(lambda s: s == "差戻し").values,
+    "メモ": filtered_display["memo"].fillna("").values,
 })
 
 edited_df = st.data_editor(
@@ -405,7 +412,7 @@ edited_df = st.data_editor(
 )
 
 # 変更検出 & 一括保存
-indices = filtered.index.tolist()
+indices = filtered_display.index.tolist()
 changes = []
 for i in range(len(edit_df)):
     orig_status = _derive_status(
@@ -432,7 +439,7 @@ for i in range(len(edit_df)):
 if changes:
     saved = 0
     for idx, new_status, new_memo, actions in changes:
-        member = filtered.loc[idx]
+        member = filtered_display.loc[idx]
         try:
             save_check(
                 member["report_url"], selected_year, selected_month,
