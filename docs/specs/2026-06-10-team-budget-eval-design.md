@@ -264,21 +264,33 @@ FULL OUTER JOIN budgets_latest b
 def compute_actual_data_hash(client, year: int, month: int, team: str) -> str:
     query = """
     WITH rows AS (
-      SELECT TO_HEX(SHA256(TO_JSON_STRING(STRUCT(
-        g.activity_category, g.date, g.source_url, g.work_category, g.sponsor,
-        g.description, g.unit_price, g.hours, g.amount
-      )))) AS row_hash
+      SELECT
+        TO_JSON_STRING(STRUCT(
+          g.activity_category, g.date, g.source_url, g.work_category, g.sponsor,
+          g.description, g.unit_price, g.hours, g.amount
+        )) AS row_json,
+        TO_HEX(SHA256(TO_JSON_STRING(STRUCT(
+          g.activity_category, g.date, g.source_url, g.work_category, g.sponsor,
+          g.description, g.unit_price, g.hours, g.amount
+        )))) AS row_hash
       FROM `monthly-pay-tax.pay_reports.gyomu_reports` g
       WHERE SAFE_CAST(g.year AS INT64) = @year
         AND pay_reports.extract_month(g.date) = @month
         AND g.activity_category = @team
     )
-    SELECT IFNULL(TO_HEX(SHA256(STRING_AGG(row_hash, '' ORDER BY row_hash))), '') AS data_hash
+    SELECT IFNULL(
+      TO_HEX(SHA256(STRING_AGG(row_hash, '' ORDER BY row_hash, row_json))),
+      ''
+    ) AS data_hash
     FROM rows
     """
 ```
 
-各行を canonical 化（`TO_JSON_STRING(STRUCT(...))` + SHA256）→ ORDER BY 集約 → さらに SHA256 → TO_HEX で保存。行の追加/削除/編集を検知できる。
+各行を canonical 化（`TO_JSON_STRING(STRUCT(...))` + SHA256）→ `ORDER BY row_hash, row_json` で集約 → さらに SHA256 → TO_HEX で保存。
+
+> **PR-C 改訂 (2026-06-10)**: 9 列全てが同値の重複行が存在すると `row_hash` 単独 ORDER BY では順序不定になり hash が揺らぐ。tie-breaker として `row_json` を追加。PR-D の dashboard 側 `compute_current_hashes` も同じ ORDER BY を使用する。
+
+行の追加/削除/編集を検知できる。dashboard 側で再計算する場合は、データなし隊については cloud-run 側の IFNULL に合わせて `""` を返すこと（None だと outdated 判定で「未確定」と扱い、データ削除を検知できない）。
 
 ## 5. API / Cloud Run 境界
 

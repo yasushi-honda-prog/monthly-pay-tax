@@ -49,6 +49,7 @@ if role is None:
 # --- ページ定義 ---
 base_pages = [
     st.Page("_pages/dashboard.py", title="ダッシュボード", icon=":material/bar_chart:", default=True),
+    st.Page("_pages/team_budget.py", title="予実管理", icon=":material/savings:"),
 ]
 
 checker_pages = [

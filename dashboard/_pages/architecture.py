@@ -28,7 +28,8 @@ st.markdown("""
 render_mermaid("""
 graph LR
     CS[Cloud Scheduler<br/>毎朝6時 JST] -->|OIDC認証| CR[Cloud Run<br/>pay-collector]
-    CR -->|Step0: BQ唯一ソース5表を<br/>日次snapshot| BKUP[(pay_reports_backup<br/>90日自動失効)]
+    CS2[Cloud Scheduler<br/>毎月1日7時 JST<br/>予実評価] -->|OIDC認証| CR
+    CR -->|Step0: BQ唯一ソース7表を<br/>日次snapshot| BKUP[(pay_reports_backup<br/>90日自動失効)]
     CR -->|Step1-3: Sheets API v4<br/>キーレスDWD| SS[(190個の<br/>スプレッドシート)]
     CR -->|WRITE_TRUNCATE| BQ[(BigQuery<br/>pay_reports)]
     CR -->|Step4: Admin Directory API| ADK[Google Admin SDK<br/>グループ情報]
@@ -39,22 +40,26 @@ graph LR
     RS --> BQ
     CR -->|Step7: タダメンM取得| MM[member_master<br/>240件]
     MM --> BQ
+    CR -->|POST /eval/team-monthly<br/>Gemini 2.5 Flash| VTX[Vertex AI<br/>asia-northeast1]
+    VTX -->|評価コメント生成| TME[team_monthly_eval<br/>claim row pattern]
+    TME --> BQ
     CR -.->|障害時| CHAT[Google Chat<br/>障害自動通知]
     BQ -->|VIEWs| DB[Cloud Run<br/>pay-dashboard]
     BR[ブラウザ] -->|HTTPS *.run.app| DB
     DB -->|Streamlit OIDC<br/>Google OAuth| GOOG[Google IdP<br/>tadakayo.jp]
-""", height=480)
+""", height=520)
 
 st.markdown("""
 | コンポーネント | 仕様 |
 |:---|:---|
 | Collector | Python 3.12 / Flask / gunicorn / 2GiB（Step 0-7: snapshot → SS巡回 → BQ投入 → グループ → 同期 → 立替金 → タダメンM。障害時 Google Chat 通知） |
-| Dashboard | Python 3.12 / Streamlit / 512MiB（8ページ: ダッシュボード6タブ / 報告入力 / 業務チェック / WAM立替金確認6タブ / アーキテクチャ / ヘルプ / ユーザー管理 / 管理設定） |
+| Dashboard | Python 3.12 / Streamlit / 512MiB（9ページ: ダッシュボード6タブ / 予実管理3サブタブ / 報告入力 / 業務チェック / WAM立替金確認6タブ / アーキテクチャ / ヘルプ / ユーザー管理 / 管理設定） |
 | Collector認証 | Workload Identity + IAM signBlob (キーレスDWD) |
 | Dashboard認証 | Streamlit OIDC (Google OAuth, tadakayo.jpドメイン) |
 | BQ取り込み | WRITE_TRUNCATE（毎回全データ置換）|
 | BQスキーマ | 10テーブル + 4 VIEW + バックアップ用データセット pay_reports_backup |
-| BQバックアップ | Step0: BQ唯一ソース5表（dashboard_users / dashboard_sync_groups / check_logs / wam_target_projects / withholding_targets）を pay_reports_backup へ日次snapshot（90日自動失効、誤操作復旧用） |
+| BQバックアップ | Step0: BQ唯一ソース7表（dashboard_users / dashboard_sync_groups / check_logs / wam_target_projects / withholding_targets / team_budgets / team_monthly_eval）を pay_reports_backup へ日次snapshot（90日自動失効、誤操作復旧用） |
+| 予実評価 | 毎月1日7時 JST、Cloud Scheduler 起動 → pay-collector の /eval/team-monthly が前月の隊×月予実を Vertex AI Gemini 2.5 Flash (asia-northeast1) で評価し team_monthly_eval へ書き込み |
 | グループ更新 | Step4: Admin Directory API でグループ情報を自動更新 |
 | ユーザー同期 | Step5: グループ由来のdashboard_usersをグループメンバーと自動同期（追加/削除） |
 | 立替金収集 | Step6: 立替金シートを巡回し reimbursement_items テーブルへ投入 |
