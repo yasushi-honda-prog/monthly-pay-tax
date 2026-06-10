@@ -83,6 +83,12 @@ st.markdown("""
         <p>月別報酬サマリー、スポンサー別業務委託費、業務報告一覧、WAM業務報告、グループ別、業務委託費分析の6タブで全体を把握</p>
         <span class="badge ba">全ユーザー</span>
     </div>
+    <div class="pc b">
+        <div class="pc-icon">💴</div>
+        <h3>予実管理</h3>
+        <p>隊（活動）分類ごとの月次予算と実額を比較、Vertex AI Gemini 2.5 Flash による評価コメント、隊×月マトリクスとドリルダウン</p>
+        <span class="badge ba">全ユーザー</span>
+    </div>
     <div class="pc g">
         <div class="pc-icon">✅</div>
         <h3>業務チェック</h3>
@@ -268,6 +274,50 @@ st.markdown("""
     <div class="tip-c">
         タブ内の「リセット」ボタンで隊（活動）分類・業務分類・スポンサー・検索キーワード・検索対象をまとめてクリアできます。
         サイドバーの期間・メンバー選択はそのまま残ります（別系統の絞り込みのため）。
+    </div>
+</div>
+""", unsafe_allow_html=True)
+
+
+# ============================================================
+# 予実管理ガイド
+# ============================================================
+render_section_header("予実管理の使い方", icon="💴", color="blue")
+
+st.markdown(
+    "隊（活動）分類ごとの月次予算と実額を比較し、Vertex AI Gemini 2.5 Flash による"
+    "評価コメントを表示するページです。**全ユーザー** が閲覧可、強制再生成のみ admin 限定。"
+    " 2026/05 以降のデータが対象です。"
+)
+
+st.markdown("""
+| サブタブ | 表示内容 | 主な使い道 |
+|:---|:---|:---|
+| 📊 **全体サマリー** | 全体 KPI (予算/実額/達成率)、隊×月達成率ヒートマップ (年内全月)、隊別累積実額ランキング | 組織全体の予実状況を俯瞰、突出して乖離が大きい隊を発見 |
+| 🏷️ **隊×月マトリクス** | 隊 × 月の達成率マトリクス (セル色で適正/注意/乖離大を表示)、選択した隊をドリルダウンへジャンプ | 月別の達成率パターンを把握、特定月の異常を発見 |
+| 🔍 **隊ドリルダウン** | 1 隊の KPI、AI 評価コメント、業務報告詳細テーブル (キーワード検索可) | 個別隊の状況を深堀り、評価コメントから改善点を読み取る |
+""")
+
+st.markdown("""
+<div class="tip">
+    <div class="tip-t">🤖 AI 評価コメントの仕組み</div>
+    <div class="tip-c">
+        毎月 1 日 07:00 JST に Cloud Scheduler が前月分の評価を自動生成します。生成された評価は
+        BigQuery <code>team_monthly_eval</code> テーブルに保存され、ダッシュボードはそれを表示します。
+        元データ (業務報告) が更新されると hash 不一致で「⚠ outdated」バッジが表示されるので、
+        「評価を更新」ボタンで再生成可能です (全員可、約 30 秒)。
+        admin は「強制再生成」ボタンで hash 一致でも再生成できます。
+    </div>
+</div>
+""", unsafe_allow_html=True)
+
+st.markdown("""
+<div class="tip">
+    <div class="tip-t">📝 予算入力</div>
+    <div class="tip-c">
+        画面からの予算入力 UI は提供していません。予算は CSV ファイルを作成し、
+        <code>scripts/upload_budgets.py</code> から BigQuery <code>team_budgets</code> へ
+        投入する運用です (Claude Code から実行)。詳細は運用ドキュメントを参照してください。
     </div>
 </div>
 """, unsafe_allow_html=True)

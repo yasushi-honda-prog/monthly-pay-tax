@@ -15,3 +15,8 @@ REIMBURSEMENT_VIEW = f"{PROJECT_ID}.{DATASET}.v_reimbursement_enriched"
 MONTHLY_COMPENSATION_VIEW = f"{PROJECT_ID}.{DATASET}.v_monthly_compensation"
 MEMBER_MASTER_TABLE = f"{PROJECT_ID}.{DATASET}.member_master"
 GAS_BINDINGS_TABLE = f"{PROJECT_ID}.{DATASET}.gas_bindings"
+# 予実管理機能 (PR-A で BQ 構築済み、PR-D で UI 連携)
+TEAM_BUDGETS_TABLE = f"{PROJECT_ID}.{DATASET}.team_budgets"
+TEAM_MONTHLY_EVAL_TABLE = f"{PROJECT_ID}.{DATASET}.team_monthly_eval"
+TEAM_BUDGET_ACTUALS_VIEW = f"{PROJECT_ID}.{DATASET}.v_team_budget_actuals"
+GYOMU_REPORTS_TABLE = f"{PROJECT_ID}.{DATASET}.gyomu_reports"
