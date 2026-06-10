@@ -64,24 +64,33 @@ SA鍵ファイルは使わない（ローカル開発時のみ `SA_KEY_PATH` 環
   - `lib/cloud_run_client.py` - pay-collector への OIDC 認証付き呼び出しヘルパ（admin_settings の手動同期ボタンから利用）
 - `docs/operations/` - 運用ドキュメント（業務報告シート構造変更等の記録、Markdown + frontmatter + Mermaid。dashboardの「運用ドキュメント」ページから閲覧可能）
 - `コード.js` - 旧GASコード（参照用、稼働していない）
-- `infra/bigquery/schema.sql` - BQテーブルスキーマ定義（dashboard_users, check_logs含む）
-  - `infra/bigquery/views.sql` - BQ VIEW定義（v_gyomu_enriched, v_hojo_enriched, v_monthly_compensation, v_reimbursement_enriched）
+- `infra/bigquery/schema.sql` - BQテーブルスキーマ定義（dashboard_users, check_logs, team_budgets, team_monthly_eval含む）
+  - `infra/bigquery/views.sql` - BQ VIEW/UDF 定義（v_gyomu_enriched, v_hojo_enriched, v_monthly_compensation, v_reimbursement_enriched, v_team_budget_actuals, extract_month UDF）
+  - `infra/bigquery/migrations/2026-06-10_team_budget_eval.sql` - 予実管理機能の DDL（team_budgets, team_monthly_eval, extract_month UDF, v_team_budget_actuals）
 - `infra/ar-cleanup-policy.json` - Artifact Registryクリーンアップポリシー
+- `scripts/` - CLI ツール群（Claude Code から実行）
+  - `scripts/upload_budgets.py` - 隊×月予算 CSV を team_budgets テーブルに MERGE（optimistic lock 付き、--dry-run / --force 対応、tests あり）
+  - `scripts/collect_gas_bindings.py` - 業務報告シートのコンテナバインド GAS Script ID 収集（Playwright、半手動巡回）
+  - `scripts/query_categories.py` - 過去業務報告データの活動分類・業務分類使用状況分析
+  - `scripts/tests/` - scripts のテスト（BQ / API モック、本番接続なし）
 - `docs/adr/` - Architecture Decision Records
+- `docs/specs/` - 設計仕様書（brainstorm セッション成果物、`/impl-plan` で実装計画に流す）
 - `docs/handoff/LATEST.md` - ハンドオフドキュメント
 
 ## テスト
 
 ```bash
-# Dashboard テスト（338テスト）— プロジェクトルートから実行可能
+# Dashboard テスト（352テスト）— プロジェクトルートから実行可能
 python3 -m pytest dashboard/tests/ -q
 
 # Cloud Run テスト（100テスト）— プロジェクトルートから実行可能
 python3 -m pytest cloud-run/tests/ -q
 
-# 全テスト一括
-python3 -m pytest dashboard/tests/ cloud-run/tests/ -q
+# scripts テスト（upload_budgets ほか）
+python3 -m pytest scripts/tests/ -q
 ```
+
+> 注: 3 つを 1 コマンドで一括実行すると dashboard/pytest.ini の rootdir 設定により cloud-run/tests/ の import が壊れる（既知の制約）。**個別に 3 回実行する**のが正しい。
 
 - Dashboard: `conftest.py`でStreamlit/BQを全モック化。BQ接続不要
 - Cloud Run: GCP APIをモック化。BQ/Sheets接続不要
@@ -254,8 +263,9 @@ BQ接続が必要なためローカル実行での完全な動作確認は困難
 | SA | `pay-collector@monthly-pay-tax.iam.gserviceaccount.com` |
 | Cloud Run URL | `https://pay-collector-209715990891.asia-northeast1.run.app` |
 | BQデータセット | `pay_reports`（本番）/ `pay_reports_backup`（Step0 snapshot バックアップ、90日自動失効） |
-| BQテーブル | `gyomu_reports`, `hojo_reports`, `members`, `withholding_targets`, `dashboard_users`, `dashboard_sync_groups`, `check_logs`, `groups_master`, `reimbursement_items`, `wam_target_projects`, `member_master` |
-| BQ VIEWs | `v_gyomu_enriched`, `v_hojo_enriched`, `v_monthly_compensation`, `v_reimbursement_enriched` |
+| BQテーブル | `gyomu_reports`, `hojo_reports`, `members`, `withholding_targets`, `dashboard_users`, `dashboard_sync_groups`, `check_logs`, `groups_master`, `reimbursement_items`, `wam_target_projects`, `member_master`, `team_budgets`, `team_monthly_eval` |
+| BQ VIEWs | `v_gyomu_enriched`, `v_hojo_enriched`, `v_monthly_compensation`, `v_reimbursement_enriched`, `v_team_budget_actuals` |
+| BQ UDFs | `extract_month(date_str)` - gyomu_reports.date 多形式から月を INT64 抽出（YYYY/M/D 優先判定、予実管理 VIEW と Cloud Run hash 計算で共通使用） |
 | AR | `cloud-run-images`（最新2イメージ保持） |
 | Secret Manager | `dashboard-auth-config`（OAuth）/ `chat-webhook-url`（Chat障害通知 webhook、env `CHAT_WEBHOOK_URL`、pay-collector@ に secretAccessor 付与済み） |
 

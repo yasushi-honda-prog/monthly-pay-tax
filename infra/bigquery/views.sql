@@ -414,3 +414,82 @@ SELECT
   * EXCEPT(member_seq)
 FROM enriched
 WHERE member_seq = 1;
+
+
+-- ============================================================
+-- extract_month UDF: gyomu_reports.date の複数形式から月を INT64 抽出
+-- ============================================================
+-- v_team_budget_actuals と Cloud Run の hash 計算 SQL で共通使用。
+-- YYYY/M/D 形式を最優先で判定（先頭 2 桁誤マッチを回避）。
+-- 既存 v_gyomu_enriched の月抽出ロジックは互換性のため触らない。
+-- 詳細: docs/specs/2026-06-10-team-budget-eval-design.md §4.1
+CREATE OR REPLACE FUNCTION `monthly-pay-tax.pay_reports.extract_month`(date_str STRING)
+AS (
+  SAFE_CAST(
+    CASE
+      WHEN REGEXP_CONTAINS(date_str, r'^\d{4}/\d{1,2}/') THEN REGEXP_EXTRACT(date_str, r'^\d{4}/(\d{1,2})/')
+      WHEN REGEXP_CONTAINS(date_str, r'^\d{1,2}/') THEN REGEXP_EXTRACT(date_str, r'^(\d{1,2})/')
+      WHEN REGEXP_CONTAINS(date_str, r'^\d{1,2}月') THEN REGEXP_EXTRACT(date_str, r'^(\d{1,2})月')
+      ELSE NULL
+    END AS INT64
+  )
+);
+
+
+-- ============================================================
+-- v_team_budget_actuals: 予実集計の中核 VIEW
+-- ============================================================
+-- 隊（活動）分類 × 年月の予算・実額・達成率・差額を一元提供。
+--   - actuals_agg: gyomu_reports から 2026/05 以降の隊×月集計
+--   - budgets_latest: team_budgets の重複防御 (QUALIFY ROW_NUMBER で最新を採用)
+--   - FULL OUTER JOIN で予算/実額の 4 パターン (どちらかなし含む) に対応
+-- 詳細: docs/specs/2026-06-10-team-budget-eval-design.md §4.4
+CREATE OR REPLACE VIEW `monthly-pay-tax.pay_reports.v_team_budget_actuals` AS
+WITH budgets_latest AS (
+  SELECT * EXCEPT(rn)
+  FROM (
+    SELECT *, ROW_NUMBER() OVER (
+      PARTITION BY year, month, team ORDER BY updated_at DESC, version DESC
+    ) AS rn
+    FROM `monthly-pay-tax.pay_reports.team_budgets`
+  )
+  WHERE rn = 1
+),
+actuals_agg AS (
+  -- subquery で year/month を pre-compute し WHERE で filter（GROUP BY 前に prune してコスト削減）
+  SELECT year, month, team,
+         SUM(amount_numeric) AS actual_amount,
+         COUNT(*) AS actual_count,
+         COUNT(DISTINCT source_url) AS reporter_count
+  FROM (
+    SELECT
+      SAFE_CAST(g.year AS INT64) AS year,
+      `monthly-pay-tax.pay_reports.extract_month`(g.date) AS month,
+      g.activity_category AS team,
+      SAFE_CAST(REGEXP_REPLACE(g.amount, r'[^0-9.-]', '') AS NUMERIC) AS amount_numeric,
+      g.source_url
+    FROM `monthly-pay-tax.pay_reports.gyomu_reports` g
+    WHERE g.activity_category IS NOT NULL AND g.activity_category != ''
+  )
+  WHERE year IS NOT NULL AND month IS NOT NULL
+    AND month BETWEEN 1 AND 12
+    AND (year > 2026 OR (year = 2026 AND month >= 5))
+  GROUP BY year, month, team
+)
+SELECT
+  COALESCE(a.year, b.year) AS year,
+  COALESCE(a.month, b.month) AS month,
+  COALESCE(a.team, b.team) AS team,
+  a.actual_amount,
+  a.actual_count,
+  a.reporter_count,
+  b.budget_amount,
+  CASE WHEN b.budget_amount IS NULL OR b.budget_amount = 0 THEN NULL
+       ELSE SAFE_DIVIDE(a.actual_amount, b.budget_amount) * 100 END AS achievement_rate,
+  CASE WHEN b.budget_amount IS NULL THEN NULL
+       ELSE COALESCE(a.actual_amount, 0) - b.budget_amount END AS diff_amount,
+  (b.budget_amount IS NOT NULL) AS has_budget,
+  (a.actual_amount IS NOT NULL) AS has_actual
+FROM actuals_agg a
+FULL OUTER JOIN budgets_latest b
+  ON a.year = b.year AND a.month = b.month AND a.team = b.team;

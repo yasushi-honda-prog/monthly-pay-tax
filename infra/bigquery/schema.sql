@@ -223,6 +223,56 @@ CREATE TABLE IF NOT EXISTS `monthly-pay-tax.pay_reports.gas_bindings` (
   ingested_at    TIMESTAMP NOT NULL -- BQ 書き込み時刻
 );
 
+-- 予実管理機能: 隊×月の予算データ。
+-- optimistic lock (version) で並列更新制御。MERGE は WHERE t.version = expected_version 付き。
+-- 入力経路: scripts/upload_budgets.py (CSV → BQ MERGE) または admin 画面 st.data_editor。
+-- 詳細・実行手順: infra/bigquery/migrations/2026-06-10_team_budget_eval.sql / docs/specs/2026-06-10-team-budget-eval-design.md
+CREATE TABLE IF NOT EXISTS `monthly-pay-tax.pay_reports.team_budgets` (
+  year INT64 NOT NULL,                  -- 例: 2026
+  month INT64 NOT NULL,                 -- 例: 5
+  team STRING NOT NULL,                 -- gyomu_reports.activity_category と同一値
+  budget_amount NUMERIC NOT NULL,
+  memo STRING,
+  version INT64 NOT NULL,               -- optimistic lock 用（初期値 1、UPDATE で +1）
+  created_at TIMESTAMP NOT NULL,
+  created_by STRING NOT NULL,
+  updated_at TIMESTAMP NOT NULL,
+  updated_by STRING NOT NULL
+)
+PARTITION BY DATE(updated_at)
+CLUSTER BY year, month, team;
+
+-- 予実管理機能: AI 評価キャッシュ。
+-- (year, month, team) 単位で 1 行を保持 (history なし、UPSERT 方式)。
+-- claim row パターンで並列実行制御（lock_token / lock_until / lock_actor）。
+-- 入力経路: Cloud Run pay-collector POST /eval/team-monthly (Vertex AI Gemini 経由)。
+CREATE TABLE IF NOT EXISTS `monthly-pay-tax.pay_reports.team_monthly_eval` (
+  year INT64 NOT NULL,
+  month INT64 NOT NULL,
+  team STRING NOT NULL,
+  actual_amount NUMERIC,
+  budget_amount NUMERIC,
+  achievement_rate FLOAT64,             -- actual/budget*100
+  diff_amount NUMERIC,                  -- actual - budget
+  actual_data_hash STRING,              -- TO_HEX(SHA256(...)) 差分検知用
+  ai_comment STRING,                    -- Gemini 生成コメント 3-5 行
+  ai_model STRING,                      -- 例: "gemini-2.5-flash"
+  ai_prompt_tokens INT64,
+  ai_output_tokens INT64,
+  prompt_version STRING,                -- 例: "v1"
+  sample_query_version STRING,          -- 例: "v1"
+  location STRING,                      -- 例: "asia-northeast1"
+  generation_config_json STRING,        -- {"max_tokens":350,"temperature":0.3,"top_p":0.8}
+  generated_at TIMESTAMP,
+  generated_by STRING,                  -- "scheduler" or email
+  -- claim row パターン
+  lock_token STRING,                    -- 処理中の job_id
+  lock_until TIMESTAMP,                 -- claim 期限（CURRENT_TIMESTAMP() + 5 min）
+  lock_actor STRING
+)
+-- 小規模テーブル（年間 24 隊 × 12 月 ≒ 288 行）のため CLUSTER のみで partition なし。
+CLUSTER BY year, month, team;
+
 -- シード: 初期管理者
 -- INSERT INTO `monthly-pay-tax.pay_reports.dashboard_users`
 --   (email, role, display_name, added_by, created_at, updated_at)

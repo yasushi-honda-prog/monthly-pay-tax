@@ -184,7 +184,8 @@ CREATE TABLE pay_reports.team_monthly_eval (
   lock_until TIMESTAMP,
   lock_actor STRING
 )
-PARTITION BY DATE(COALESCE(generated_at, lock_until))
+-- 小規模テーブル（年間 24 隊 × 12 月 ≒ 288 行）のため CLUSTER のみ。
+-- BQ の PARTITION BY は単一カラムのみ可で、COALESCE(generated_at, lock_until) は不可。
 CLUSTER BY year, month, team;
 ```
 
