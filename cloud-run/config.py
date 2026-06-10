@@ -19,6 +19,10 @@ BQ_TABLE_MEMBER_MASTER = "member_master"
 BQ_TABLE_DASHBOARD_USERS = "dashboard_users"
 BQ_TABLE_CHECK_LOGS = "check_logs"
 BQ_TABLE_WITHHOLDING = "withholding_targets"
+# 予実管理機能 (PR-A で BQ 作成済み)
+BQ_TABLE_TEAM_BUDGETS = "team_budgets"
+BQ_TABLE_TEAM_MONTHLY_EVAL = "team_monthly_eval"
+BQ_VIEW_TEAM_BUDGET_ACTUALS = "v_team_budget_actuals"
 
 # BQバックアップ（誤操作・誤DELETE/MERGEからの復旧用 snapshot）
 # 対象は「Sheets/Admin Directoryから再生成できない=BQが唯一のソース」のテーブルのみ。
@@ -105,6 +109,19 @@ REIMBURSEMENT_NICKNAME_REGEX = r"【(.+?)】"
 # Sheets API レート制限対策
 SHEETS_API_NUM_RETRIES = 5
 SHEETS_API_SLEEP_BETWEEN_REQUESTS = 0.5
+
+# Vertex AI Gemini (予実管理機能)
+# spec: docs/specs/2026-06-10-team-budget-eval-design.md §3.2, §5, §7
+GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
+GEMINI_REGION = os.environ.get("GEMINI_REGION", "asia-northeast1")  # データレジデンシー固定
+GEMINI_MAX_TOKENS = int(os.environ.get("GEMINI_MAX_TOKENS", "350"))
+GEMINI_TEMPERATURE = float(os.environ.get("GEMINI_TEMPERATURE", "0.3"))
+GEMINI_TOP_P = float(os.environ.get("GEMINI_TOP_P", "0.8"))
+EVAL_TIMEOUT_SEC = int(os.environ.get("EVAL_TIMEOUT_SEC", "60"))
+PROMPT_VERSION = os.environ.get("PROMPT_VERSION", "v1")
+SAMPLE_QUERY_VERSION = "v1"  # サンプリング SQL のバージョン
+MAX_REGEN_ATTEMPTS = 2  # 生成失敗時のリトライ最大回数
+EVAL_LOCK_DURATION_MIN = 5  # claim row pattern の lock 期限
 
 # サービスアカウント
 SA_EMAIL = os.environ.get("SA_EMAIL", "pay-collector@monthly-pay-tax.iam.gserviceaccount.com")

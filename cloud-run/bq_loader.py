@@ -5,6 +5,7 @@ pandas DataFrame → BigQuery load_table_from_dataframe でバッチ投入。
 
 import logging
 from datetime import datetime, timezone
+from typing import Optional
 
 import pandas as pd
 from google.cloud import bigquery
@@ -334,6 +335,205 @@ def sync_dashboard_users_from_groups(
         "skipped_disabled": skipped_disabled,
         "skipped_unregistered": skipped_unregistered,
     }
+
+
+def claim_team_eval_row(
+    client,
+    *,
+    year: int,
+    month: int,
+    team: str,
+    job_id: str,
+    actor: str,
+    lock_duration_min: Optional[int] = None,
+) -> bool:
+    """team_monthly_eval テーブルに claim を取得する（spec §4.3.1）。
+
+    既存 claim が無いか expired していれば claim 成功、進行中なら失敗。
+
+    Returns:
+        True: claim 取得成功（自分の job_id がセットされた）。
+        False: 他者が claim 中（lock_until が未来）。
+    """
+    lock_min = lock_duration_min or config.EVAL_LOCK_DURATION_MIN
+    table_id = f"{config.GCP_PROJECT_ID}.{config.BQ_DATASET}.{config.BQ_TABLE_TEAM_MONTHLY_EVAL}"
+    sql = f"""
+    MERGE `{table_id}` t
+    USING (
+      SELECT @year AS year, @month AS month, @team AS team,
+             @job_id AS lock_token, @actor AS lock_actor,
+             TIMESTAMP_ADD(CURRENT_TIMESTAMP(), INTERVAL {lock_min} MINUTE) AS lock_until
+    ) s
+    ON t.year = s.year AND t.month = s.month AND t.team = s.team
+    WHEN MATCHED AND (t.lock_token IS NULL OR t.lock_until < CURRENT_TIMESTAMP()) THEN
+      UPDATE SET lock_token = s.lock_token,
+                 lock_until = s.lock_until,
+                 lock_actor = s.lock_actor
+    WHEN NOT MATCHED THEN
+      INSERT (year, month, team, lock_token, lock_until, lock_actor)
+      VALUES (s.year, s.month, s.team, s.lock_token, s.lock_until, s.lock_actor)
+    """
+    job_config = bigquery.QueryJobConfig(
+        query_parameters=[
+            bigquery.ScalarQueryParameter("year", "INT64", year),
+            bigquery.ScalarQueryParameter("month", "INT64", month),
+            bigquery.ScalarQueryParameter("team", "STRING", team),
+            bigquery.ScalarQueryParameter("job_id", "STRING", job_id),
+            bigquery.ScalarQueryParameter("actor", "STRING", actor),
+        ]
+    )
+    job = client.query(sql, job_config=job_config)
+    job.result()
+    # MERGE で affected_rows=1 なら成功（INSERT or UPDATE）、0 なら他者 claim 中
+    num_affected = job.num_dml_affected_rows or 0
+    success = num_affected >= 1
+    if not success:
+        logger.info("claim 失敗 (他者 claim 中): year=%s month=%s team=%s", year, month, team)
+    return success
+
+
+def load_existing_eval(client, *, year: int, month: int, team: str) -> Optional[dict]:
+    """既存の team_monthly_eval レコードを 1 件取得する（差分検知 hash 比較用）。
+
+    Returns:
+        該当行が無ければ None。
+    """
+    table_id = f"{config.GCP_PROJECT_ID}.{config.BQ_DATASET}.{config.BQ_TABLE_TEAM_MONTHLY_EVAL}"
+    sql = f"""
+    SELECT actual_data_hash, ai_comment, ai_model, prompt_version,
+           generated_at, generated_by
+    FROM `{table_id}`
+    WHERE year = @year AND month = @month AND team = @team
+    LIMIT 1
+    """
+    job_config = bigquery.QueryJobConfig(
+        query_parameters=[
+            bigquery.ScalarQueryParameter("year", "INT64", year),
+            bigquery.ScalarQueryParameter("month", "INT64", month),
+            bigquery.ScalarQueryParameter("team", "STRING", team),
+        ]
+    )
+    rows = list(client.query(sql, job_config=job_config).result())
+    if not rows:
+        return None
+    row = rows[0]
+    return {
+        "actual_data_hash": row["actual_data_hash"],
+        "ai_comment": row["ai_comment"],
+        "ai_model": row["ai_model"],
+        "prompt_version": row["prompt_version"],
+        "generated_at": row["generated_at"],
+        "generated_by": row["generated_by"],
+    }
+
+
+def upsert_team_monthly_eval(client, *, record: dict, expected_lock_token: str) -> bool:
+    """評価結果を MERGE で書き込み、claim を release する（spec §5.2 step 6）。
+
+    expected_lock_token と一致する claim のみ更新（他者 claim 中なら no-op）。
+
+    Args:
+        record: 必須キー: year, month, team, actual_amount, budget_amount,
+                achievement_rate, diff_amount, actual_data_hash, ai_comment,
+                ai_model, ai_prompt_tokens, ai_output_tokens, prompt_version,
+                sample_query_version, location, generation_config_json,
+                generated_by.
+        expected_lock_token: 自分が取った claim の job_id。これと一致しないと
+                             UPDATE が走らない（他者に奪われた / 期限切れ後の事後書き込み防御）。
+
+    Returns:
+        True: 書き込み成功。False: claim 不一致で no-op。
+    """
+    table_id = f"{config.GCP_PROJECT_ID}.{config.BQ_DATASET}.{config.BQ_TABLE_TEAM_MONTHLY_EVAL}"
+    sql = f"""
+    MERGE `{table_id}` t
+    USING (
+      SELECT @year AS year, @month AS month, @team AS team
+    ) s
+    ON t.year = s.year AND t.month = s.month AND t.team = s.team
+       AND t.lock_token = @expected_lock_token
+       AND t.lock_until > CURRENT_TIMESTAMP()
+    WHEN MATCHED THEN
+      UPDATE SET
+        actual_amount = @actual_amount,
+        budget_amount = @budget_amount,
+        achievement_rate = @achievement_rate,
+        diff_amount = @diff_amount,
+        actual_data_hash = @actual_data_hash,
+        ai_comment = @ai_comment,
+        ai_model = @ai_model,
+        ai_prompt_tokens = @ai_prompt_tokens,
+        ai_output_tokens = @ai_output_tokens,
+        prompt_version = @prompt_version,
+        sample_query_version = @sample_query_version,
+        location = @location,
+        generation_config_json = @generation_config_json,
+        generated_at = CURRENT_TIMESTAMP(),
+        generated_by = @generated_by,
+        lock_token = NULL,
+        lock_until = NULL,
+        lock_actor = NULL
+    """
+    job_config = bigquery.QueryJobConfig(
+        query_parameters=[
+            bigquery.ScalarQueryParameter("year", "INT64", record["year"]),
+            bigquery.ScalarQueryParameter("month", "INT64", record["month"]),
+            bigquery.ScalarQueryParameter("team", "STRING", record["team"]),
+            bigquery.ScalarQueryParameter("expected_lock_token", "STRING", expected_lock_token),
+            bigquery.ScalarQueryParameter("actual_amount", "NUMERIC", record.get("actual_amount")),
+            bigquery.ScalarQueryParameter("budget_amount", "NUMERIC", record.get("budget_amount")),
+            bigquery.ScalarQueryParameter("achievement_rate", "FLOAT64", record.get("achievement_rate")),
+            bigquery.ScalarQueryParameter("diff_amount", "NUMERIC", record.get("diff_amount")),
+            bigquery.ScalarQueryParameter("actual_data_hash", "STRING", record.get("actual_data_hash")),
+            bigquery.ScalarQueryParameter("ai_comment", "STRING", record.get("ai_comment")),
+            bigquery.ScalarQueryParameter("ai_model", "STRING", record.get("ai_model")),
+            bigquery.ScalarQueryParameter("ai_prompt_tokens", "INT64", record.get("ai_prompt_tokens") or 0),
+            bigquery.ScalarQueryParameter("ai_output_tokens", "INT64", record.get("ai_output_tokens") or 0),
+            bigquery.ScalarQueryParameter("prompt_version", "STRING", record["prompt_version"]),
+            bigquery.ScalarQueryParameter("sample_query_version", "STRING", record["sample_query_version"]),
+            bigquery.ScalarQueryParameter("location", "STRING", record["location"]),
+            bigquery.ScalarQueryParameter("generation_config_json", "STRING", record.get("generation_config_json")),
+            bigquery.ScalarQueryParameter("generated_by", "STRING", record["generated_by"]),
+        ]
+    )
+    job = client.query(sql, job_config=job_config)
+    job.result()
+    affected = job.num_dml_affected_rows or 0
+    if affected == 0:
+        logger.warning(
+            "upsert no-op (claim 不一致): year=%s month=%s team=%s",
+            record["year"], record["month"], record["team"],
+        )
+        return False
+    return True
+
+
+def release_team_eval_claim(
+    client, *, year: int, month: int, team: str, expected_lock_token: str
+) -> bool:
+    """途中エラー時に claim だけ release する（評価結果は更新しない）。
+
+    Returns:
+        True: release 成功。False: claim が他者に奪われた / 既に release 済み。
+    """
+    table_id = f"{config.GCP_PROJECT_ID}.{config.BQ_DATASET}.{config.BQ_TABLE_TEAM_MONTHLY_EVAL}"
+    sql = f"""
+    UPDATE `{table_id}`
+    SET lock_token = NULL, lock_until = NULL, lock_actor = NULL
+    WHERE year = @year AND month = @month AND team = @team
+      AND lock_token = @expected_lock_token
+    """
+    job_config = bigquery.QueryJobConfig(
+        query_parameters=[
+            bigquery.ScalarQueryParameter("year", "INT64", year),
+            bigquery.ScalarQueryParameter("month", "INT64", month),
+            bigquery.ScalarQueryParameter("team", "STRING", team),
+            bigquery.ScalarQueryParameter("expected_lock_token", "STRING", expected_lock_token),
+        ]
+    )
+    job = client.query(sql, job_config=job_config)
+    job.result()
+    return (job.num_dml_affected_rows or 0) > 0
 
 
 def load_all(all_data: dict[str, list[list]]) -> dict[str, int]:
