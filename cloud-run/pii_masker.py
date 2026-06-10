@@ -25,9 +25,44 @@ EMAIL_RE = re.compile(r"[A-Za-z0-9._+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}")
 # - +81 を含む国際表記、または 0 始まりの国内表記
 # - 区切りはハイフン / 半角空白 / 全角ハイフン / 括弧 を許容（0 個以上）
 # - 数字の総桁数は 10〜11 桁（市外局番含む）
-PHONE_RE = re.compile(
+# 数字部分を全て抽出した時の桁数で post-filter する（regex 単体では桁数制約が
+# 緩く、5-13 桁を許容してしまい番地・統計値が誤マッチするため）
+_PHONE_RAW_RE = re.compile(
     r"(?:\+?81[-\s\(\)（）]?|0)\d{1,4}[-\s\(\)（）]?\d{1,4}[-\s\(\)（）]?\d{3,4}"
 )
+_PHONE_DIGIT_MIN = 10
+_PHONE_DIGIT_MAX = 11
+
+
+def _phone_digit_count(match_text: str) -> int:
+    """マッチテキストから区切り文字を除いた純粋な数字桁数を返す。
+    +81 は 0 に置き換えてカウント（国際表記 → 国内表記等価）。"""
+    text = match_text.replace("+81", "0")
+    return sum(1 for ch in text if ch.isdigit())
+
+
+class _PhoneRegexProxy:
+    """re.Pattern 互換の薄いラッパー。10-11 桁の電話番号のみを認識する。"""
+
+    def search(self, text: str):
+        if not text:
+            return None
+        for m in _PHONE_RAW_RE.finditer(text):
+            if _PHONE_DIGIT_MIN <= _phone_digit_count(m.group()) <= _PHONE_DIGIT_MAX:
+                return m
+        return None
+
+    def sub(self, repl: str, text: str) -> str:
+        if not text:
+            return text
+
+        def _replace(m):
+            return repl if _PHONE_DIGIT_MIN <= _phone_digit_count(m.group()) <= _PHONE_DIGIT_MAX else m.group()
+
+        return _PHONE_RAW_RE.sub(_replace, text)
+
+
+PHONE_RE = _PhoneRegexProxy()
 
 # load_member_names で取得する member_master のカラム
 _MEMBER_NAME_COLUMNS = ["last_name", "first_name", "nickname"]
@@ -83,9 +118,9 @@ def load_member_names(bq_client) -> set[str]:
     - nickname
 
     1 文字の名前は誤検知が大きいため呼び出し側 (mask_pii) で除外。
-    BQ エラー時は空 set を返し、上位呼び出し元にハンドリングを委ねる
-    （マスキングなしで Gemini に送るのは PII リスクが高いので、
-    呼び出し側で空 set 時は処理中断 or スキップを判断する）。
+    BQ エラー時は空 set を返す（transient 失敗で 1 隊単位ではなくバッチ全体が
+    落ちるのを避けるため）。マスキングなしで Gemini に送るのは PII リスクが
+    あるため、呼び出し側は空 set 時に処理スキップを判断する。
     """
     import config  # 循環インポート回避のため関数内 import
 
@@ -96,7 +131,12 @@ def load_member_names(bq_client) -> set[str]:
         WHERE COALESCE(last_name, first_name, nickname) IS NOT NULL
     """
     names: set[str] = set()
-    rows = bq_client.query(query).result()
+    try:
+        rows = bq_client.query(query).result()
+    except Exception as exc:  # noqa: BLE001 - transient 失敗は空 set で吸収
+        logger.error("load_member_names failed (空 set で継続): %s", type(exc).__name__)
+        return names
+
     for row in rows:
         last = (row["last_name"] or "").strip() if hasattr(row, "__getitem__") else ""
         first = (row["first_name"] or "").strip() if hasattr(row, "__getitem__") else ""

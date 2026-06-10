@@ -144,12 +144,19 @@ def build_user_prompt(
 
 
 def build_genai_client() -> "genai.Client":
-    """Vertex AI モードで Gemini クライアントを構築する（spec §7.7）。"""
+    """Vertex AI モードで Gemini クライアントを構築する（spec §7.7）。
+
+    EVAL_TIMEOUT_SEC を HttpOptions.timeout (ms) として渡し、無応答ハングで
+    daemon thread が永久に残るのを防ぐ。
+    """
     return genai.Client(
         vertexai=True,
         project=config.GCP_PROJECT_ID,
         location=config.GEMINI_REGION,
-        http_options=types.HttpOptions(api_version="v1"),
+        http_options=types.HttpOptions(
+            api_version="v1",
+            timeout=config.EVAL_TIMEOUT_SEC * 1000,
+        ),
     )
 
 
@@ -248,16 +255,26 @@ def generate_comment(
 
 _HASH_SQL = """
 WITH rows AS (
-  SELECT TO_HEX(SHA256(TO_JSON_STRING(STRUCT(
-    g.activity_category, g.date, g.source_url, g.work_category, g.sponsor,
-    g.description, g.unit_price, g.hours, g.amount
-  )))) AS row_hash
+  SELECT
+    TO_JSON_STRING(STRUCT(
+      g.activity_category, g.date, g.source_url, g.work_category, g.sponsor,
+      g.description, g.unit_price, g.hours, g.amount
+    )) AS row_json,
+    TO_HEX(SHA256(TO_JSON_STRING(STRUCT(
+      g.activity_category, g.date, g.source_url, g.work_category, g.sponsor,
+      g.description, g.unit_price, g.hours, g.amount
+    )))) AS row_hash
   FROM `{project}.{dataset}.gyomu_reports` g
   WHERE SAFE_CAST(g.year AS INT64) = @year
     AND `{project}.{dataset}`.extract_month(g.date) = @month
     AND g.activity_category = @team
 )
-SELECT IFNULL(TO_HEX(SHA256(STRING_AGG(row_hash, '' ORDER BY row_hash))), '') AS data_hash
+-- ORDER BY に row_json を tie-breaker として加える: 9 列すべて同値の重複行が
+-- ある場合 row_hash 単独では順序不定 → hash が呼び出しごとに揺れる。
+SELECT IFNULL(
+  TO_HEX(SHA256(STRING_AGG(row_hash, '' ORDER BY row_hash, row_json))),
+  ''
+) AS data_hash
 FROM rows
 """
 
@@ -336,12 +353,20 @@ def load_team_samples(
     row = rows[0]
     top_raw = row["top_categories"] or []
     samples_raw = row["sample_descriptions"] or []
-    # BQ STRUCT row → dict 化
+    # BQ STRUCT row → dict 化。
+    # `a or b` パターンは cnt=0 / total_amount=0 を None に化けさせるため使えない。
+    # bigquery.Row は __getitem__ 対応なので一律 t[key] でアクセスする。
+    def _field(t, key):
+        try:
+            return t[key]
+        except (KeyError, TypeError):
+            return getattr(t, key, None)
+
     top_categories = [
         {
-            "work_category": getattr(t, "work_category", None) or (t["work_category"] if isinstance(t, dict) else None),
-            "cnt": getattr(t, "cnt", None) or (t["cnt"] if isinstance(t, dict) else None),
-            "total_amount": getattr(t, "total_amount", None) or (t["total_amount"] if isinstance(t, dict) else None),
+            "work_category": _field(t, "work_category"),
+            "cnt": _field(t, "cnt"),
+            "total_amount": _field(t, "total_amount"),
         }
         for t in top_raw
     ]

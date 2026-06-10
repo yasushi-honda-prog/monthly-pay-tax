@@ -280,6 +280,36 @@ class TestLoadTeamSamples:
         assert top == [{"work_category": "訪問", "cnt": 5, "total_amount": 100000}]
         assert samples == ["訪問内容 A", "訪問内容 B"]
 
+    def test_preserves_zero_values(self):
+        """cnt=0 / total_amount=0 が None に化けないこと
+        (`a or b` パターンで 0 が falsy 扱いされる bug 防止)"""
+        client = self._client_returning(
+            [{"work_category": "事務", "cnt": 0, "total_amount": 0}],
+            [],
+        )
+        top, _ = load_team_samples(client, 2026, 5, "X")
+        assert top[0]["cnt"] == 0
+        assert top[0]["total_amount"] == 0
+
+
+class TestHashSqlOrderTieBreaker:
+    def test_sql_includes_row_json_tie_breaker(self):
+        """同一 row_hash 重複時の順序不定を防ぐため、ORDER BY に row_json を含む"""
+        import vertex_evaluator as ve
+        assert "ORDER BY row_hash, row_json" in ve._HASH_SQL
+
+
+class TestBuildGenaiClientTimeout:
+    def test_timeout_is_passed_to_http_options(self):
+        """EVAL_TIMEOUT_SEC が HttpOptions.timeout (ms) に渡される"""
+        import vertex_evaluator as ve
+        with patch("vertex_evaluator.genai.Client") as mock_client_cls:
+            ve.build_genai_client()
+            _, kwargs = mock_client_cls.call_args
+            http_opts = kwargs["http_options"]
+            # types.HttpOptions の timeout 属性 (SDK バージョン依存)
+            assert getattr(http_opts, "timeout", None) == 60 * 1000  # EVAL_TIMEOUT_SEC default
+
 
 class TestBuildGenaiClient:
     def test_uses_vertex_ai_with_region(self):

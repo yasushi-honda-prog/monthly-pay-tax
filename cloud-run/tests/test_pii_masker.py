@@ -110,6 +110,22 @@ class TestPhoneRegex:
     def test_matches_international(self):
         assert PHONE_RE.search("+81-90-1234-5678")
 
+    def test_no_match_short_digits(self):
+        """5-9 桁は電話番号として認識しない (番地・コード番号誤マッチ防止)"""
+        assert PHONE_RE.search("0-1-234") is None  # 5 桁
+        assert PHONE_RE.search("0123-456") is None  # 7 桁
+        assert PHONE_RE.search("0123-456-78") is None  # 9 桁
+
+    def test_no_match_long_digits(self):
+        """12 桁以上も拒否"""
+        assert PHONE_RE.search("0123-4567-89012") is None  # 12 桁
+
+    def test_does_not_mask_statistics_in_text(self):
+        """統計値風の数列をマスクしない (false positive 防止)"""
+        from pii_masker import mask_pii
+        # '0-15%' は 3 桁 → 電話番号扱いしない
+        assert mask_pii("達成率 0-15% で 203 件処理", []) == "達成率 0-15% で 203 件処理"
+
 
 class TestValidateAiComment:
     def _valid_comment(self) -> str:
@@ -247,6 +263,13 @@ class TestLoadMemberNames:
         client = self._mock_bq_client([])
         names = load_member_names(client)
         assert names == set()
+
+    def test_returns_empty_on_bq_error(self):
+        """BQ transient エラーで例外を伝播させずに空 set を返す
+        (バッチ全体が落ちるのを避ける)"""
+        client = MagicMock()
+        client.query.side_effect = RuntimeError("503 transient")
+        assert load_member_names(client) == set()
 
     def test_splits_full_name_in_last_name(self):
         """last_name 列にフルネームが入っているケース（旧データ救済）"""
