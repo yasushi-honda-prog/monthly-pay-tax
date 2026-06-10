@@ -610,19 +610,19 @@ def _render_gyomu_list_tab(
         st.session_state[counter_key] = 0
     _rc = st.session_state[counter_key]
 
-    # --- フィルタ行 1: 活動分類 → 業務分類(依存) → スポンサー ---
+    # --- フィルタ行 1: 隊（活動）分類 → 業務分類(依存) → スポンサー ---
     fcol1, fcol2, fcol3 = st.columns(3)
     with fcol1:
-        categories = ["活動分類"] + sorted(
+        categories = ["隊（活動）分類"] + sorted(
             result_base["activity_category"].dropna().unique().tolist()
         )
         sel_cat = st.selectbox(
-            "活動分類", categories, key=f"{key_prefix}_cat_{_rc}", label_visibility="collapsed",
+            "隊（活動）分類", categories, key=f"{key_prefix}_cat_{_rc}", label_visibility="collapsed",
         )
 
-    # 活動分類で絞った中間結果から、業務分類とスポンサーの選択肢を動的生成
+    # 隊（活動）分類で絞った中間結果から、業務分類とスポンサーの選択肢を動的生成
     result_after_cat = (
-        result_base if sel_cat == "活動分類"
+        result_base if sel_cat == "隊（活動）分類"
         else result_base[result_base["activity_category"] == sel_cat]
     )
 
@@ -630,7 +630,7 @@ def _render_gyomu_list_tab(
         work_categories = sorted(
             result_after_cat["work_category"].dropna().unique().tolist()
         )
-        # 活動分類変更で選択肢から外れた業務分類は自動的に除外される
+        # 隊（活動）分類変更で選択肢から外れた業務分類は自動的に除外される
         # (st.multiselect は options に無い session_state 値を黙って捨てる)
         sel_wcat = st.multiselect(
             "業務分類", work_categories, key=f"{key_prefix}_wcat_{_rc}",
@@ -652,7 +652,7 @@ def _render_gyomu_list_tab(
         "内容": "description",
         "スポンサー": "sponsor",
         "業務分類": "work_category",
-        "活動分類": "activity_category",
+        "隊（活動）分類": "activity_category",
     }
     scol1, scol2, scol3 = st.columns([3, 2, 1])
     with scol1:
@@ -674,7 +674,7 @@ def _render_gyomu_list_tab(
             st.session_state[counter_key] += 1
         st.button(
             "リセット", key=f"{key_prefix}_reset", use_container_width=True,
-            help="活動分類・業務分類・スポンサー・検索キーワード・検索対象をクリア",
+            help="隊（活動）分類・業務分類・スポンサー・検索キーワード・検索対象をクリア",
             on_click=_reset_filters,
         )
 
@@ -753,7 +753,7 @@ def _render_gyomu_list_tab(
             "source_url": "URL",
             "date_dt": "日付",
             "day_of_week": "曜日",
-            "activity_category": "活動分類",
+            "activity_category": "隊（活動）分類",
             "work_category": "業務分類",
             "sponsor": "スポンサー",
             "description": "内容",
@@ -768,7 +768,7 @@ def _render_gyomu_list_tab(
             # 「内容」: pre-format で改行挿入済み + 列幅 large + row_height で wrap を可視化
             "内容": st.column_config.TextColumn("内容", width="large"),
             "業務分類": st.column_config.TextColumn("業務分類", width="medium"),
-            "活動分類": st.column_config.TextColumn("活動分類", width="medium"),
+            "隊（活動）分類": st.column_config.TextColumn("隊（活動）分類", width="medium"),
             "スポンサー": st.column_config.TextColumn("スポンサー", width="medium"),
         },
         use_container_width=True,
@@ -1033,7 +1033,7 @@ def _render_group_tab(
                     "display_name": "メンバー",
                     "date_dt": "日付",
                     "day_of_week": "曜日",
-                    "activity_category": "活動分類",
+                    "activity_category": "隊（活動）分類",
                     "work_category": "業務分類",
                     "sponsor": "スポンサー",
                     "description": "内容",
@@ -1421,7 +1421,7 @@ with tab2:
         with k3:
             render_kpi("メンバー数", f"{filtered_g['nickname'].nunique()}")
 
-        stab1, stab2 = st.tabs(["メンバー別 月次金額", "活動分類 / 隊別 金額"])
+        stab1, stab2 = st.tabs(["メンバー別 月次金額", "隊（活動）分類別 金額"])
 
         with stab1:
             st.subheader("メンバー別 月次金額")
@@ -1464,7 +1464,7 @@ with tab2:
                 )
 
         with stab2:
-            st.subheader("活動分類 / 隊別 金額")
+            st.subheader("隊（活動）分類別 金額")
             st.caption("※ 2026年5月以降は隊名、4月以前は活動分類名で表示されます")
             cat_summary = (
                 filtered_g.groupby("activity_category")["amount_num"]
@@ -1474,9 +1474,9 @@ with tab2:
             cat_summary = cat_summary[cat_summary > 0]
             if not cat_summary.empty:
                 cat_df = cat_summary.reset_index()
-                cat_df.columns = ["活動分類 / 隊", "金額"]
+                cat_df.columns = ["隊（活動）分類", "金額"]
                 chart = alt.Chart(cat_df).mark_bar().encode(
-                    x=alt.X("活動分類 / 隊:N", sort="-y"),
+                    x=alt.X("隊（活動）分類:N", sort="-y"),
                     y=alt.Y("金額:Q", axis=alt.Axis(format=",.0f"), stack=False),
                 )
                 st.altair_chart(chart, use_container_width=True)

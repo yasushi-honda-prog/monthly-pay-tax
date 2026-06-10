@@ -127,7 +127,7 @@ ACTIVITY_CATEGORIES = list(dict.fromkeys(m["activity"] for m in GYOMU_MASTER))
 
 
 def _get_work_categories(activity: str) -> list[dict]:
-    """活動分類に紐づく業務分類リストを取得"""
+    """隊（活動）分類に紐づく業務分類リストを取得"""
     return [m for m in GYOMU_MASTER if m["activity"] == activity]
 
 
@@ -300,10 +300,10 @@ with st.expander("📐 ドラフト仕様 / 現状アーキテクチャ（クリ
 
     st.markdown("#### 4. 入力項目サマリ")
     st.markdown(
-        f"- **業務マスタ**: {len(GYOMU_MASTER)} 種別（活動分類 {len(ACTIVITY_CATEGORIES)} カテゴリに分類）\n"
+        f"- **業務マスタ**: {len(GYOMU_MASTER)} 種別（隊（活動）分類 {len(ACTIVITY_CATEGORIES)} カテゴリに分類）\n"
         f"- **スポンサーリスト**: {len(SPONSOR_LIST)} 件 + 手入力可\n"
         f"- **隊（チーム）**: {len(TEAM_LIST)} 隊\n"
-        "- **業務報告（日次）**: 日付 / 隊 / 活動分類 / 業務分類 / スポンサー / 業務内容 / 単価 / 時間(距離) / 金額\n"
+        "- **業務報告（日次）**: 日付 / 隊 / 隊（活動）分類 / 業務分類 / スポンサー / 業務内容 / 単価 / 時間(距離) / 金額\n"
         "- **補助報告（月次）**: 時間 / 報酬 / DX補助 / 立替 / 総額(自動) / 完了フラグ / 領収書メモ × 2"
     )
 
@@ -361,10 +361,10 @@ with tab_gyomu:
     if sel_team == "（なし）":
         sel_team = ""
 
-    # --- 活動分類 → 業務分類 カスケード選択（form外で即時反応） ---
-    sel_ac = st.selectbox("活動分類", ACTIVITY_CATEGORIES, key="gyomu_ac")
+    # --- 隊（活動）分類 → 業務分類 カスケード選択（form外で即時反応） ---
+    sel_ac = st.selectbox("隊（活動）分類", ACTIVITY_CATEGORIES, key="gyomu_ac")
 
-    # 選択した活動分類に紐づく業務分類を取得
+    # 選択した隊（活動）分類に紐づく業務分類を取得
     work_items = _get_work_categories(sel_ac) or _get_work_categories(ACTIVITY_CATEGORIES[0])
     work_labels = [m["work"] for m in work_items]
     sel_wc = st.selectbox("業務分類", work_labels, key="gyomu_wc")
@@ -436,7 +436,7 @@ with tab_gyomu:
         st.subheader(f"入力済み業務報告（{len(df_gyomu)}件）")
         display_cols = {
             "date": "日付", "day_of_week": "曜日", "team": "隊",
-            "activity_category": "活動分類", "work_category": "業務分類",
+            "activity_category": "隊（活動）分類", "work_category": "業務分類",
             "sponsor": "スポンサー", "description": "内容",
             "unit_price": "単価", "hours": "時間", "amount": "金額",
         }
