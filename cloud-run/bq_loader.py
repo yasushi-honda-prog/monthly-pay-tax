@@ -401,20 +401,25 @@ def claim_team_eval_row(
 def _dedup_after_claim(client, *, year: int, month: int, team: str, job_id: str) -> int:
     """claim 成功後に同 (year, month, team) の重複行を 1 行に絞る。
 
-    残すべき行: 自分の lock_token を持つ行のうち最新 lock_until の 1 行。
-    その他（他者 token / NULL token / 自分の token の古い lock_until）は DELETE。
+    残すべき行は厳密に「自分の lock_token + 最新 lock_until を持つ 1 行」のみ。
+    BigQuery の DML には ROW_NUMBER 直接フィルタが書きにくいので、
+    SELECT で残すべき行の row_hash を 1 件取得 → その row_hash 以外を DELETE する
+    2 段階方式で同 lock_until の owned 重複も確実に 1 行に絞る。
+
+    また他者のアクティブな claim (lock_until > NOW()) は誤削除しないよう保護する
+    (PR-C Codex High-1)。
 
     Returns:
         削除した行数（通常 0。レース発生時のみ >0）。
     """
     table_id = f"{config.GCP_PROJECT_ID}.{config.BQ_DATASET}.{config.BQ_TABLE_TEAM_MONTHLY_EVAL}"
-    # 1. 残すべき行の lock_until を特定（自分の token の中で最も新しい lock_until）
+    # 1. 残すべき 1 行を特定: 自分の token のうち最新 lock_until + 一意 hash で 1 件確定。
     pick_sql = f"""
-    SELECT lock_until
-    FROM `{table_id}`
+    SELECT TO_HEX(SHA256(TO_JSON_STRING(t))) AS row_hash
+    FROM `{table_id}` AS t
     WHERE year = @year AND month = @month AND team = @team
       AND lock_token = @job_id
-    ORDER BY lock_until DESC
+    ORDER BY lock_until DESC, row_hash
     LIMIT 1
     """
     job_config_pick = bigquery.QueryJobConfig(
@@ -427,21 +432,23 @@ def _dedup_after_claim(client, *, year: int, month: int, team: str, job_id: str)
     )
     rows = list(client.query(pick_sql, job_config=job_config_pick).result())
     if not rows:
-        # 自分の claim が即座に他者に奪われた稀ケース。dedup は呼び出し元判断。
+        # 自分の claim が即座に他者に奪われた稀ケース。
         return 0
-    keep_lock_until = rows[0]["lock_until"]
+    keep_row_hash = rows[0]["row_hash"]
 
-    # 2. 自分の token + 同 lock_until 以外を全削除
-    #    keep_lock_until が NULL なら IS NULL マッチ、それ以外は = マッチで残す。
+    # 2. 残すべき 1 行 (row_hash 完全一致) 以外を DELETE。
+    #    削除対象は厳密に「自分の token の重複行」 OR 「期限切れ orphan」のみ。
+    #    他者のアクティブな claim (lock_until > NOW()) は絶対に保護する
+    #    (PR-C Codex High-1 / Agent #3 対策)。
     delete_sql = f"""
-    DELETE FROM `{table_id}`
+    DELETE FROM `{table_id}` AS t
     WHERE year = @year AND month = @month AND team = @team
-      AND NOT (
-        lock_token = @job_id
-        AND (
-          (@keep_lock_until IS NULL AND lock_until IS NULL)
-          OR lock_until = @keep_lock_until
-        )
+      AND TO_HEX(SHA256(TO_JSON_STRING(t))) != @keep_row_hash
+      AND (
+        t.lock_token = @job_id
+        OR t.lock_token IS NULL
+        OR t.lock_until IS NULL
+        OR t.lock_until <= CURRENT_TIMESTAMP()
       )
     """
     job_config_del = bigquery.QueryJobConfig(
@@ -450,7 +457,7 @@ def _dedup_after_claim(client, *, year: int, month: int, team: str, job_id: str)
             bigquery.ScalarQueryParameter("month", "INT64", month),
             bigquery.ScalarQueryParameter("team", "STRING", team),
             bigquery.ScalarQueryParameter("job_id", "STRING", job_id),
-            bigquery.ScalarQueryParameter("keep_lock_until", "TIMESTAMP", keep_lock_until),
+            bigquery.ScalarQueryParameter("keep_row_hash", "STRING", keep_row_hash),
         ]
     )
     job = client.query(delete_sql, job_config=job_config_del)

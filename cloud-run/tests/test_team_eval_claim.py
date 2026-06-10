@@ -254,11 +254,9 @@ class TestDedupAfterClaim:
         assert client.query.call_count == 1
 
     def test_deletes_non_owned_rows(self):
-        """自分の token + 同 lock_until 以外を全削除"""
-        import datetime as _dt
-        keep_lock_until = _dt.datetime(2026, 5, 1, 6, 5, 0)
+        """自分の token + 残す row_hash 以外を削除。他者のアクティブ claim は保護。"""
         pick_rows = [MagicMock(spec=dict)]
-        pick_rows[0].__getitem__ = lambda self, k: keep_lock_until if k == "lock_until" else None
+        pick_rows[0].__getitem__ = lambda self, k: "keep-hash-xxx" if k == "row_hash" else None
         client = self._client_with_pick(pick_rows=pick_rows, delete_affected=1)
         deleted = bq_loader._dedup_after_claim(
             client, year=2026, month=5, team="X", job_id="job-abc",
@@ -268,19 +266,34 @@ class TestDedupAfterClaim:
         assert client.query.call_count == 2
         del_sql = client.query.call_args_list[1].args[0]
         assert "DELETE FROM" in del_sql
-        assert "NOT (" in del_sql
-        assert "lock_token = @job_id" in del_sql
+        # 削除対象は「自分の token の重複行」 OR 「期限切れ orphan」のみ
+        # 他者のアクティブ claim (lock_until > NOW()) は保護する
+        assert "t.lock_token = @job_id" in del_sql
+        assert "t.lock_until <= CURRENT_TIMESTAMP()" in del_sql
+        assert "@keep_row_hash" in del_sql
 
     def test_returns_zero_when_no_duplicates(self):
         """重複なし (自分の 1 行のみ) → DELETE 結果 0"""
-        import datetime as _dt
         pick_rows = [MagicMock(spec=dict)]
-        pick_rows[0].__getitem__ = lambda self, k: _dt.datetime(2026, 5, 1) if k == "lock_until" else None
+        pick_rows[0].__getitem__ = lambda self, k: "keep-hash" if k == "row_hash" else None
         client = self._client_with_pick(pick_rows=pick_rows, delete_affected=0)
         deleted = bq_loader._dedup_after_claim(
             client, year=2026, month=5, team="X", job_id="job-abc",
         )
         assert deleted == 0
+
+    def test_protects_other_active_claim(self):
+        """他者の lock_until > NOW() の行は削除しない (race condition 防御)"""
+        pick_rows = [MagicMock(spec=dict)]
+        pick_rows[0].__getitem__ = lambda self, k: "keep-hash" if k == "row_hash" else None
+        client = self._client_with_pick(pick_rows=pick_rows, delete_affected=0)
+        bq_loader._dedup_after_claim(
+            client, year=2026, month=5, team="X", job_id="job-abc",
+        )
+        del_sql = client.query.call_args_list[1].args[0]
+        # DELETE 条件に必ず「自分の token OR NULL OR expired」のいずれかを要求
+        # = 他者のアクティブ claim は明示的に除外される
+        assert "lock_until IS NULL" in del_sql or "lock_until <= CURRENT_TIMESTAMP()" in del_sql
 
 
 class TestClaimDedupsAfterSuccess:

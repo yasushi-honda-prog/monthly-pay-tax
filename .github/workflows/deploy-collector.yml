@@ -83,6 +83,7 @@ jobs:
             --no-allow-unauthenticated \
             --service-account "pay-collector@${{ vars.GCP_PROJECT_ID }}.iam.gserviceaccount.com" \
             --update-secrets=CHAT_WEBHOOK_URL=chat-webhook-url:latest \
+            --set-env-vars "SERVICE_AUDIENCE_URL=https://pay-collector-209715990891.${{ vars.GCP_REGION }}.run.app" \
             --project="${{ vars.GCP_PROJECT_ID }}" \
             --quiet
 

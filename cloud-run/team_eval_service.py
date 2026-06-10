@@ -40,9 +40,6 @@ def resolve_year_month(year: Optional[int], month: Optional[int]) -> tuple[int, 
     return last_of_prev.year, last_of_prev.month
 
 
-_grequest_session = google_requests.Request()
-
-
 def extract_actor(request) -> str:
     """request から actor を確定する（spec §5.1: server 側で OIDC subject から確定）。
 
@@ -67,10 +64,17 @@ def extract_actor(request) -> str:
         token = auth[7:]
         audience = os.environ.get("SERVICE_AUDIENCE_URL") or None
         try:
-            payload = id_token.verify_token(token, _grequest_session, audience=audience)
+            # google.auth.transport.requests.Request は requests.Session を内部に持ち
+            # thread-safe ではないため、リクエスト毎に新規作成する (Agent #4 対策)。
+            transport = google_requests.Request()
+            payload = id_token.verify_token(token, transport, audience=audience)
             return payload.get("email") or payload.get("sub") or "unknown"
         except Exception as exc:  # noqa: BLE001 — 検証失敗は unknown 扱い
-            logger.warning("JWT verify failed (actor=unknown): %s", type(exc).__name__)
+            # デバッグのため例外メッセージも残す (Agent #5 対策)
+            logger.warning(
+                "JWT verify failed (actor=unknown): %s: %s",
+                type(exc).__name__, exc,
+            )
 
     return "unknown"
 
