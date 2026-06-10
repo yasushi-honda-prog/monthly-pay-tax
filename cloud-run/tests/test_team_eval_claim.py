@@ -14,21 +14,40 @@ import config
 
 
 def _make_mock_client(num_dml_affected_rows: int = 1):
-    """num_dml_affected_rows を持つ mock query job を返す client"""
+    """num_dml_affected_rows を持つ mock query job を返す client。
+    PR-C: claim_team_eval_row は内部で _dedup_after_claim を呼ぶようになり、
+    複数 query を発行するため side_effect で各 query を順次返す形に拡張。
+    """
     client = MagicMock()
     job = MagicMock()
     job.num_dml_affected_rows = num_dml_affected_rows
     job.result.return_value = None
-    client.query.return_value = job
+
+    # claim_team_eval_row のテストでは MERGE → pick (SELECT) → DELETE の 3 query
+    # が発行される。デフォルトでは MERGE は claim 成功 (num=1)、pick は空 result、
+    # DELETE は 0 削除を返す形にしておく。各テストが上書き可能。
+    pick_job = MagicMock()
+    pick_job.result.return_value = []  # 空 result = dedup skip
+    pick_job.num_dml_affected_rows = 0
+
+    delete_job = MagicMock()
+    delete_job.result.return_value = None
+    delete_job.num_dml_affected_rows = 0
+
+    client.query.side_effect = [job, pick_job, delete_job]
+    # _sql_called / _params_called 用に最初の call_args を保持するため
+    # call_args_list でアクセスする (side_effect 後は最後の call_args しか残らない)
+    client._mock_jobs = [job, pick_job, delete_job]
     return client
 
 
-def _sql_called(client) -> str:
-    return client.query.call_args.args[0]
+def _sql_called(client, index: int = 0) -> str:
+    """N 番目の query 呼び出しの SQL 文字列を返す"""
+    return client.query.call_args_list[index].args[0]
 
 
-def _params_called(client) -> dict:
-    job_config = client.query.call_args.kwargs["job_config"]
+def _params_called(client, index: int = 0) -> dict:
+    job_config = client.query.call_args_list[index].kwargs["job_config"]
     return {p.name: p.value for p in job_config.query_parameters}
 
 
@@ -208,6 +227,108 @@ class TestUpsertTeamMonthlyEval:
         params = _params_called(client)
         assert params["ai_prompt_tokens"] == 0
         assert params["ai_output_tokens"] == 0
+
+
+class TestDedupAfterClaim:
+    """PR-C: claim 成功後の重複行 dedup ロジック (High-1 修正)"""
+
+    def _client_with_pick(self, pick_rows, delete_affected=0):
+        """pick SELECT で pick_rows を返し、DELETE で delete_affected を返す"""
+        client = MagicMock()
+        pick_job = MagicMock()
+        pick_job.result.return_value = pick_rows
+        del_job = MagicMock()
+        del_job.num_dml_affected_rows = delete_affected
+        del_job.result.return_value = None
+        client.query.side_effect = [pick_job, del_job]
+        return client
+
+    def test_skip_when_own_token_not_found(self):
+        """自分の token が見つからない (claim が他者に奪われた) → DELETE しない"""
+        client = self._client_with_pick(pick_rows=[])
+        deleted = bq_loader._dedup_after_claim(
+            client, year=2026, month=5, team="X", job_id="job",
+        )
+        assert deleted == 0
+        # SELECT のみ呼ばれる (DELETE は呼ばれない)
+        assert client.query.call_count == 1
+
+    def test_deletes_non_owned_rows(self):
+        """自分の token + 残す row_hash 以外を削除。他者のアクティブ claim は保護。"""
+        pick_rows = [MagicMock(spec=dict)]
+        pick_rows[0].__getitem__ = lambda self, k: "keep-hash-xxx" if k == "row_hash" else None
+        client = self._client_with_pick(pick_rows=pick_rows, delete_affected=1)
+        deleted = bq_loader._dedup_after_claim(
+            client, year=2026, month=5, team="X", job_id="job-abc",
+        )
+        assert deleted == 1
+        # SELECT + DELETE の 2 query
+        assert client.query.call_count == 2
+        del_sql = client.query.call_args_list[1].args[0]
+        assert "DELETE FROM" in del_sql
+        # 削除対象は「自分の token の重複行」 OR 「期限切れ orphan」のみ
+        # 他者のアクティブ claim (lock_until > NOW()) は保護する
+        assert "t.lock_token = @job_id" in del_sql
+        assert "t.lock_until <= CURRENT_TIMESTAMP()" in del_sql
+        assert "@keep_row_hash" in del_sql
+
+    def test_returns_zero_when_no_duplicates(self):
+        """重複なし (自分の 1 行のみ) → DELETE 結果 0"""
+        pick_rows = [MagicMock(spec=dict)]
+        pick_rows[0].__getitem__ = lambda self, k: "keep-hash" if k == "row_hash" else None
+        client = self._client_with_pick(pick_rows=pick_rows, delete_affected=0)
+        deleted = bq_loader._dedup_after_claim(
+            client, year=2026, month=5, team="X", job_id="job-abc",
+        )
+        assert deleted == 0
+
+    def test_protects_other_active_claim(self):
+        """他者の lock_until > NOW() の行は削除しない (race condition 防御)"""
+        pick_rows = [MagicMock(spec=dict)]
+        pick_rows[0].__getitem__ = lambda self, k: "keep-hash" if k == "row_hash" else None
+        client = self._client_with_pick(pick_rows=pick_rows, delete_affected=0)
+        bq_loader._dedup_after_claim(
+            client, year=2026, month=5, team="X", job_id="job-abc",
+        )
+        del_sql = client.query.call_args_list[1].args[0]
+        # DELETE 条件に必ず「自分の token OR NULL OR expired」のいずれかを要求
+        # = 他者のアクティブ claim は明示的に除外される
+        assert "lock_until IS NULL" in del_sql or "lock_until <= CURRENT_TIMESTAMP()" in del_sql
+
+
+class TestClaimDedupsAfterSuccess:
+    """claim_team_eval_row が claim 成功直後に _dedup_after_claim を呼ぶこと"""
+
+    def test_claim_success_triggers_dedup(self):
+        # MERGE は claim 成功、pick は空 result (dedup skip)
+        client = MagicMock()
+        merge_job = MagicMock()
+        merge_job.num_dml_affected_rows = 1
+        merge_job.result.return_value = None
+        pick_job = MagicMock()
+        pick_job.result.return_value = []
+        client.query.side_effect = [merge_job, pick_job]
+        ok = bq_loader.claim_team_eval_row(
+            client, year=2026, month=5, team="X",
+            job_id="job-abc", actor="u",
+        )
+        assert ok is True
+        # MERGE と SELECT (dedup pick) の 2 query
+        assert client.query.call_count == 2
+
+    def test_claim_failure_skips_dedup(self):
+        # MERGE 失敗 → dedup は呼ばれない
+        client = MagicMock()
+        merge_job = MagicMock()
+        merge_job.num_dml_affected_rows = 0
+        merge_job.result.return_value = None
+        client.query.side_effect = [merge_job]
+        ok = bq_loader.claim_team_eval_row(
+            client, year=2026, month=5, team="X",
+            job_id="job-abc", actor="u",
+        )
+        assert ok is False
+        assert client.query.call_count == 1
 
 
 class TestReleaseTeamEvalClaim:

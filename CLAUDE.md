@@ -13,7 +13,7 @@ GASベースの給与スプレッドシートデータ集約を、Cloud Run + Bi
 Cloud Scheduler (0 6 * * * JST, OIDC認証)
   → Cloud Run "pay-collector" (Python 3.12 / Flask / gunicorn)
     Step 0: BQバックアップ（本処理の前に直近の正常状態を保全）
-      → BigQuery pay_reports_backup.{dashboard_users, dashboard_sync_groups, check_logs, wam_target_projects, withholding_targets}_YYYYMMDD (CREATE SNAPSHOT, 90日自動失効)
+      → BigQuery pay_reports_backup.{dashboard_users, dashboard_sync_groups, check_logs, wam_target_projects, withholding_targets, team_budgets, team_monthly_eval}_YYYYMMDD (CREATE SNAPSHOT, 90日自動失効)
     Step 1-3: Sheets API v4 (IAM signBlobによるキーレスDWD認証)
       → BigQuery pay_reports.{gyomu_reports, hojo_reports, members} (WRITE_TRUNCATE)
     Step 4: Admin Directory API
@@ -28,6 +28,12 @@ Cloud Scheduler (0 6 * * * JST, OIDC認証)
     Step 7: タダメンMマスタ全量取得
       → BigQuery pay_reports.member_master (WRITE_TRUNCATE, 36列×240件, センシティブデータ含む)
     障害時（致命的エラー + 各Stepの部分失敗）: Google Chat スペースへ自動通知（chat_notifier、CHAT_WEBHOOK_URL 未設定なら no-op）
+
+Cloud Scheduler (0 7 1 * * JST, attempt-deadline=1800s, OIDC認証)
+  → Cloud Run "pay-collector" POST /eval/team-monthly
+    → Vertex AI Gemini 2.5 Flash (asia-northeast1) で前月の隊×月予実評価を生成
+    → BigQuery pay_reports.team_monthly_eval (MERGE: claim row pattern, lock_until ガード)
+    シーケンシャル処理 (24 隊 × 〜30s + retry = 12-20 分想定)、同期返却 200
 ```
 
 認証はWorkload Identity + IAM signBlob APIによるキーレスDomain-Wide Delegation。
@@ -36,7 +42,10 @@ SA鍵ファイルは使わない（ローカル開発時のみ `SA_KEY_PATH` 環
 ## ディレクトリ構成
 
 - `cloud-run/` - Cloud Runアプリケーション（本体）
-  - `main.py` - Flaskエントリポイント（`POST /` バッチ実行 Step0-7（Step0=snapshotバックアップ）、`POST /update-groups`、`POST /sync/main-reports`（Step1-3手動同期）、`POST /sync/reimbursement`（Step6手動同期）、`POST /sync/member-master`（Step7手動同期）、`GET /health`。全エンドポイントの障害を Google Chat 通知）
+  - `main.py` - Flaskエントリポイント（`POST /` バッチ実行 Step0-7（Step0=snapshotバックアップ）、`POST /update-groups`、`POST /sync/main-reports`（Step1-3手動同期）、`POST /sync/reimbursement`（Step6手動同期）、`POST /sync/member-master`（Step7手動同期）、`POST /eval/team-monthly`（隊×月 Vertex AI Gemini 評価、PR-B 追加）、`GET /health`。全エンドポイントの障害を Google Chat 通知）
+  - `pii_masker.py` - PII マスキング（メンバー名・メール・電話を <MEMBER>/<EMAIL>/<PHONE> に置換、生成後検証も担う）
+  - `vertex_evaluator.py` - Vertex AI Gemini クライアント + プロンプト + retry + hash + サンプリング SQL
+  - `team_eval_service.py` - 隊×月評価のオーケストレーション（claim → hash → 比較 → Gemini → upsert）
   - `sheets_collector.py` - Sheets API経由のデータ収集（DWD認証含む、立替金シート・タダメンMマスタ収集）
   - `bq_loader.py` - BigQueryへのデータロード（pandas DataFrame経由、`create_snapshots()` でバックアップ snapshot 作成）
   - `chat_notifier.py` - Google Chat 障害通知（Incoming Webhook、urllib、`CHAT_WEBHOOK_URL` 未設定なら no-op。通知失敗は本体に波及させない）

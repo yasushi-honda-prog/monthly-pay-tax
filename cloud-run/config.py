@@ -36,6 +36,9 @@ BQ_SNAPSHOT_TABLES = [
     BQ_TABLE_CHECK_LOGS,
     BQ_TABLE_WAM_PROJECTS,
     BQ_TABLE_WITHHOLDING,
+    # 予実管理機能 (PR-C 追加): どちらも BQ が唯一ソース
+    BQ_TABLE_TEAM_BUDGETS,       # 隊×月予算 (scripts/upload_budgets.py で MERGE)
+    BQ_TABLE_TEAM_MONTHLY_EVAL,  # 隊×月評価 (Vertex AI Gemini 生成結果)
 ]
 
 # 管理表スプレッドシート
