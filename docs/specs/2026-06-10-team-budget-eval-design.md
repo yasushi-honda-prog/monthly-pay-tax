@@ -295,60 +295,71 @@ Content-Type: application/json
   "year": 2026 | null,
   "month": 5 | null,
   "teams": null | ["..."],
-  "force": false,
-  "async": false
+  "force": false
 }
 ```
 
 - `year/month=null` → **JST で前月解決**（`zoneinfo.ZoneInfo("Asia/Tokyo")`）
-- `async=true`（admin only）→ 202 Accepted 即返却、Cloud Run 内で継続。Scheduler バッチもこのモード
-- `async=false`（default、dashboard 単独隊）→ 同期返却、内部シーケンシャル処理
+- 常に **同期処理**。Scheduler 月次バッチも同期で attempt-deadline=1800s（30 分）で呼ぶ
 - **`actor` は request body から削除**、server 側で OIDC subject から確定
+  - JWT は `google.oauth2.id_token.verify_token` で signature 検証必須（PR-C で追加）
+  - audience は環境変数 `SERVICE_AUDIENCE_URL` で指定
 
-#### Response（同期）
+> **PR-C 改訂（2026-06-10）**: 旧 `async=true / 202 Accepted` モードを撤廃。
+> Cloud Run の scale-down / SIGTERM / 新リビジョン deploy で daemon thread が
+> silent kill されるリスクが本番運用で許容できないため。
+> 代わりに Cloud Scheduler の `attempt-deadline` を 1800s に伸ばし、
+> Scheduler 自体がリトライ管理する設計に変更。
+
+#### Response
 
 ```json
 {
-  "year": 2026, "month": 5,
+  "year": 2026, "month": 5, "job_id": "evj-...", "actor": "...",
   "summary": {
     "total": 24, "generated": 18, "skipped_hash_match": 5,
-    "failed": 1, "no_actual": 0
+    "failed": 1, "no_actual": 0, "skipped_claim": 0
   },
   "results": [
-    {"team": "...", "status": "generated|skipped|failed|no_actual",
+    {"team": "...", "status": "generated|skipped_hash_match|failed|no_actual|skipped_claim",
      "actual_amount": ..., "budget_amount": ..., ...}
   ],
   "elapsed_sec": 32.4
 }
 ```
 
-#### Response（非同期）
-
-```json
-{"job_id": "evj-20260601-070003-abc123",
- "year": 2026, "month": 5, "expected_teams": 24,
- "status": "accepted", "callback": "chat_notification_on_complete"}
-```
+入力 type 検証: `teams` が `null` でなく `list[str]` でもない場合 (例 `str` を渡された等)、400 エラーで拒否。
 
 ### 5.2 処理フロー（シーケンシャル + claim）
 
-1. claim 取得（成功 → 次へ、既に処理中 → skipped）
-2. hash 計算
-3. 既存評価と比較（force=false かつ hash 一致 → skipped + claim release）
-4. PII マスキング → Gemini 呼び出し（jitter backoff 最大 3 回）
-5. 生成後検証（行数・文字数・PII リーク）
-6. 結果を MERGE + claim release（同一 SQL）
+1. claim 取得（成功 → 次へ、既に処理中 → skipped_claim）
+2. claim 後に **重複行 dedup**（PR-C 追加: BQ に UNIQUE 制約がないため、
+   ほぼ同時 first-claim 2 ジョブで重複 INSERT が走った場合に 1 行へ集約）
+3. hash 計算
+4. 既存評価と比較（force=false かつ hash 一致 → skipped_hash_match + claim release）
+5. PII マスキング → Gemini 呼び出し（GeminiCallError は exponential backoff
+   で MAX_REGEN_ATTEMPTS 回まで retry、検証 NG も同回数まで再生成）
+6. 生成後検証（行数・文字数・PII リーク）
+7. 結果を MERGE + claim release（同一 SQL、`lock_until > CURRENT_TIMESTAMP()`
+   ガード付きで stale lock の事後書き込みを防御）
 
 ### 5.3 Cloud Scheduler 仕様
 
 ```bash
 gcloud scheduler jobs create http team-budget-eval-monthly \
+  --location=asia-northeast1 \
   --schedule="0 7 1 * *" --time-zone="Asia/Tokyo" \
-  --uri=".../eval/team-monthly" \
+  --uri="https://pay-collector-209715990891.asia-northeast1.run.app/eval/team-monthly" \
   --http-method=POST \
-  --message-body='{"year": null, "month": null, "async": true}' \
-  --attempt-deadline=180s
+  --message-body='{"year": null, "month": null, "force": false}' \
+  --attempt-deadline=1800s \
+  --oidc-service-account-email=pay-collector@monthly-pay-tax.iam.gserviceaccount.com \
+  --oidc-token-audience="https://pay-collector-209715990891.asia-northeast1.run.app"
 ```
+
+> PR-C 改訂: `attempt-deadline` を 180s → 1800s（30 分）に拡大、message-body
+> から `"async": true` を削除。24 隊 × Gemini 呼び出し（〜30s/隊）+ retry 余地
+> で計 12-20 分程度を見込む。Scheduler が失敗時にリトライを管理。
 
 ### 5.4 dashboard 呼び出し
 
