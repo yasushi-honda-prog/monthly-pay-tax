@@ -337,6 +337,20 @@ class TestEvalTeamMonthlyEndpoint:
         assert "boom" in body["message"]
         mock_fatal.assert_called_once()
 
+    def test_400_when_teams_is_string(self, client):
+        """teams が str だと iterate されて 1 文字ずつ team 扱いになるのを 400 で拒否"""
+        resp = client.post("/eval/team-monthly", json={
+            "year": 2026, "month": 5, "teams": "X 隊",
+        })
+        assert resp.status_code == 400
+        assert "teams" in resp.get_json()["message"]
+
+    def test_400_when_teams_contains_non_string(self, client):
+        resp = client.post("/eval/team-monthly", json={
+            "year": 2026, "month": 5, "teams": ["X", 42],
+        })
+        assert resp.status_code == 400
+
     @patch("main.team_eval_service.process_teams")
     def test_year_month_null_resolves_to_jst_prev_month(self, mock_proc, client):
         mock_proc.return_value = {

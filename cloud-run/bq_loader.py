@@ -452,6 +452,7 @@ def upsert_team_monthly_eval(client, *, record: dict, expected_lock_token: str) 
     ) s
     ON t.year = s.year AND t.month = s.month AND t.team = s.team
        AND t.lock_token = @expected_lock_token
+       AND t.lock_until > CURRENT_TIMESTAMP()
     WHEN MATCHED THEN
       UPDATE SET
         actual_amount = @actual_amount,

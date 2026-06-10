@@ -10,10 +10,9 @@ BQ / Gemini クライアントは外部から差し替え可能。
 import base64
 import json
 import logging
-import time
 import uuid
 from datetime import datetime, timedelta, timezone
-from typing import Iterable, Optional
+from typing import Optional
 
 import bq_loader
 import config

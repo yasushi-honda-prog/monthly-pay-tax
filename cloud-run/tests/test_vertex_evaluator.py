@@ -158,11 +158,39 @@ class TestGenerateComment:
         assert "文字数不正" in str(excinfo.value) or "行数不正" in str(excinfo.value)
         assert client.models.generate_content.call_count == 3
 
-    def test_raises_gemini_call_error(self):
+    def test_raises_gemini_call_error_after_all_retries(self):
+        """全試行で例外続き → GeminiCallError raise"""
         client = MagicMock()
         client.models.generate_content.side_effect = RuntimeError("network down")
         with pytest.raises(GeminiCallError):
             generate_comment(client, "prompt", set(), sleep_fn=lambda _: None)
+        # 初回 + 再生成 2 回 = 計 3 回試行
+        assert client.models.generate_content.call_count == 3
+
+    def test_retries_on_transient_then_succeeds(self):
+        """Gemini call で transient failure → retry で成功"""
+        client = MagicMock()
+        client.models.generate_content.side_effect = [
+            RuntimeError("503 transient"),
+            self._mock_response(VALID_COMMENT),
+        ]
+        text, usage = generate_comment(client, "prompt", set(), sleep_fn=lambda _: None)
+        assert text == VALID_COMMENT
+        assert usage["attempts"] == 2
+        assert client.models.generate_content.call_count == 2
+
+    def test_exponential_backoff_between_call_failures(self):
+        """call failure 時の sleep は exponential (0.5s, 1.0s, ...)"""
+        slept = []
+        client = MagicMock()
+        client.models.generate_content.side_effect = [
+            RuntimeError("503"),
+            RuntimeError("503"),
+            self._mock_response(VALID_COMMENT),
+        ]
+        generate_comment(client, "prompt", set(), sleep_fn=lambda s: slept.append(s))
+        # 1 回目 fail → 0.5s, 2 回目 fail → 1.0s, 3 回目 success → no sleep
+        assert slept == [0.5, 1.0]
 
     def test_validates_against_pii(self):
         """PII リークコメントは検証 NG → 再生成"""

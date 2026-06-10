@@ -394,6 +394,17 @@ def eval_team_monthly():
     force = bool(payload.get("force", False))
     async_mode = bool(payload.get("async", False))
 
+    # 入力 type 検証: teams は null または str リスト限定。文字列 "A" を渡されると
+    # iterate されて "A" が 1 文字ずつ別 team として扱われる（バグソース）。
+    if teams is not None and not (
+        isinstance(teams, list) and all(isinstance(t, str) for t in teams)
+    ):
+        return jsonify({
+            "status": "error",
+            "endpoint": "/eval/team-monthly",
+            "message": "'teams' must be null or a list of strings",
+        }), 400
+
     try:
         year, month = team_eval_service.resolve_year_month(year_in, month_in)
         actor = team_eval_service.extract_actor(request)

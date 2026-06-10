@@ -190,13 +190,17 @@ def generate_comment(
 ) -> tuple[str, dict]:
     """Gemini を呼び出し、検証 OK のコメントを返す。
 
-    検証 NG の場合は最大 MAX_REGEN_ATTEMPTS 回まで再生成。
-    再生成は jitter なし固定 sleep（spec §5.2 backoff は将来課題、今回は単純化）。
+    再生成ロジック（spec §5.2）:
+    - 検証 NG の場合は最大 MAX_REGEN_ATTEMPTS 回まで再生成
+    - Gemini 呼び出し自体の transient failure (429/503/timeout 等) は同ループ内で
+      最大 MAX_REGEN_ATTEMPTS 回まで指数バックオフでリトライ
+    - 全試行で例外続きなら GeminiCallError、検証 NG 続きなら EvaluationValidationError
 
     Returns:
         (comment, usage_dict) where usage_dict = {prompt_tokens, output_tokens, attempts, last_reason}
     """
     last_reason = ""
+    last_call_error: Optional[Exception] = None
     config_obj = build_generation_config()
     total_attempts = config.MAX_REGEN_ATTEMPTS + 1
 
@@ -207,8 +211,16 @@ def generate_comment(
                 contents=user_prompt,
                 config=config_obj,
             )
-        except Exception as exc:  # noqa: BLE001 - 型名のみログ
-            logger.warning("Gemini call failed (attempt %s): %s", attempt, type(exc).__name__)
+        except Exception as exc:  # noqa: BLE001 - transient failure を retry
+            last_call_error = exc
+            logger.warning(
+                "Gemini call failed (attempt %s/%s): %s",
+                attempt, total_attempts, type(exc).__name__,
+            )
+            if attempt < total_attempts:
+                # 指数バックオフ: 0.5s, 1.0s, 2.0s ...
+                sleep_fn(0.5 * (2 ** (attempt - 1)))
+                continue
             raise GeminiCallError(str(exc)) from exc
 
         text = (getattr(response, "text", "") or "").strip()
@@ -224,10 +236,10 @@ def generate_comment(
             return text, usage_dict
         last_reason = reason
         logger.info("validation NG (attempt %s/%s): %s", attempt, total_attempts, reason)
-        # 最終試行後は sleep しない
         if attempt < total_attempts:
             sleep_fn(0.5)
 
+    # ループを最後まで通過して return しなかった = 検証 NG 続き
     raise EvaluationValidationError(f"max regen reached: {last_reason}")
 
 

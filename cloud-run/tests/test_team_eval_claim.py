@@ -175,6 +175,16 @@ class TestUpsertTeamMonthlyEval:
         sql = _sql_called(client)
         assert "generated_at = CURRENT_TIMESTAMP()" in sql
 
+    def test_sql_guards_against_stale_lock(self):
+        """5 分以上の処理で lock_until が過去になっていた場合、自分の token
+        と一致していても書き込み禁止 (Codex review Medium)"""
+        client = _make_mock_client(1)
+        bq_loader.upsert_team_monthly_eval(
+            client, record=self._record(), expected_lock_token="job-abc",
+        )
+        sql = _sql_called(client)
+        assert "lock_until > CURRENT_TIMESTAMP()" in sql
+
     def test_parameters_include_record_fields(self):
         client = _make_mock_client(1)
         bq_loader.upsert_team_monthly_eval(
