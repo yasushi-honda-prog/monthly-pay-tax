@@ -58,36 +58,45 @@ class TestExtractActor:
         )
         assert actor == "alice@x"
 
-    def test_decodes_jwt_email(self):
-        # JWT payload: {"email": "bob@example.com"}
-        import base64, json
-        payload = base64.urlsafe_b64encode(
-            json.dumps({"email": "bob@example.com"}).encode()
-        ).rstrip(b"=").decode()
-        token = f"header.{payload}.sig"
+    @patch("team_eval_service.id_token.verify_token")
+    def test_verifies_jwt_signature_and_returns_email(self, mock_verify):
+        """verify_token が成功 → email を返す (PR-C: signature 検証必須)"""
+        mock_verify.return_value = {"email": "bob@example.com", "sub": "x"}
         actor = team_eval_service.extract_actor(
-            self._req({"Authorization": f"Bearer {token}"})
+            self._req({"Authorization": "Bearer good.token.sig"})
         )
         assert actor == "bob@example.com"
+        mock_verify.assert_called_once()
 
-    def test_decodes_jwt_sub_when_no_email(self):
-        import base64, json
-        payload = base64.urlsafe_b64encode(
-            json.dumps({"sub": "sa:foo"}).encode()
-        ).rstrip(b"=").decode()
-        token = f"header.{payload}.sig"
+    @patch("team_eval_service.id_token.verify_token")
+    def test_returns_sub_when_no_email(self, mock_verify):
+        mock_verify.return_value = {"sub": "sa:foo"}
         actor = team_eval_service.extract_actor(
-            self._req({"Authorization": f"Bearer {token}"})
+            self._req({"Authorization": "Bearer good.token.sig"})
         )
         assert actor == "sa:foo"
+
+    @patch("team_eval_service.id_token.verify_token", side_effect=ValueError("bad sig"))
+    def test_returns_unknown_when_verify_fails(self, _mock):
+        """signature 検証失敗 → unknown (詐称防御)"""
+        actor = team_eval_service.extract_actor(
+            self._req({"Authorization": "Bearer forged.jwt.token"})
+        )
+        assert actor == "unknown"
 
     def test_returns_unknown_on_no_auth(self):
         assert team_eval_service.extract_actor(self._req({})) == "unknown"
 
-    def test_returns_unknown_on_malformed_jwt(self):
-        assert team_eval_service.extract_actor(
-            self._req({"Authorization": "Bearer not.a.jwt!!"})
-        ) == "unknown"
+    @patch("team_eval_service.id_token.verify_token")
+    def test_uses_audience_env_var(self, mock_verify):
+        """SERVICE_AUDIENCE_URL が設定されていれば audience として渡される"""
+        mock_verify.return_value = {"email": "x"}
+        with patch.dict("os.environ", {"SERVICE_AUDIENCE_URL": "https://svc.example"}):
+            team_eval_service.extract_actor(
+                self._req({"Authorization": "Bearer t.t.t"})
+            )
+        _, kwargs = mock_verify.call_args
+        assert kwargs.get("audience") == "https://svc.example"
 
 
 # -------- generate_job_id --------
@@ -297,9 +306,9 @@ class TestEvalTeamMonthlyEndpoint:
         assert body["summary"]["generated"] == 1
         assert "elapsed_sec" in body
 
-    @patch("main.chat_notifier.notify")
     @patch("main.team_eval_service.process_teams")
-    def test_async_returns_202_and_runs_in_background(self, mock_proc, mock_notify, client):
+    def test_async_param_ignored_returns_200_sync(self, mock_proc, client):
+        """旧 async=true パラメータは廃止: 受け取っても無視して sync 実行 (200)"""
         mock_proc.return_value = {
             "year": 2026, "month": 5, "job_id": "j", "actor": "u",
             "summary": {"total": 1, "generated": 1, "skipped_hash_match": 0,
@@ -309,23 +318,11 @@ class TestEvalTeamMonthlyEndpoint:
         resp = client.post("/eval/team-monthly", json={
             "year": 2026, "month": 5, "async": True,
         })
-        assert resp.status_code == 202
+        # async は無視され同期実行 (200)。202 にはならない。
+        assert resp.status_code == 200
         body = resp.get_json()
-        assert body["status"] == "accepted"
-        assert body["job_id"].startswith("evj-")
-        # 非同期 thread の完了を軽く待つ
-        import time as _t
-        for _ in range(20):
-            if mock_proc.called:
-                break
-            _t.sleep(0.05)
+        assert "summary" in body
         assert mock_proc.called
-        # Chat 通知が呼ばれる（背景処理成功時）
-        for _ in range(20):
-            if mock_notify.called:
-                break
-            _t.sleep(0.05)
-        assert mock_notify.called
 
     @patch("main.chat_notifier.notify_fatal")
     @patch("main.team_eval_service.process_teams", side_effect=RuntimeError("boom"))

@@ -85,7 +85,8 @@ class TestCreateSnapshots:
 
     @patch("bq_loader._build_bq_client")
     def test_target_tables_are_bq_only_source(self, mock_build_client):
-        """snapshot対象がBQ唯一ソース5テーブルに限定されている（再生成可能テーブルは含めない）"""
+        """snapshot対象がBQ唯一ソース 7 テーブル（PR-A の予実管理 2 テーブルを含む）に
+        限定されている（再生成可能テーブルは含めない）"""
         mock_client = MagicMock()
         mock_build_client.return_value = mock_client
 
@@ -98,6 +99,8 @@ class TestCreateSnapshots:
             config.BQ_TABLE_CHECK_LOGS,
             config.BQ_TABLE_WAM_PROJECTS,
             config.BQ_TABLE_WITHHOLDING,
+            config.BQ_TABLE_TEAM_BUDGETS,
+            config.BQ_TABLE_TEAM_MONTHLY_EVAL,
         }
         # 毎朝WRITE_TRUNCATEで再生成されるテーブルは対象外
         assert config.BQ_TABLE_GYOMU not in snapshotted

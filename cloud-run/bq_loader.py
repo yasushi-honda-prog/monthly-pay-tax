@@ -389,7 +389,79 @@ def claim_team_eval_row(
     success = num_affected >= 1
     if not success:
         logger.info("claim 失敗 (他者 claim 中): year=%s month=%s team=%s", year, month, team)
-    return success
+        return False
+
+    # BigQuery には UNIQUE 制約がないため、同時 2 ジョブの WHEN NOT MATCHED
+    # 経路で重複行が INSERT されうる。claim 成功直後に dedup して 1 行に絞る。
+    # 自分の lock_token 以外の行（他者 claim 残骸 / 古い NULL row）を削除する。
+    _dedup_after_claim(client, year=year, month=month, team=team, job_id=job_id)
+    return True
+
+
+def _dedup_after_claim(client, *, year: int, month: int, team: str, job_id: str) -> int:
+    """claim 成功後に同 (year, month, team) の重複行を 1 行に絞る。
+
+    残すべき行: 自分の lock_token を持つ行のうち最新 lock_until の 1 行。
+    その他（他者 token / NULL token / 自分の token の古い lock_until）は DELETE。
+
+    Returns:
+        削除した行数（通常 0。レース発生時のみ >0）。
+    """
+    table_id = f"{config.GCP_PROJECT_ID}.{config.BQ_DATASET}.{config.BQ_TABLE_TEAM_MONTHLY_EVAL}"
+    # 1. 残すべき行の lock_until を特定（自分の token の中で最も新しい lock_until）
+    pick_sql = f"""
+    SELECT lock_until
+    FROM `{table_id}`
+    WHERE year = @year AND month = @month AND team = @team
+      AND lock_token = @job_id
+    ORDER BY lock_until DESC
+    LIMIT 1
+    """
+    job_config_pick = bigquery.QueryJobConfig(
+        query_parameters=[
+            bigquery.ScalarQueryParameter("year", "INT64", year),
+            bigquery.ScalarQueryParameter("month", "INT64", month),
+            bigquery.ScalarQueryParameter("team", "STRING", team),
+            bigquery.ScalarQueryParameter("job_id", "STRING", job_id),
+        ]
+    )
+    rows = list(client.query(pick_sql, job_config=job_config_pick).result())
+    if not rows:
+        # 自分の claim が即座に他者に奪われた稀ケース。dedup は呼び出し元判断。
+        return 0
+    keep_lock_until = rows[0]["lock_until"]
+
+    # 2. 自分の token + 同 lock_until 以外を全削除
+    #    keep_lock_until が NULL なら IS NULL マッチ、それ以外は = マッチで残す。
+    delete_sql = f"""
+    DELETE FROM `{table_id}`
+    WHERE year = @year AND month = @month AND team = @team
+      AND NOT (
+        lock_token = @job_id
+        AND (
+          (@keep_lock_until IS NULL AND lock_until IS NULL)
+          OR lock_until = @keep_lock_until
+        )
+      )
+    """
+    job_config_del = bigquery.QueryJobConfig(
+        query_parameters=[
+            bigquery.ScalarQueryParameter("year", "INT64", year),
+            bigquery.ScalarQueryParameter("month", "INT64", month),
+            bigquery.ScalarQueryParameter("team", "STRING", team),
+            bigquery.ScalarQueryParameter("job_id", "STRING", job_id),
+            bigquery.ScalarQueryParameter("keep_lock_until", "TIMESTAMP", keep_lock_until),
+        ]
+    )
+    job = client.query(delete_sql, job_config=job_config_del)
+    job.result()
+    deleted = job.num_dml_affected_rows or 0
+    if deleted > 0:
+        logger.warning(
+            "claim 重複 dedup: year=%s month=%s team=%s deleted=%s",
+            year, month, team, deleted,
+        )
+    return deleted
 
 
 def load_existing_eval(client, *, year: int, month: int, team: str) -> Optional[dict]:

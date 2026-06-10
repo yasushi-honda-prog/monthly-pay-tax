@@ -5,7 +5,6 @@ Cloud Scheduler → HTTP POST → データ収集 → BigQuery投入
 
 import logging
 import os
-import threading
 import time
 from datetime import datetime, timedelta, timezone
 
@@ -380,11 +379,14 @@ def eval_team_monthly():
 
     Request body:
         year (int|null), month (int|null), teams (list[str]|null),
-        force (bool, default false), async (bool, default false)
+        force (bool, default false)
 
     - year/month が null なら JST 前月を解決
     - teams が null なら対象月に出現する全 active 隊を処理
-    - async=true なら 202 即返却、background thread で継続（完了時に Chat 通知）
+    - 常に同期処理 (sync 200)。Cloud Scheduler 経由の月次バッチは
+      attempt-deadline=1800s を設定して呼ぶ前提（spec §5.3）。
+      旧 async モードは Cloud Run scale-down で daemon thread が silent kill
+      されるリスクを避けるため PR-C で撤廃。
     """
     start = time.time()
     payload = request.get_json(silent=True) or {}
@@ -392,7 +394,6 @@ def eval_team_monthly():
     month_in = payload.get("month")
     teams = payload.get("teams")
     force = bool(payload.get("force", False))
-    async_mode = bool(payload.get("async", False))
 
     # 入力 type 検証: teams は null または str リスト限定。文字列 "A" を渡されると
     # iterate されて "A" が 1 文字ずつ別 team として扱われる（バグソース）。
@@ -410,36 +411,9 @@ def eval_team_monthly():
         actor = team_eval_service.extract_actor(request)
         job_id = team_eval_service.generate_job_id()
         logger.info(
-            "eval/team-monthly request: year=%s month=%s teams=%s force=%s async=%s actor=%s",
-            year, month, teams, force, async_mode, actor,
+            "eval/team-monthly request: year=%s month=%s teams=%s force=%s actor=%s",
+            year, month, teams, force, actor,
         )
-
-        if async_mode:
-            def _bg():
-                try:
-                    result = team_eval_service.process_teams(
-                        year=year, month=month, teams=teams,
-                        force=force, actor=actor, job_id=job_id,
-                    )
-                    s = result["summary"]
-                    chat_notifier.notify(
-                        f"✅ 予実評価バッチ完了 {year}年{month}月 "
-                        f"(total={s['total']} generated={s['generated']} "
-                        f"skipped_hash={s['skipped_hash_match']} "
-                        f"skipped_claim={s['skipped_claim']} "
-                        f"no_actual={s['no_actual']} failed={s['failed']})"
-                    )
-                except Exception as bg_err:  # noqa: BLE001
-                    logger.error("async eval failed: %s", bg_err, exc_info=True)
-                    chat_notifier.notify_fatal("POST /eval/team-monthly (async)", bg_err)
-
-            thread = threading.Thread(target=_bg, daemon=True)
-            thread.start()
-            return jsonify({
-                "job_id": job_id, "year": year, "month": month,
-                "status": "accepted",
-                "callback": "chat_notification_on_complete",
-            }), 202
 
         result = team_eval_service.process_teams(
             year=year, month=month, teams=teams,

@@ -7,12 +7,15 @@ main.py は薄い HTTP ラッパーに留め、本ファイルがオーケスト
 BQ / Gemini クライアントは外部から差し替え可能。
 """
 
-import base64
 import json
 import logging
+import os
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Optional
+
+from google.auth.transport import requests as google_requests
+from google.oauth2 import id_token
 
 import bq_loader
 import config
@@ -37,33 +40,37 @@ def resolve_year_month(year: Optional[int], month: Optional[int]) -> tuple[int, 
     return last_of_prev.year, last_of_prev.month
 
 
+_grequest_session = google_requests.Request()
+
+
 def extract_actor(request) -> str:
     """request から actor を確定する（spec §5.1: server 側で OIDC subject から確定）。
 
     優先順位:
       1. X-Goog-Authenticated-User-Email (IAP / Cloud Run authenticated invocation)
-      2. Authorization: Bearer <JWT> の payload の email
+      2. Authorization: Bearer <JWT> → google.oauth2.id_token.verify_token で
+         signature + issuer + (audience 設定時) audience 検証
       3. "unknown"
 
-    JWT の signature 検証は Cloud Run が既に行っているので、ここでは payload のみ decode する。
+    PR-C 修正: 旧実装は JWT payload を decode するだけで署名検証なし。
+    Cloud Run IAM 認証は普通 --no-allow-unauthenticated で deploy する前提だが、
+    誤って --allow-unauthenticated でデプロイした場合に任意の bearer token で
+    actor 詐称可能だった (audit log 偽装)。verify_token で防ぐ。
+    audience は環境変数 SERVICE_AUDIENCE_URL（Cloud Run service URL）で指定。
     """
     email = request.headers.get("X-Goog-Authenticated-User-Email", "")
     if email:
-        # IAP プレフィックス "accounts.google.com:" を除去
         return email.split(":", 1)[-1]
 
     auth = request.headers.get("Authorization", "")
     if auth.lower().startswith("bearer "):
         token = auth[7:]
-        parts = token.split(".")
-        if len(parts) == 3:
-            try:
-                # JWT payload は base64url. パディング不足を補う。
-                payload_b64 = parts[1] + "=" * (-len(parts[1]) % 4)
-                payload = json.loads(base64.urlsafe_b64decode(payload_b64))
-                return payload.get("email") or payload.get("sub") or "unknown"
-            except Exception:  # noqa: BLE001 — decode 失敗は unknown 扱い
-                pass
+        audience = os.environ.get("SERVICE_AUDIENCE_URL") or None
+        try:
+            payload = id_token.verify_token(token, _grequest_session, audience=audience)
+            return payload.get("email") or payload.get("sub") or "unknown"
+        except Exception as exc:  # noqa: BLE001 — 検証失敗は unknown 扱い
+            logger.warning("JWT verify failed (actor=unknown): %s", type(exc).__name__)
 
     return "unknown"
 
