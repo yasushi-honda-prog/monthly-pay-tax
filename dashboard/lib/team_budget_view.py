@@ -87,9 +87,18 @@ def format_diff(diff: Optional[float]) -> str:
 
 
 def is_outdated(stored_hash: Optional[str], current_hash: Optional[str]) -> bool:
-    """評価レコードの hash と現在の hash を比較し outdated か判定する"""
-    if not stored_hash or not current_hash:
+    """評価レコードの hash と現在の hash を比較し outdated か判定する。
+
+    判定ルール (Evaluator MEDIUM 修正):
+    - 両方非空 → 不一致なら outdated
+    - stored が空で current が非空 → outdated (評価レコードが古い形式 or
+      claim 進行中で hash が未確定。安全側に振って再生成を促す)
+    - current が空 (実データがない) → False (表示する outdated 判定材料がない)
+    """
+    if not current_hash:
         return False
+    if not stored_hash:
+        return True
     return stored_hash != current_hash
 
 
@@ -157,6 +166,7 @@ def render_ai_comment_card(
     is_admin: bool,
     on_update,
     on_force_update,
+    key_suffix: str = "default",
 ) -> None:
     """AI 評価コメントカード (spec §6.4)。
 
@@ -166,6 +176,7 @@ def render_ai_comment_card(
         is_admin: 強制再生成ボタン表示判定
         on_update: 「評価を更新」ボタン押下時に呼ぶ callable (force=False)
         on_force_update: 「強制再生成」ボタン押下時に呼ぶ callable (force=True)
+        key_suffix: button key の suffix (deterministic に year/month/team 等を渡す)
     """
     import streamlit as st
 
@@ -182,8 +193,13 @@ def render_ai_comment_card(
             if generated_at:
                 st.caption(f"生成日時: {generated_at}")
 
-        col1, col2 = st.columns([1, 1] if is_admin else [1, 0.001])
-        if col1.button("評価を更新", key=f"update_eval_{id(on_update)}"):
-            on_update()
-        if is_admin and col2.button("強制再生成 (admin)", key=f"force_eval_{id(on_force_update)}"):
-            on_force_update()
+        # admin のみ 2 列、非 admin は単独列 (Evaluator LOW: zero-width 回避)
+        if is_admin:
+            col1, col2 = st.columns(2)
+            if col1.button("評価を更新", key=f"update_eval_{key_suffix}"):
+                on_update()
+            if col2.button("強制再生成 (admin)", key=f"force_eval_{key_suffix}"):
+                on_force_update()
+        else:
+            if st.button("評価を更新", key=f"update_eval_{key_suffix}"):
+                on_update()

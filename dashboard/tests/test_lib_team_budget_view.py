@@ -82,10 +82,19 @@ class TestIsOutdated:
     def test_mismatch_returns_true(self):
         assert tbv.is_outdated("abc", "xyz") is True
 
-    def test_none_returns_false(self):
-        """どちらかが空なら判定不可で False (誤って更新を促さない)"""
-        assert tbv.is_outdated(None, "xyz") is False
+    def test_stored_empty_current_non_empty_returns_true(self):
+        """評価レコードが古い形式 (stored が空) で実データがあるなら再生成促す"""
+        assert tbv.is_outdated(None, "xyz") is True
+        assert tbv.is_outdated("", "xyz") is True
+
+    def test_current_empty_returns_false(self):
+        """データなし (current が空) なら outdated 判定材料がない"""
         assert tbv.is_outdated("abc", None) is False
+        assert tbv.is_outdated("abc", "") is False
+        assert tbv.is_outdated(None, None) is False
+
+    def test_both_non_empty_match(self):
+        assert tbv.is_outdated("abc", "abc") is False
         assert tbv.is_outdated("", "") is False
 
 

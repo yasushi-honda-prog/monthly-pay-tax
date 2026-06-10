@@ -25,6 +25,7 @@ from lib.constants import DATASET, PROJECT_ID
 from lib.team_budget_view import (
     achievement_color,
     build_matrix_df,
+    classify_achievement,
     format_diff,
     format_rate,
     format_yen,
@@ -80,21 +81,31 @@ with tab_overview:
                 actuals_year.groupby("team")["actual_amount"]
                 .sum().sort_values(ascending=False).index.tolist()
             )
+            # classify_achievement と同じ bucket で離散色付け
+            # (Codex Medium-1: continuous color scale だと rate=140 が赤寄りに
+            # 補間されて classify_achievement の "warning" 黄と乖離するため修正)
+            hm_df = actuals_year.dropna(subset=["achievement_rate"]).copy()
+            hm_df["bucket"] = hm_df["achievement_rate"].apply(classify_achievement)
+            bucket_label = {"ok": "適正(80-120%)", "warning": "注意(60-80/120-150%)",
+                            "danger": "乖離大(<60/>150%)", "no_data": "データなし"}
+            hm_df["bucket_label"] = hm_df["bucket"].map(bucket_label)
             heatmap = (
-                alt.Chart(actuals_year.dropna(subset=["achievement_rate"]))
+                alt.Chart(hm_df)
                 .mark_rect()
                 .encode(
                     x=alt.X("month:O", title="月"),
                     y=alt.Y("team:N", title="隊", sort=team_order),
                     color=alt.Color(
-                        "achievement_rate:Q",
+                        "bucket_label:N",
                         scale=alt.Scale(
-                            domain=[0, 80, 100, 120, 200],
-                            range=["#f8d7da", "#fff3cd", "#d4edda", "#fff3cd", "#f8d7da"],
+                            domain=[bucket_label["ok"], bucket_label["warning"],
+                                    bucket_label["danger"]],
+                            range=["#d4edda", "#fff3cd", "#f8d7da"],
                         ),
-                        title="達成率(%)",
+                        title="達成率",
                     ),
-                    tooltip=["team", "month", "achievement_rate", "actual_amount", "budget_amount"],
+                    tooltip=["team", "month", "achievement_rate",
+                             "actual_amount", "budget_amount"],
                 )
                 .properties(height=max(200, 28 * len(team_order)))
             )
@@ -167,6 +178,10 @@ with tab_drilldown:
         st.warning(f"{year}/{month} には active な隊がありません。")
     else:
         # マトリクスから選択された隊 (またはセッション state) を初期値に
+        # session_state のスタイルキーが新 teams に含まれていない場合は事前に
+        # クリアして StreamlitAPIException を避ける (Agent F6)
+        if st.session_state.get("tb_drill_team") not in teams:
+            st.session_state.pop("tb_drill_team", None)
         prev_team = st.session_state.get("tb_selected_team")
         default_idx = teams.index(prev_team) if prev_team in teams else 0
         team = st.selectbox("隊を選択", teams, index=default_idx, key="tb_drill_team")
@@ -199,6 +214,16 @@ with tab_drilldown:
         stored = eval_row.get("actual_data_hash") if eval_row else None
         outdated = is_outdated(stored, current.get(team))
 
+        def _clear_team_eval_cache():
+            """予実管理関連の cache のみクリア (Codex Low-1: 全 cache nuke を回避)"""
+            for fn in (load_team_monthly_eval, load_team_budget_actuals,
+                       compute_current_hashes, load_active_teams):
+                try:
+                    fn.clear()
+                except AttributeError:
+                    # cache_data でラップされていない場合は no-op
+                    pass
+
         def _on_update():
             with st.spinner("Vertex AI Gemini で評価生成中... (約 30 秒)"):
                 try:
@@ -211,10 +236,14 @@ with tab_drilldown:
                         f" skipped_hash={s.get('skipped_hash_match', 0)}"
                         f" failed={s.get('failed', 0)})"
                     )
-                    st.cache_data.clear()
                 except Exception as exc:  # noqa: BLE001 - ユーザー向け表示
                     logger.exception("invoke_team_eval failed")
                     st.error(f"評価生成失敗: {exc}")
+                    return
+            # cache クリア + rerun で新しいコメントを表示
+            # (Codex Medium-2: clear() だけだと現在の eval_row が古いまま画面に残る)
+            _clear_team_eval_cache()
+            st.rerun()
 
         def _on_force_update():
             with st.spinner("Vertex AI Gemini で強制再生成中... (約 30 秒)"):
@@ -224,10 +253,12 @@ with tab_drilldown:
                     )
                     s = result.get("summary", {})
                     st.success(f"強制再生成完了 (generated={s.get('generated', 0)})")
-                    st.cache_data.clear()
                 except Exception as exc:  # noqa: BLE001 - ユーザー向け表示
                     logger.exception("invoke_team_eval force failed")
                     st.error(f"強制再生成失敗: {exc}")
+                    return
+            _clear_team_eval_cache()
+            st.rerun()
 
         render_ai_comment_card(
             eval_row,
@@ -235,6 +266,7 @@ with tab_drilldown:
             is_admin=is_admin,
             on_update=_on_update,
             on_force_update=_on_force_update,
+            key_suffix=f"{year}-{month}-{team}",
         )
 
         # 業務報告詳細
@@ -265,8 +297,12 @@ with tab_drilldown:
             gyomu_df = pd.DataFrame()
 
         if not gyomu_df.empty and search_kw:
-            mask = gyomu_df.apply(
-                lambda row: any(search_kw in str(v) for v in row.values), axis=1
+            # NaN を 'nan' に str 化して誤マッチするのを避けるため na=False を渡す
+            # (Agent F5)。全列に対する OR マッチ。
+            mask = (
+                gyomu_df.astype(str)
+                .apply(lambda col: col.str.contains(search_kw, case=False, na=False, regex=False))
+                .any(axis=1)
             )
             gyomu_df = gyomu_df[mask]
 

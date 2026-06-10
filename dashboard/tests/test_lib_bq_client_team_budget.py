@@ -121,6 +121,14 @@ class TestComputeCurrentHashes:
         result = bq_client.compute_current_hashes(2026, 5, ("A", "B"))
         assert result == {"A": "h-a", "B": "h-b"}
 
+    def test_missing_team_falls_back_to_empty_string(self, mock_client):
+        """指定 team が結果に含まれない (= 該当データなし) は '' で埋める
+        (cloud-run 側の IFNULL(..., '') と整合)"""
+        rows = [{"team": "A", "data_hash": "h-a"}]  # B は返らない
+        _result_mock(mock_client, rows)
+        result = bq_client.compute_current_hashes(2026, 5, ("A", "B"))
+        assert result == {"A": "h-a", "B": ""}
+
     def test_sql_uses_unnest(self, mock_client):
         _result_mock(mock_client, [])
         bq_client.compute_current_hashes(2026, 5, ("A", "B"))

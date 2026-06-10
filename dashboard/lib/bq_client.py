@@ -170,7 +170,12 @@ def compute_current_hashes(
             bigquery.ArrayQueryParameter("teams", "STRING", list(teams)),
         ]
     )
-    return {
+    fetched = {
         row["team"]: row["data_hash"]
         for row in client.query(sql, job_config=job_config).result()
     }
+    # データなし隊は cloud-run 側の hash 計算と整合させるため "" を入れる
+    # (cloud-run/vertex_evaluator.compute_actual_data_hash も IFNULL(..., '') で
+    #  「データなし」を空文字として表現する。dashboard 側で None のままだと
+    #  is_outdated が「未判定」と扱い、データ削除を outdated と検知できない)
+    return {team: fetched.get(team, "") for team in teams}
