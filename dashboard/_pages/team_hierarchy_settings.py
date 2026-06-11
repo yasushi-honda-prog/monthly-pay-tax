@@ -19,12 +19,6 @@ import time
 import pandas as pd
 import streamlit as st
 
-# 二重 submit ロック設定 (race condition による重複 INSERT 防止)
-# 本田様 2026-06-11 のインシデント: 連続クリック等で 2 秒差の MERGE が同時実行され
-# team_hierarchy に重複行が混入。本ロックでセッション内の race を防ぐ。
-ADD_LOCK_KEY = "th_add_lock_ts"
-ADD_LOCK_DURATION_SEC = 5
-
 from lib.auth import require_admin
 from lib.constants import LEADER_TEAM_TYPES
 from lib.doc_styles import (
@@ -41,6 +35,12 @@ from lib.team_hierarchy_repo import (
     rename_leader_team,
     update_hierarchy_row,
 )
+
+# 二重 submit ロック設定 (race condition による重複 INSERT 防止)
+# 本田様 2026-06-11 のインシデント: 連続クリック等で 2 秒差の MERGE が同時実行され
+# team_hierarchy に重複行が混入。本ロックでセッション内の race を防ぐ。
+ADD_LOCK_KEY = "th_add_lock_ts"
+ADD_LOCK_DURATION_SEC = 5
 
 # --- 認証チェック ---
 email = st.session_state.get("user_email", "")
