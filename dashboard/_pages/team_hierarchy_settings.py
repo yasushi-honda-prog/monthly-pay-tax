@@ -176,7 +176,7 @@ else:
 
         new_leader_text = st.text_input(
             "統括隊 (新規入力)",
-            placeholder="シロロ+ゆずるん統括隊 など",
+            placeholder="ヤスス+ヒデデン統括隊 など",
             disabled=(leader_choice != "(新規入力)"),
             key="add_new_leader_text",
         )
