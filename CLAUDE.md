@@ -60,6 +60,7 @@ SA鍵ファイルは使わない（ローカル開発時のみ `SA_KEY_PATH` 環
   - `_pages/architecture.py` - Mermaidアーキテクチャ図
   - `_pages/operations_docs.py` - 運用ドキュメント（`docs/operations/*.md` を frontmatter解析 + Mermaid自動レンダリング）
   - `_pages/user_management.py` - ユーザー管理（admin専用、BQ DML）
+  - `_pages/team_hierarchy_settings.py` - 予実階層設定（admin専用、PR-F、team_hierarchy 編集: UNMAPPED 補完 / 統括隊リネーム / 編集・削除）
   - `_pages/admin_settings.py` - 管理設定（admin専用、キャッシュ制御 / BQテーブル情報 / 手動同期ボタン4種（メイン報告 / 立替金 / タダメンM / グループ情報）/ ユーザー統計 / システム情報）
   - `_pages/help.py` - ヘルプ/マニュアル
   - `lib/auth.py` - Streamlit OIDC認証 + BQホワイトリスト照合
@@ -71,6 +72,7 @@ SA鍵ファイルは使わない（ローカル開発時のみ `SA_KEY_PATH` 環
   - `lib/mermaid_renderer.py` - Mermaid図レンダリング共通モジュール（dark/lightテーマ対応）
   - `lib/ui_helpers.py` - 共通UIユーティリティ（KPI表示・数値変換・年月セレクタ）
   - `lib/cloud_run_client.py` - pay-collector への OIDC 認証付き呼び出しヘルパ（admin_settings の手動同期ボタンから利用）
+  - `lib/team_hierarchy_repo.py` - team_hierarchy テーブルへの BQ DML 関数（PR-F、fetch_hierarchy / fetch_unmapped / upsert (optimistic lock) / rename_leader_team / delete_hierarchy_row）
 - `docs/operations/` - 運用ドキュメント（業務報告シート構造変更等の記録、Markdown + frontmatter + Mermaid。dashboardの「運用ドキュメント」ページから閲覧可能）
 - `コード.js` - 旧GASコード（参照用、稼働していない）
 - `infra/bigquery/schema.sql` - BQテーブルスキーマ定義（dashboard_users, check_logs, team_budgets, team_monthly_eval, expense_categories, team_hierarchy, team_budgets_quarterly 含む）
@@ -331,6 +333,7 @@ GASバインドSSのスプレッドシート関数パイプラインをSQLで再
 | ヘルプ | `_pages/help.py` | user/checker/admin |
 | WAM立替金確認（6タブ） | `_pages/wam_monthly.py` | checker/admin |
 | ユーザー管理 | `_pages/user_management.py` | adminのみ |
+| 予実階層設定 | `_pages/team_hierarchy_settings.py` | adminのみ |
 | 管理設定 | `_pages/admin_settings.py` | adminのみ |
 
 ### 認証フロー

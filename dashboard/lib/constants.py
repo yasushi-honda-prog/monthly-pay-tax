@@ -20,3 +20,7 @@ TEAM_BUDGETS_TABLE = f"{PROJECT_ID}.{DATASET}.team_budgets"
 TEAM_MONTHLY_EVAL_TABLE = f"{PROJECT_ID}.{DATASET}.team_monthly_eval"
 TEAM_BUDGET_ACTUALS_VIEW = f"{PROJECT_ID}.{DATASET}.v_team_budget_actuals"
 GYOMU_REPORTS_TABLE = f"{PROJECT_ID}.{DATASET}.gyomu_reports"
+# 予実管理機能 PR-E (四半期×統括隊×カテゴリ) + PR-F (階層設定 UI)
+TEAM_HIERARCHY_TABLE = f"{PROJECT_ID}.{DATASET}.team_hierarchy"
+TEAM_HIERARCHY_COVERAGE_VIEW = f"{PROJECT_ID}.{DATASET}.v_team_hierarchy_coverage"
+LEADER_TEAM_TYPES: tuple[str, ...] = ("operating", "common")
