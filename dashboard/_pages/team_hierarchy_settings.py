@@ -145,17 +145,32 @@ render_section_header(
 st.caption(
     "gyomu_reports に出現する活動分類のうち、まだ team_hierarchy に登録されていないものを"
     "選んで統括隊に紐付けます。1 件ずつ追加します。"
+    " 本リストは「隊」サフィックスの活動分類のみ表示します"
+    " (主要分類「その他」「移動」「電話対応」等は team_hierarchy 管理対象外。"
+    " 必要時は `scripts/upload_team_hierarchy.py` で個別投入)。"
 )
 
-if df_unmapped.empty:
-    st.info("未マッピング隊はありません。")
+# 本田様判断: UNMAPPED 全件から「〜隊」サフィックスのみを selectbox に出す
+unmapped_team_options = [
+    cat for cat in df_unmapped["activity_category"].tolist()
+    if cat.endswith("隊")
+]
+
+if not unmapped_team_options:
+    if df_unmapped.empty:
+        st.info("未マッピング隊はありません。")
+    else:
+        st.info(
+            f"「隊」サフィックスの未マッピング隊はありません "
+            f"(主要分類が {len(df_unmapped)} 件残っていますが、本リストの対象外です)。"
+        )
 else:
     with st.form("add_unmapped_form"):
         col1, col2, col3, col4 = st.columns([3, 3, 1, 2])
         with col1:
             target_unmapped = st.selectbox(
-                "未マッピング隊",
-                df_unmapped["activity_category"].tolist(),
+                f"未マッピング隊 ({len(unmapped_team_options)} 件)",
+                unmapped_team_options,
                 key="add_target_unmapped",
             )
         with col2:
