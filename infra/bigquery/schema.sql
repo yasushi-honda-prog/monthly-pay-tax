@@ -273,6 +273,53 @@ CREATE TABLE IF NOT EXISTS `monthly-pay-tax.pay_reports.team_monthly_eval` (
 -- 小規模テーブル（年間 24 隊 × 12 月 ≒ 288 行）のため CLUSTER のみで partition なし。
 CLUSTER BY year, month, team;
 
+-- 予実管理機能 PR-E: 支出カテゴリマスタ (7 行 seed)。
+-- team_budgets_quarterly の expense_category typo 防止のため JOIN 検証必須。
+-- 詳細: infra/bigquery/migrations/2026-06-11_quarterly_budgets.sql
+CREATE TABLE IF NOT EXISTS `monthly-pay-tax.pay_reports.expense_categories` (
+  sort INT64 NOT NULL,                    -- 表示順 (1-7)
+  expense_category STRING NOT NULL,       -- 支出カテゴリ名 (PK)
+  actual_source STRING NOT NULL,          -- 'gyomu' | 'reimbursement' | 'none'
+  is_phase1_supported BOOL NOT NULL,      -- Phase 1 で実額紐付け済か
+  note STRING
+);
+
+-- 予実管理機能 PR-E: activity_category (隊) ↔ leader_team (統括隊) 階層マッピング。
+-- 案 T-NOW: 現在値のみ保持 (組織再編は schema migration で対応)。
+-- 入力経路: scripts/upload_team_hierarchy.py
+CREATE TABLE IF NOT EXISTS `monthly-pay-tax.pay_reports.team_hierarchy` (
+  activity_category STRING NOT NULL,      -- gyomu_reports.activity_category と同一値 (PK)
+  leader_team STRING NOT NULL,            -- 統括隊名
+  leader_team_type STRING NOT NULL,       -- 'operating' | 'common'
+  note STRING,
+  version INT64 NOT NULL,                 -- optimistic lock 用
+  created_at TIMESTAMP NOT NULL,
+  created_by STRING NOT NULL,
+  updated_at TIMESTAMP NOT NULL,
+  updated_by STRING NOT NULL
+)
+PARTITION BY DATE(updated_at)
+CLUSTER BY leader_team, activity_category;
+
+-- 予実管理機能 PR-E: 四半期 × 統括隊 × 支出カテゴリの予算。
+-- 既存 team_budgets (月別×隊) と並存。fiscal_year は 11 月始まり (案 N11)。
+-- 入力経路: scripts/upload_team_budgets_quarterly.py
+CREATE TABLE IF NOT EXISTS `monthly-pay-tax.pay_reports.team_budgets_quarterly` (
+  fiscal_year INT64 NOT NULL,             -- 11 月始まり、Q1 開始月の翌暦年
+  fiscal_quarter INT64 NOT NULL,          -- 1-4
+  leader_team STRING NOT NULL,            -- team_hierarchy.leader_team と JOIN
+  expense_category STRING NOT NULL,       -- expense_categories.expense_category と JOIN
+  budget_amount NUMERIC NOT NULL,
+  memo STRING,
+  version INT64 NOT NULL,
+  created_at TIMESTAMP NOT NULL,
+  created_by STRING NOT NULL,
+  updated_at TIMESTAMP NOT NULL,
+  updated_by STRING NOT NULL
+)
+PARTITION BY DATE(updated_at)
+CLUSTER BY fiscal_year, fiscal_quarter, leader_team;
+
 -- シード: 初期管理者
 -- INSERT INTO `monthly-pay-tax.pay_reports.dashboard_users`
 --   (email, role, display_name, added_by, created_at, updated_at)

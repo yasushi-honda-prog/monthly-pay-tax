@@ -493,3 +493,152 @@ SELECT
 FROM actuals_agg a
 FULL OUTER JOIN budgets_latest b
   ON a.year = b.year AND a.month = b.month AND a.team = b.team;
+
+
+-- ============================================================
+-- fiscal_quarter UDF: 案 N11 で 11 月始まりの会計年度・四半期を計算
+-- ============================================================
+-- 予実管理機能 PR-E。Q1=11-1月 / Q2=2-4月 / Q3=5-7月 / Q4=8-10月。
+-- 暦 2025-11 〜 2026-10 が FY2026。
+-- 詳細: infra/bigquery/migrations/2026-06-11_quarterly_budgets.sql
+
+CREATE OR REPLACE FUNCTION `monthly-pay-tax.pay_reports.fiscal_quarter`(year INT64, month INT64)
+AS (
+  STRUCT(
+    IF(month >= 11, year + 1, year) AS fiscal_year,
+    1 + DIV(MOD(month - 11 + 12, 12), 3) AS fiscal_quarter
+  )
+);
+
+
+-- ============================================================
+-- v_team_budget_actuals_quarterly: 四半期 × 統括隊 × カテゴリの予実集計
+-- ============================================================
+-- Phase 1 は actual_source='gyomu' (タダメン業務委託費) のみ実額マッピング。
+-- actual_mapping_status:
+--   'mapped'                  -- Phase 1 対応 + 予算あり + 実額あり
+--   'no_actual_rows'          -- Phase 1 対応 + 予算あり + 実額 0 件
+--   'not_supported_in_phase1' -- Phase 2 以降対応カテゴリ
+--   'budget_missing'          -- 実額あり + 予算未設定
+-- 詳細: infra/bigquery/migrations/2026-06-11_quarterly_budgets.sql
+
+CREATE OR REPLACE VIEW `monthly-pay-tax.pay_reports.v_team_budget_actuals_quarterly` AS
+WITH
+gyomu_parsed AS (
+  -- Codex M3: SAFE_CAST 失敗 (parse 不能) を actual_count から除外、別 invalid_amount_count に分離
+  SELECT
+    fq.fiscal_year,
+    fq.fiscal_quarter,
+    th.leader_team,
+    SAFE_CAST(REGEXP_REPLACE(g.amount, r'[^0-9.-]', '') AS NUMERIC) AS parsed_amount
+  FROM `monthly-pay-tax.pay_reports.gyomu_reports` g
+  JOIN `monthly-pay-tax.pay_reports.team_hierarchy` th
+    ON g.activity_category = th.activity_category
+  CROSS JOIN UNNEST([`monthly-pay-tax.pay_reports.fiscal_quarter`(
+    SAFE_CAST(g.year AS INT64),
+    `monthly-pay-tax.pay_reports.extract_month`(g.date)
+  )]) AS fq
+  WHERE g.activity_category IS NOT NULL AND g.activity_category != ''
+    AND SAFE_CAST(g.year AS INT64) IS NOT NULL
+    AND `monthly-pay-tax.pay_reports.extract_month`(g.date) IS NOT NULL
+    AND `monthly-pay-tax.pay_reports.extract_month`(g.date) BETWEEN 1 AND 12
+    AND th.leader_team_type = 'operating'
+),
+gyomu_actuals AS (
+  SELECT
+    fiscal_year,
+    fiscal_quarter,
+    leader_team,
+    'タダメン業務委託費' AS expense_category,
+    SUM(parsed_amount) AS actual_amount,
+    COUNTIF(parsed_amount IS NOT NULL) AS actual_count,
+    COUNTIF(parsed_amount IS NULL) AS invalid_amount_count
+  FROM gyomu_parsed
+  GROUP BY fiscal_year, fiscal_quarter, leader_team
+),
+budgets_latest AS (
+  SELECT * EXCEPT(rn)
+  FROM (
+    SELECT *, ROW_NUMBER() OVER (
+      PARTITION BY fiscal_year, fiscal_quarter, leader_team, expense_category
+      ORDER BY updated_at DESC, version DESC
+    ) AS rn
+    FROM `monthly-pay-tax.pay_reports.team_budgets_quarterly`
+  )
+  WHERE rn = 1
+)
+SELECT
+  COALESCE(b.fiscal_year, a.fiscal_year) AS fiscal_year,
+  COALESCE(b.fiscal_quarter, a.fiscal_quarter) AS fiscal_quarter,
+  COALESCE(b.leader_team, a.leader_team) AS leader_team,
+  COALESCE(b.expense_category, a.expense_category) AS expense_category,
+  ec.actual_source,
+  ec.is_phase1_supported,
+  b.budget_amount,
+  a.actual_amount,
+  a.actual_count,
+  a.invalid_amount_count,
+  CASE
+    WHEN b.budget_amount IS NULL THEN NULL
+    WHEN b.budget_amount = 0 THEN NULL
+    ELSE SAFE_DIVIDE(COALESCE(a.actual_amount, 0), b.budget_amount) * 100
+  END AS achievement_rate,
+  CASE
+    WHEN b.budget_amount IS NULL THEN NULL
+    ELSE COALESCE(a.actual_amount, 0) - b.budget_amount
+  END AS diff_amount,
+  -- actual_mapping_status 算出ロジック:
+  -- 1) expense_categories マスタにないカテゴリ → 'unknown_category'
+  -- 2) Phase 1 未対応 + 予算あり → 'not_supported_in_phase1' (実額有無は Phase 2 で確定するため意図的に優先)
+  -- 3) 予算なし + 実額あり → 'budget_missing'
+  -- 4) 予算あり + 実額 NULL/0 件 → 'no_actual_rows'
+  -- 5) 予算あり + 実額あり → 'mapped'
+  CASE
+    WHEN ec.is_phase1_supported IS NULL THEN 'unknown_category'
+    WHEN NOT ec.is_phase1_supported AND b.budget_amount IS NOT NULL THEN 'not_supported_in_phase1'
+    WHEN b.budget_amount IS NULL AND a.actual_amount IS NOT NULL THEN 'budget_missing'
+    WHEN b.budget_amount IS NOT NULL AND a.actual_amount IS NULL THEN 'no_actual_rows'
+    WHEN b.budget_amount IS NOT NULL AND a.actual_amount IS NOT NULL THEN 'mapped'
+    ELSE 'unknown'
+  END AS actual_mapping_status
+FROM budgets_latest b
+FULL OUTER JOIN gyomu_actuals a
+  ON b.fiscal_year = a.fiscal_year
+  AND b.fiscal_quarter = a.fiscal_quarter
+  AND b.leader_team = a.leader_team
+  AND b.expense_category = a.expense_category
+LEFT JOIN `monthly-pay-tax.pay_reports.expense_categories` ec
+  ON COALESCE(b.expense_category, a.expense_category) = ec.expense_category;
+
+
+-- ============================================================
+-- v_team_hierarchy_coverage: hierarchy 定義 vs gyomu 出現の差分検知
+-- ============================================================
+-- 'UNMAPPED' = gyomu 出現するが hierarchy 未定義 (CSV 更新が必要)
+-- 'UNUSED'   = hierarchy 定義あるが gyomu 出現なし (組織変更の名残)
+-- 'MAPPED'   = 両方あり
+
+CREATE OR REPLACE VIEW `monthly-pay-tax.pay_reports.v_team_hierarchy_coverage` AS
+WITH
+gyomu_categories AS (
+  SELECT DISTINCT activity_category
+  FROM `monthly-pay-tax.pay_reports.gyomu_reports`
+  WHERE activity_category IS NOT NULL AND activity_category != ''
+),
+hierarchy_categories AS (
+  SELECT activity_category, leader_team, leader_team_type
+  FROM `monthly-pay-tax.pay_reports.team_hierarchy`
+)
+SELECT
+  COALESCE(g.activity_category, h.activity_category) AS activity_category,
+  h.leader_team,
+  h.leader_team_type,
+  CASE
+    WHEN g.activity_category IS NOT NULL AND h.activity_category IS NOT NULL THEN 'MAPPED'
+    WHEN g.activity_category IS NOT NULL AND h.activity_category IS NULL THEN 'UNMAPPED'
+    WHEN g.activity_category IS NULL AND h.activity_category IS NOT NULL THEN 'UNUSED'
+    ELSE 'UNKNOWN'
+  END AS status
+FROM gyomu_categories g
+FULL OUTER JOIN hierarchy_categories h
+  ON g.activity_category = h.activity_category;

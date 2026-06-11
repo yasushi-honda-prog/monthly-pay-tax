@@ -13,7 +13,7 @@ GASベースの給与スプレッドシートデータ集約を、Cloud Run + Bi
 Cloud Scheduler (0 6 * * * JST, OIDC認証)
   → Cloud Run "pay-collector" (Python 3.12 / Flask / gunicorn)
     Step 0: BQバックアップ（本処理の前に直近の正常状態を保全）
-      → BigQuery pay_reports_backup.{dashboard_users, dashboard_sync_groups, check_logs, wam_target_projects, withholding_targets, team_budgets, team_monthly_eval}_YYYYMMDD (CREATE SNAPSHOT, 90日自動失効)
+      → BigQuery pay_reports_backup.{dashboard_users, dashboard_sync_groups, check_logs, wam_target_projects, withholding_targets, team_budgets, team_monthly_eval, expense_categories, team_hierarchy, team_budgets_quarterly}_YYYYMMDD (CREATE SNAPSHOT, 90日自動失効)
     Step 1-3: Sheets API v4 (IAM signBlobによるキーレスDWD認証)
       → BigQuery pay_reports.{gyomu_reports, hojo_reports, members} (WRITE_TRUNCATE)
     Step 4: Admin Directory API
@@ -73,12 +73,15 @@ SA鍵ファイルは使わない（ローカル開発時のみ `SA_KEY_PATH` 環
   - `lib/cloud_run_client.py` - pay-collector への OIDC 認証付き呼び出しヘルパ（admin_settings の手動同期ボタンから利用）
 - `docs/operations/` - 運用ドキュメント（業務報告シート構造変更等の記録、Markdown + frontmatter + Mermaid。dashboardの「運用ドキュメント」ページから閲覧可能）
 - `コード.js` - 旧GASコード（参照用、稼働していない）
-- `infra/bigquery/schema.sql` - BQテーブルスキーマ定義（dashboard_users, check_logs, team_budgets, team_monthly_eval含む）
-  - `infra/bigquery/views.sql` - BQ VIEW/UDF 定義（v_gyomu_enriched, v_hojo_enriched, v_monthly_compensation, v_reimbursement_enriched, v_team_budget_actuals, extract_month UDF）
-  - `infra/bigquery/migrations/2026-06-10_team_budget_eval.sql` - 予実管理機能の DDL（team_budgets, team_monthly_eval, extract_month UDF, v_team_budget_actuals）
+- `infra/bigquery/schema.sql` - BQテーブルスキーマ定義（dashboard_users, check_logs, team_budgets, team_monthly_eval, expense_categories, team_hierarchy, team_budgets_quarterly 含む）
+  - `infra/bigquery/views.sql` - BQ VIEW/UDF 定義（v_gyomu_enriched, v_hojo_enriched, v_monthly_compensation, v_reimbursement_enriched, v_team_budget_actuals, v_team_budget_actuals_quarterly, v_team_hierarchy_coverage, extract_month UDF, fiscal_quarter UDF）
+  - `infra/bigquery/migrations/2026-06-10_team_budget_eval.sql` - 予実管理機能 PR-A〜D の DDL（team_budgets, team_monthly_eval, extract_month UDF, v_team_budget_actuals）
+  - `infra/bigquery/migrations/2026-06-11_quarterly_budgets.sql` - 予実管理機能 PR-E の DDL（expense_categories seed, team_hierarchy, team_budgets_quarterly, fiscal_quarter UDF, v_team_budget_actuals_quarterly, v_team_hierarchy_coverage）
 - `infra/ar-cleanup-policy.json` - Artifact Registryクリーンアップポリシー
 - `scripts/` - CLI ツール群（Claude Code から実行）
   - `scripts/upload_budgets.py` - 隊×月予算 CSV を team_budgets テーブルに MERGE（optimistic lock 付き、--dry-run / --force 対応、tests あり）
+  - `scripts/upload_team_hierarchy.py` - 隊×統括隊階層 CSV を team_hierarchy テーブルに MERGE（PR-E、--check-coverage で v_team_hierarchy_coverage の UNMAPPED 隊を warn、tests あり）
+  - `scripts/upload_team_budgets_quarterly.py` - 四半期×統括隊×カテゴリ予算 CSV を team_budgets_quarterly テーブルに MERGE（PR-E、matrix/long 両形式対応、expense_categories typo 検知、--expected-total 検算、tests あり）
   - `scripts/collect_gas_bindings.py` - 業務報告シートのコンテナバインド GAS Script ID 収集（Playwright、半手動巡回）
   - `scripts/query_categories.py` - 過去業務報告データの活動分類・業務分類使用状況分析
   - `scripts/tests/` - scripts のテスト（BQ / API モック、本番接続なし）
@@ -272,9 +275,9 @@ BQ接続が必要なためローカル実行での完全な動作確認は困難
 | SA | `pay-collector@monthly-pay-tax.iam.gserviceaccount.com` |
 | Cloud Run URL | `https://pay-collector-209715990891.asia-northeast1.run.app` |
 | BQデータセット | `pay_reports`（本番）/ `pay_reports_backup`（Step0 snapshot バックアップ、90日自動失効） |
-| BQテーブル | `gyomu_reports`, `hojo_reports`, `members`, `withholding_targets`, `dashboard_users`, `dashboard_sync_groups`, `check_logs`, `groups_master`, `reimbursement_items`, `wam_target_projects`, `member_master`, `team_budgets`, `team_monthly_eval` |
-| BQ VIEWs | `v_gyomu_enriched`, `v_hojo_enriched`, `v_monthly_compensation`, `v_reimbursement_enriched`, `v_team_budget_actuals` |
-| BQ UDFs | `extract_month(date_str)` - gyomu_reports.date 多形式から月を INT64 抽出（YYYY/M/D 優先判定、予実管理 VIEW と Cloud Run hash 計算で共通使用） |
+| BQテーブル | `gyomu_reports`, `hojo_reports`, `members`, `withholding_targets`, `dashboard_users`, `dashboard_sync_groups`, `check_logs`, `groups_master`, `reimbursement_items`, `wam_target_projects`, `member_master`, `team_budgets`, `team_monthly_eval`, `expense_categories`, `team_hierarchy`, `team_budgets_quarterly` |
+| BQ VIEWs | `v_gyomu_enriched`, `v_hojo_enriched`, `v_monthly_compensation`, `v_reimbursement_enriched`, `v_team_budget_actuals`, `v_team_budget_actuals_quarterly`, `v_team_hierarchy_coverage` |
+| BQ UDFs | `extract_month(date_str)` - gyomu_reports.date 多形式から月を INT64 抽出（YYYY/M/D 優先判定、予実管理 VIEW と Cloud Run hash 計算で共通使用）/ `fiscal_quarter(year, month)` - 11 月始まり会計年度の (fiscal_year, fiscal_quarter) STRUCT を返す（PR-E、Q1=11-1月 / Q2=2-4月 / Q3=5-7月 / Q4=8-10月） |
 | AR | `cloud-run-images`（最新2イメージ保持） |
 | Secret Manager | `dashboard-auth-config`（OAuth）/ `chat-webhook-url`（Chat障害通知 webhook、env `CHAT_WEBHOOK_URL`、pay-collector@ に secretAccessor 付与済み） |
 
