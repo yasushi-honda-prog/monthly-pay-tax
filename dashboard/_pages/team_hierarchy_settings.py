@@ -112,6 +112,14 @@ def _confirm_delete_dialog(target_activity: str, target_leader: str):
 try:
     df_hierarchy = _load_hierarchy()
     df_unmapped = _load_unmapped()
+    # データ重複防御: BQ で同一 activity_category の duplicate row が混入した場合に
+    # Streamlit の widget key duplicate を防ぐ。最新 updated_at を採用。
+    # 重複が検出されたら本田様判断で BQ 上の余分な row を削除する想定
+    _original_hierarchy_count = len(df_hierarchy)
+    df_hierarchy = df_hierarchy.sort_values("updated_at", ascending=False) \
+                               .drop_duplicates(subset=["activity_category"], keep="first") \
+                               .reset_index(drop=True)
+    _hierarchy_duplicates = _original_hierarchy_count - len(df_hierarchy)
     leader_team_options = _load_leader_teams()
 except Exception as e:
     st.error(f"BQ 取得に失敗しました: {e}")
@@ -135,6 +143,14 @@ if len(df_unmapped) > 0:
     )
 else:
     st.success("✓ すべての隊がマッピング済みです。")
+
+if _hierarchy_duplicates > 0:
+    st.error(
+        f"⚠ team_hierarchy に同一 activity_category の重複行が {_hierarchy_duplicates} 件検出されました "
+        f"(表示は最新 updated_at の行を採用、UI は復旧済)。"
+        " BQ で `SELECT activity_category, COUNT(*) FROM team_hierarchy GROUP BY activity_category HAVING COUNT(*)>1` "
+        "で確認し、余分な行を削除してください。"
+    )
 st.divider()
 
 
@@ -308,7 +324,11 @@ else:
     st.caption(f"表示件数: {len(df_view)} / 全 {len(df_hierarchy)} 件")
 
     # 行表示
-    for _, row in df_view.iterrows():
+    # enumerate で idx を key に含めることで、万一データ重複が drop_duplicates を
+    # すり抜けても (例えば pandas での重複判定が浮動小数等で揺れた場合) Streamlit の
+    # widget key duplicate を防ぐ二重防御
+    for idx, (_, row) in enumerate(df_view.iterrows()):
+        key_suffix = f"{idx}_{row['activity_category']}"
         with st.container(border=True):
             c1, c2, c3, c4, c5 = st.columns([3, 3, 1, 2, 1])
             with c1:
@@ -322,7 +342,7 @@ else:
                 new_leader = st.text_input(
                     "統括隊",
                     value=row["leader_team"],
-                    key=f"edit_leader_{row['activity_category']}",
+                    key=f"edit_leader_{key_suffix}",
                     label_visibility="collapsed",
                 )
             with c3:
@@ -334,14 +354,14 @@ else:
                     "type",
                     LEADER_TEAM_TYPES,
                     index=current_type_idx,
-                    key=f"edit_type_{row['activity_category']}",
+                    key=f"edit_type_{key_suffix}",
                     label_visibility="collapsed",
                 )
             with c4:
                 new_note = st.text_input(
                     "note",
                     value=row["note"] or "",
-                    key=f"edit_note_{row['activity_category']}",
+                    key=f"edit_note_{key_suffix}",
                     label_visibility="collapsed",
                 )
             with c5:
@@ -353,7 +373,7 @@ else:
                 save_disabled = not changed or not new_leader.strip()
                 if st.button(
                     "保存",
-                    key=f"save_{row['activity_category']}",
+                    key=f"save_{key_suffix}",
                     disabled=save_disabled,
                     use_container_width=True,
                 ):
@@ -381,7 +401,7 @@ else:
 
                 if st.button(
                     "削除",
-                    key=f"del_{row['activity_category']}",
+                    key=f"del_{key_suffix}",
                     use_container_width=True,
                 ):
                     st.session_state["th_delete_target"] = (
