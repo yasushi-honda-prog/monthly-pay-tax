@@ -250,6 +250,14 @@ class TestComputeActualDataHash:
         names = [p.name for p in params]
         assert "year" in names and "month" in names and "team" in names
 
+    def test_sql_avoids_reserved_keyword_rows(self):
+        """CTE 名に `rows` を使うと BigQuery 予約語 ROWS と衝突する。回帰防止。"""
+        client = self._client_returning("h")
+        compute_actual_data_hash(client, 2026, 5, "Z 隊")
+        sql = client.query.call_args.args[0]
+        assert "WITH rows AS" not in sql
+        assert "FROM rows" not in sql
+
 
 class TestLoadTeamSamples:
     def _client_returning(self, top, samples):

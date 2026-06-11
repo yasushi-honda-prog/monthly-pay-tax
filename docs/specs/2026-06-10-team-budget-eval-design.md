@@ -263,7 +263,8 @@ FULL OUTER JOIN budgets_latest b
 ```python
 def compute_actual_data_hash(client, year: int, month: int, team: str) -> str:
     query = """
-    WITH rows AS (
+    # CTE 名に `rows` は使えない (BigQuery 予約語 ROWS と衝突)
+    WITH row_data AS (
       SELECT
         TO_JSON_STRING(STRUCT(
           g.activity_category, g.date, g.source_url, g.work_category, g.sponsor,
@@ -282,7 +283,7 @@ def compute_actual_data_hash(client, year: int, month: int, team: str) -> str:
       TO_HEX(SHA256(STRING_AGG(row_hash, '' ORDER BY row_hash, row_json))),
       ''
     ) AS data_hash
-    FROM rows
+    FROM row_data
     """
 ```
 
