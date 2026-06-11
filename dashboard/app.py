@@ -67,6 +67,8 @@ admin_pages = [
     st.Page("_pages/report_input.py", title="(仮) 報告入力", icon=":material/edit_note:"),
     st.Page("_pages/gas_management.py", title="GAS管理", icon=":material/code:"),
     st.Page("_pages/user_management.py", title="ユーザー管理", icon=":material/manage_accounts:"),
+    st.Page("_pages/team_hierarchy_settings.py", title="予実階層設定",
+            icon=":material/account_tree:"),
     st.Page("_pages/admin_settings.py", title="管理設定", icon=":material/settings:"),
 ]
 
