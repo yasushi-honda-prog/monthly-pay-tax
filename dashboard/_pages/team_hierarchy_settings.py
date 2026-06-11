@@ -7,9 +7,13 @@ expense_categories は CSV + CLI 経由 (CSV 番号で本田様作業、MERGE �
 UI 構成:
     1. 未マッピング隊の補完 (UNMAPPED 32 件を 1-click で team_hierarchy に追加)
     2. 統括隊名のリネーム (leader_team 一括書き換え)
-    3. 階層一覧の編集 (activity_category 単位で leader_team / leader_team_type / note 更新)
+    3. 階層一覧の編集 (activity_category 単位で leader_team / note 更新)
     4. 階層一覧の削除 (1 行単位)
     5. coverage サマリー (MAPPED / UNMAPPED / UNUSED 件数)
+
+注: leader_team_type は UI 上は常に 'operating' 固定で扱う (PR-G、UI 簡素化方針)。
+    BQ スキーマと VIEW フィルタは維持しているため、Phase 2 で common を復活させたく
+    なった場合は selectbox を戻すだけで復元できる。
 """
 
 from __future__ import annotations
@@ -20,7 +24,6 @@ import pandas as pd
 import streamlit as st
 
 from lib.auth import require_admin
-from lib.constants import LEADER_TEAM_TYPES
 from lib.doc_styles import (
     apply_doc_styles,
     render_hero,
@@ -190,7 +193,7 @@ if not unmapped_team_options:
         )
 else:
     with st.form("add_unmapped_form"):
-        col1, col2, col3, col4 = st.columns([3, 3, 1, 2])
+        col1, col2, col3 = st.columns([3, 3, 2])
         with col1:
             target_unmapped = st.selectbox(
                 f"未マッピング隊 ({len(unmapped_team_options)} 件)",
@@ -205,12 +208,6 @@ else:
                 key="add_leader_choice",
             )
         with col3:
-            new_type = st.selectbox(
-                "type",
-                LEADER_TEAM_TYPES,
-                key="add_type",
-            )
-        with col4:
             new_note = st.text_input("note (任意)", key="add_note")
 
         new_leader_text = st.text_input(
@@ -241,10 +238,11 @@ else:
                     st.error("統括隊名を選択または入力してください")
                 else:
                     try:
+                        # leader_team_type は UI 上は固定 'operating' (PR-G UI 簡素化方針)
                         affected = insert_hierarchy_row(
                             activity_category=target_unmapped,
                             leader_team=actual_leader,
-                            leader_team_type=new_type,
+                            leader_team_type="operating",
                             note=(new_note.strip() or None),
                             actor=email,
                         )
@@ -254,7 +252,7 @@ else:
                             )
                         else:
                             st.success(
-                                f"{target_unmapped} を {actual_leader} ({new_type}) として追加しました。"
+                                f"{target_unmapped} を {actual_leader} として追加しました。"
                             )
                             _invalidate_caches()
                             st.rerun()
@@ -318,7 +316,7 @@ st.divider()
 # --- 3. 階層一覧の編集・削除 ---
 render_section_header("階層一覧 (編集・削除)", icon="📋", color="purple")
 st.caption(
-    "登録済み隊を一覧表示。各行で leader_team / leader_team_type / note を編集できます。"
+    "登録済み隊を一覧表示。各行で leader_team / note を編集できます。"
     "削除は行右端の「削除」ボタンから (gyomu_reports / team_budgets_quarterly には影響なし)。"
 )
 
@@ -349,7 +347,7 @@ else:
     for idx, (_, row) in enumerate(df_view.iterrows()):
         key_suffix = f"{idx}_{row['activity_category']}"
         with st.container(border=True):
-            c1, c2, c3, c4, c5 = st.columns([3, 3, 1, 2, 1])
+            c1, c2, c3, c4 = st.columns([3, 3, 2, 1])
             with c1:
                 st.markdown(f"**{row['activity_category']}**")
                 if row.get("updated_at") is not None and not pd.isna(row["updated_at"]):
@@ -365,28 +363,15 @@ else:
                     label_visibility="collapsed",
                 )
             with c3:
-                current_type_idx = (
-                    list(LEADER_TEAM_TYPES).index(row["leader_team_type"])
-                    if row["leader_team_type"] in LEADER_TEAM_TYPES else 0
-                )
-                new_type = st.selectbox(
-                    "type",
-                    LEADER_TEAM_TYPES,
-                    index=current_type_idx,
-                    key=f"edit_type_{key_suffix}",
-                    label_visibility="collapsed",
-                )
-            with c4:
                 new_note = st.text_input(
                     "note",
                     value=row["note"] or "",
                     key=f"edit_note_{key_suffix}",
                     label_visibility="collapsed",
                 )
-            with c5:
+            with c4:
                 changed = (
                     new_leader.strip() != row["leader_team"]
-                    or new_type != row["leader_team_type"]
                     or (new_note.strip() or None) != row["note"]
                 )
                 save_disabled = not changed or not new_leader.strip()
@@ -397,10 +382,11 @@ else:
                     use_container_width=True,
                 ):
                     try:
+                        # leader_team_type は既存値を保持 (UI からは編集不可、固定運用方針)
                         affected = update_hierarchy_row(
                             activity_category=row["activity_category"],
                             leader_team=new_leader.strip(),
-                            leader_team_type=new_type,
+                            leader_team_type=row["leader_team_type"],
                             note=(new_note.strip() or None),
                             actor=email,
                             expected_version=int(row["version"]),
