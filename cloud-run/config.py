@@ -23,6 +23,12 @@ BQ_TABLE_WITHHOLDING = "withholding_targets"
 BQ_TABLE_TEAM_BUDGETS = "team_budgets"
 BQ_TABLE_TEAM_MONTHLY_EVAL = "team_monthly_eval"
 BQ_VIEW_TEAM_BUDGET_ACTUALS = "v_team_budget_actuals"
+# 予実管理機能 PR-E (四半期×統括隊×カテゴリ)
+BQ_TABLE_EXPENSE_CATEGORIES = "expense_categories"
+BQ_TABLE_TEAM_HIERARCHY = "team_hierarchy"
+BQ_TABLE_TEAM_BUDGETS_QUARTERLY = "team_budgets_quarterly"
+BQ_VIEW_TEAM_BUDGET_ACTUALS_QUARTERLY = "v_team_budget_actuals_quarterly"
+BQ_VIEW_TEAM_HIERARCHY_COVERAGE = "v_team_hierarchy_coverage"
 
 # BQバックアップ（誤操作・誤DELETE/MERGEからの復旧用 snapshot）
 # 対象は「Sheets/Admin Directoryから再生成できない=BQが唯一のソース」のテーブルのみ。
@@ -39,6 +45,10 @@ BQ_SNAPSHOT_TABLES = [
     # 予実管理機能 (PR-C 追加): どちらも BQ が唯一ソース
     BQ_TABLE_TEAM_BUDGETS,       # 隊×月予算 (scripts/upload_budgets.py で MERGE)
     BQ_TABLE_TEAM_MONTHLY_EVAL,  # 隊×月評価 (Vertex AI Gemini 生成結果)
+    # 予実管理機能 PR-E 追加: すべて BQ が唯一ソース (CSV/migration から MERGE)
+    BQ_TABLE_EXPENSE_CATEGORIES,         # 支出カテゴリマスタ (7 行 seed)
+    BQ_TABLE_TEAM_HIERARCHY,             # 隊×統括隊階層
+    BQ_TABLE_TEAM_BUDGETS_QUARTERLY,     # 四半期×統括隊×カテゴリ予算
 ]
 
 # 管理表スプレッドシート
