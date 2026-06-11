@@ -253,8 +253,10 @@ def generate_comment(
 # -------- BQ クエリ（hash / サンプリング） --------
 
 
+# CTE 名に `rows` は使わない (BigQuery の予約語 ROWS と衝突して
+#  "Unexpected keyword ROWS" 構文エラーになる)。
 _HASH_SQL = """
-WITH rows AS (
+WITH row_data AS (
   SELECT
     TO_JSON_STRING(STRUCT(
       g.activity_category, g.date, g.source_url, g.work_category, g.sponsor,
@@ -275,7 +277,7 @@ SELECT IFNULL(
   TO_HEX(SHA256(STRING_AGG(row_hash, '' ORDER BY row_hash, row_json))),
   ''
 ) AS data_hash
-FROM rows
+FROM row_data
 """
 
 

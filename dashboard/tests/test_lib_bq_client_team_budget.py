@@ -137,6 +137,14 @@ class TestComputeCurrentHashes:
         # PR-C と同じ tie-breaker
         assert "ORDER BY row_hash, row_json" in sql
 
+    def test_sql_avoids_reserved_keyword_rows(self, mock_client):
+        """CTE 名に `rows` を使うと BigQuery 予約語 ROWS と衝突する。回帰防止。"""
+        _result_mock(mock_client, [])
+        bq_client.compute_current_hashes(2026, 5, ("A",))
+        sql = mock_client.query.call_args.args[0]
+        assert "WITH rows AS" not in sql
+        assert "FROM rows" not in sql
+
     def test_teams_array_param(self, mock_client):
         _result_mock(mock_client, [])
         bq_client.compute_current_hashes(2026, 5, ("X", "Y"))

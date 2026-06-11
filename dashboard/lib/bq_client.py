@@ -138,8 +138,10 @@ def compute_current_hashes(
     if not teams:
         return {}
     client = get_bq_client()
+    # CTE 名に `rows` は使わない (BigQuery の予約語 ROWS と衝突して
+    #  "Unexpected keyword ROWS" 構文エラーになる)。
     sql = f"""
-    WITH rows AS (
+    WITH row_data AS (
       SELECT
         g.activity_category AS team,
         TO_JSON_STRING(STRUCT(
@@ -160,7 +162,7 @@ def compute_current_hashes(
              TO_HEX(SHA256(STRING_AGG(row_hash, '' ORDER BY row_hash, row_json))),
              ''
            ) AS data_hash
-    FROM rows
+    FROM row_data
     GROUP BY team
     """
     job_config = bigquery.QueryJobConfig(
