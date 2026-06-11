@@ -14,8 +14,16 @@ UI 構成:
 
 from __future__ import annotations
 
+import time
+
 import pandas as pd
 import streamlit as st
+
+# 二重 submit ロック設定 (race condition による重複 INSERT 防止)
+# 本田様 2026-06-11 のインシデント: 連続クリック等で 2 秒差の MERGE が同時実行され
+# team_hierarchy に重複行が混入。本ロックでセッション内の race を防ぐ。
+ADD_LOCK_KEY = "th_add_lock_ts"
+ADD_LOCK_DURATION_SEC = 5
 
 from lib.auth import require_admin
 from lib.constants import LEADER_TEAM_TYPES
@@ -214,33 +222,44 @@ else:
 
         submitted = st.form_submit_button("追加", use_container_width=True)
         if submitted:
-            actual_leader = (
-                new_leader_text.strip() if leader_choice == "(新規入力)"
-                else leader_choice
-            )
-            if not actual_leader:
-                st.error("統括隊名を選択または入力してください")
+            # 二重 submit ロック: 直近 ADD_LOCK_DURATION_SEC 秒以内なら skip
+            # (Streamlit form の rerun 中に次の submit が積まれた場合の race 防御)
+            now_ts = time.time()
+            last_submit_ts = st.session_state.get(ADD_LOCK_KEY, 0.0)
+            if now_ts - last_submit_ts < ADD_LOCK_DURATION_SEC:
+                st.warning(
+                    f"直前の追加処理から {ADD_LOCK_DURATION_SEC} 秒以内のため処理を"
+                    "スキップしました (重複追加防止)。少し待ってから再度操作してください。"
+                )
             else:
-                try:
-                    affected = insert_hierarchy_row(
-                        activity_category=target_unmapped,
-                        leader_team=actual_leader,
-                        leader_team_type=new_type,
-                        note=(new_note.strip() or None),
-                        actor=email,
-                    )
-                    if affected == 0:
-                        st.error(
-                            "追加が反映されませんでした。画面を再読み込みしてから再度実行してください。"
+                st.session_state[ADD_LOCK_KEY] = now_ts
+                actual_leader = (
+                    new_leader_text.strip() if leader_choice == "(新規入力)"
+                    else leader_choice
+                )
+                if not actual_leader:
+                    st.error("統括隊名を選択または入力してください")
+                else:
+                    try:
+                        affected = insert_hierarchy_row(
+                            activity_category=target_unmapped,
+                            leader_team=actual_leader,
+                            leader_team_type=new_type,
+                            note=(new_note.strip() or None),
+                            actor=email,
                         )
-                    else:
-                        st.success(
-                            f"{target_unmapped} を {actual_leader} ({new_type}) として追加しました。"
-                        )
-                        _invalidate_caches()
-                        st.rerun()
-                except Exception as e:
-                    st.error(f"追加に失敗しました: {e}")
+                        if affected == 0:
+                            st.error(
+                                "追加が反映されませんでした。画面を再読み込みしてから再度実行してください。"
+                            )
+                        else:
+                            st.success(
+                                f"{target_unmapped} を {actual_leader} ({new_type}) として追加しました。"
+                            )
+                            _invalidate_caches()
+                            st.rerun()
+                    except Exception as e:
+                        st.error(f"追加に失敗しました: {e}")
 
 st.divider()
 
