@@ -186,6 +186,11 @@ def summarize_by_leader_team(
             team_count=("team", "nunique"),
         )
     )
+    # v_team_budget_actuals の NUMERIC 列は Decimal で来るため float 化。
+    # leader_team_budgets override (float) との混在で `Decimal / float` が
+    # TypeError を起こすため、achievement_rate / diff_amount 計算前に正規化する。
+    grouped["actual_amount"] = grouped["actual_amount"].astype(float)
+    grouped["budget_amount"] = grouped["budget_amount"].astype(float)
     if leader_team_budgets is not None:
         # PR-Q2M: 統括隊別月予算で budget_amount を上書き
         # team_budgets_quarterly 由来の月予算 = SUM(全カテゴリ四半期予算) / 3
