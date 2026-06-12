@@ -294,6 +294,13 @@ st.caption(
 if not leader_team_options:
     st.info("リネーム可能な統括隊がありません (team_hierarchy が空)。")
 else:
+    # dropdown を開かずに登録済み統括隊が一目で見えるよう一覧を表示。
+    # selectbox は閉じた状態だと sort 順で先頭の値しか表示されないため、
+    # 「新規登録した統括隊が dropdown に出ない」という誤認を防ぐ。
+    st.caption(
+        f"登録済み統括隊 ({len(leader_team_options)} 件): "
+        + " / ".join(leader_team_options)
+    )
     with st.form("rename_form"):
         col1, col2, col3 = st.columns([3, 3, 1])
         with col1:
