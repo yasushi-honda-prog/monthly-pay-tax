@@ -23,4 +23,6 @@ GYOMU_REPORTS_TABLE = f"{PROJECT_ID}.{DATASET}.gyomu_reports"
 # 予実管理機能 PR-E (四半期×統括隊×カテゴリ) + PR-F (階層設定 UI)
 TEAM_HIERARCHY_TABLE = f"{PROJECT_ID}.{DATASET}.team_hierarchy"
 TEAM_HIERARCHY_COVERAGE_VIEW = f"{PROJECT_ID}.{DATASET}.v_team_hierarchy_coverage"
+TEAM_BUDGETS_QUARTERLY_TABLE = f"{PROJECT_ID}.{DATASET}.team_budgets_quarterly"
+FISCAL_QUARTER_UDF = f"`{PROJECT_ID}.{DATASET}`.fiscal_quarter"
 LEADER_TEAM_TYPES: tuple[str, ...] = ("operating", "common")

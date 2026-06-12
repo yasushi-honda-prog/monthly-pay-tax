@@ -213,6 +213,53 @@ class TestSummarizeByLeaderTeam:
         result = tbv.summarize_by_leader_team(df)
         assert result.iloc[0]["achievement_rate"] is None
 
+    def test_leader_team_budgets_override_replaces_budget_amount(self):
+        """PR-Q2M: leader_team_budgets dict が actuals の budget_amount を上書きする"""
+        df = pd.DataFrame({
+            "team": ["A 隊", "B 隊"],
+            "leader_team": ["L1", "L2"],
+            "actual_amount": [100.0, 200.0],
+            "budget_amount": [9999.0, 9999.0],  # 上書きされる
+        })
+        override = {"L1": 500.0, "L2": 1000.0}
+        result = tbv.summarize_by_leader_team(df, leader_team_budgets=override)
+        l1 = result[result["leader_team"] == "L1"].iloc[0]
+        l2 = result[result["leader_team"] == "L2"].iloc[0]
+        assert l1["budget_amount"] == 500.0
+        assert l2["budget_amount"] == 1000.0
+        # 達成率も override 後の budget で再計算
+        assert l1["achievement_rate"] == 20.0  # 100/500*100
+        assert l2["achievement_rate"] == 20.0  # 200/1000*100
+        # diff_amount も上書き
+        assert l1["diff_amount"] == -400.0
+        assert l2["diff_amount"] == -800.0
+
+    def test_leader_team_budgets_override_zero_for_missing_key(self):
+        """override dict にない統括隊は budget=0 で扱う"""
+        df = pd.DataFrame({
+            "team": ["A 隊", "C 隊"],
+            "leader_team": ["L1", "L3"],
+            "actual_amount": [100.0, 300.0],
+            "budget_amount": [0.0, 0.0],
+        })
+        override = {"L1": 500.0}  # L3 はキーなし
+        result = tbv.summarize_by_leader_team(df, leader_team_budgets=override)
+        l3 = result[result["leader_team"] == "L3"].iloc[0]
+        assert l3["budget_amount"] == 0.0
+        # 複数行で float と None が混じると pandas が NaN に変換するため pd.isna でチェック
+        assert pd.isna(l3["achievement_rate"])  # budget=0 → None/NaN
+
+    def test_no_override_keeps_actuals_budget(self):
+        """leader_team_budgets=None なら従来通り actuals の budget を集計"""
+        df = pd.DataFrame({
+            "team": ["A 隊"],
+            "leader_team": ["L1"],
+            "actual_amount": [100.0],
+            "budget_amount": [500.0],
+        })
+        result = tbv.summarize_by_leader_team(df, leader_team_budgets=None)
+        assert result.iloc[0]["budget_amount"] == 500.0
+
 
 class TestBuildLeaderTeamMatrixDf:
     """PR-A: 統括隊×月マトリクス関数のテスト"""

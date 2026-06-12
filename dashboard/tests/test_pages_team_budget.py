@@ -66,6 +66,7 @@ def mock_bq_data():
          patch("lib.bq_client.load_team_monthly_eval", return_value=eval_df), \
          patch("lib.bq_client.load_active_teams", return_value=["A 隊", "B 隊"]), \
          patch("lib.bq_client.load_active_leader_teams", return_value=["L1 統括隊"]), \
+         patch("lib.bq_client.load_leader_team_monthly_budgets", return_value=pd.DataFrame()), \
          patch("lib.bq_client.compute_current_hashes", return_value={"A 隊": "hash-a"}), \
          patch("lib.bq_client.get_bq_client"):
         yield
@@ -106,6 +107,7 @@ class TestTeamBudgetPage:
              patch("lib.bq_client.load_team_monthly_eval", return_value=pd.DataFrame()), \
              patch("lib.bq_client.load_active_teams", return_value=[]), \
              patch("lib.bq_client.load_active_leader_teams", return_value=[]), \
+             patch("lib.bq_client.load_leader_team_monthly_budgets", return_value=pd.DataFrame()), \
              patch("lib.bq_client.compute_current_hashes", return_value={}), \
              patch("lib.bq_client.get_bq_client"), \
              patch("lib.auth.require_user"):
@@ -128,6 +130,7 @@ class TestTeamBudgetPage:
              patch("lib.bq_client.load_team_monthly_eval", return_value=pd.DataFrame()), \
              patch("lib.bq_client.load_active_teams", return_value=["A 隊"]), \
              patch("lib.bq_client.load_active_leader_teams", return_value=[]), \
+             patch("lib.bq_client.load_leader_team_monthly_budgets", return_value=pd.DataFrame()), \
              patch("lib.bq_client.compute_current_hashes", return_value={"A 隊": ""}), \
              patch("lib.bq_client.get_bq_client"), \
              patch("lib.auth.require_user"):
@@ -150,6 +153,7 @@ class TestTeamBudgetPage:
              patch("lib.bq_client.load_team_monthly_eval", return_value=pd.DataFrame()), \
              patch("lib.bq_client.load_active_teams", return_value=["A 隊"]), \
              patch("lib.bq_client.load_active_leader_teams", return_value=["L1 統括隊"]), \
+             patch("lib.bq_client.load_leader_team_monthly_budgets", return_value=pd.DataFrame()), \
              patch("lib.bq_client.compute_current_hashes", return_value={"A 隊": ""}), \
              patch("lib.bq_client.get_bq_client"), \
              patch("lib.auth.require_user"):

@@ -8,8 +8,10 @@ from google.cloud import bigquery
 
 from lib.constants import (
     DATASET,
+    FISCAL_QUARTER_UDF,
     PROJECT_ID,
     TEAM_BUDGET_ACTUALS_VIEW,
+    TEAM_BUDGETS_QUARTERLY_TABLE,
     TEAM_MONTHLY_EVAL_TABLE,
 )
 
@@ -131,6 +133,46 @@ def load_active_teams(
         ]
     )
     return [row["team"] for row in client.query(sql, job_config=job_config).result()]
+
+
+@st.cache_data(ttl=600)
+def load_leader_team_monthly_budgets(year: int, month: int) -> pd.DataFrame:
+    """指定 (year, month) の統括隊別 月予算を team_budgets_quarterly から算出 (PR-Q2M)。
+
+    四半期予算の各カテゴリ合計を 3 等分して月予算とする (本田様判断:
+    四半期予算 / 3 = 1 月あたりの統括隊予算)。fiscal_quarter UDF で
+    暦年月 → fiscal (year, quarter) を取得し、その四半期の合計を集計。
+
+    team_budgets_quarterly が空 (=データ未投入) の場合は空 DataFrame を返す。
+
+    Returns:
+        columns: leader_team (STRING), monthly_budget (NUMERIC)
+        leader_team の昇順でソート
+    """
+    client = get_bq_client()
+    sql = f"""
+    WITH fy AS (
+      SELECT
+        {FISCAL_QUARTER_UDF}(@year, @month).fiscal_year AS fiscal_year,
+        {FISCAL_QUARTER_UDF}(@year, @month).fiscal_quarter AS fiscal_quarter
+    )
+    SELECT
+      q.leader_team,
+      SAFE_DIVIDE(SUM(q.budget_amount), 3) AS monthly_budget
+    FROM `{TEAM_BUDGETS_QUARTERLY_TABLE}` q
+    CROSS JOIN fy
+    WHERE q.fiscal_year = fy.fiscal_year
+      AND q.fiscal_quarter = fy.fiscal_quarter
+    GROUP BY q.leader_team
+    ORDER BY q.leader_team
+    """
+    job_config = bigquery.QueryJobConfig(
+        query_parameters=[
+            bigquery.ScalarQueryParameter("year", "INT64", year),
+            bigquery.ScalarQueryParameter("month", "INT64", month),
+        ]
+    )
+    return client.query(sql, job_config=job_config).to_dataframe()
 
 
 @st.cache_data(ttl=600)
