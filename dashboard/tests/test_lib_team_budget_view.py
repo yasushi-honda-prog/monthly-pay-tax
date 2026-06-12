@@ -149,3 +149,103 @@ class TestBuildMatrixDf:
         })
         m = tbv.build_matrix_df(df, value="actual_amount")
         assert m.loc["X", 5] == 500000
+
+
+class TestSummarizeByLeaderTeam:
+    """PR-A: 統括隊別集計関数のテスト"""
+
+    def test_empty_dataframe_returns_empty_with_schema(self):
+        result = tbv.summarize_by_leader_team(pd.DataFrame())
+        assert result.empty
+        # 必須列が定義されている (UI 側で empty 時に列参照しても KeyError にならない)
+        for col in ("leader_team", "actual_amount", "budget_amount",
+                    "achievement_rate", "diff_amount", "team_count"):
+            assert col in result.columns
+
+    def test_missing_leader_team_column_returns_empty(self):
+        """PR-A 以前の load 出力 (leader_team 列なし) は空 DataFrame で返す (後方互換)"""
+        df = pd.DataFrame({"team": ["A"], "actual_amount": [100], "budget_amount": [200]})
+        result = tbv.summarize_by_leader_team(df)
+        assert result.empty
+
+    def test_groups_by_leader_team(self):
+        df = pd.DataFrame({
+            "team": ["A 隊", "B 隊", "C 隊", "D 隊"],
+            "leader_team": ["L1", "L1", "L2", "L2"],
+            "month": [5, 5, 5, 5],
+            "actual_amount": [100.0, 200.0, 50.0, 150.0],
+            "budget_amount": [300.0, 100.0, 80.0, 120.0],
+        })
+        result = tbv.summarize_by_leader_team(df)
+        assert len(result) == 2
+        # 昇順ソート
+        assert result.iloc[0]["leader_team"] == "L1"
+        # 合計値
+        assert result.iloc[0]["actual_amount"] == 300.0
+        assert result.iloc[0]["budget_amount"] == 400.0
+        # 配下隊 count
+        assert result.iloc[0]["team_count"] == 2
+        # 達成率は actual/budget*100 で再計算
+        assert result.iloc[0]["achievement_rate"] == 75.0
+        # 差額
+        assert result.iloc[0]["diff_amount"] == -100.0
+
+    def test_null_leader_team_rows_excluded(self):
+        """leader_team NULL 行は除外する (VIEW 層で除外済みだが念のため)"""
+        df = pd.DataFrame({
+            "team": ["A 隊", "X"],
+            "leader_team": ["L1", None],
+            "actual_amount": [100.0, 999.0],
+            "budget_amount": [200.0, 999.0],
+        })
+        result = tbv.summarize_by_leader_team(df)
+        assert len(result) == 1
+        assert result.iloc[0]["leader_team"] == "L1"
+        assert result.iloc[0]["actual_amount"] == 100.0
+
+    def test_zero_budget_returns_none_rate(self):
+        df = pd.DataFrame({
+            "team": ["A 隊"],
+            "leader_team": ["L1"],
+            "actual_amount": [100.0],
+            "budget_amount": [0.0],
+        })
+        result = tbv.summarize_by_leader_team(df)
+        assert result.iloc[0]["achievement_rate"] is None
+
+
+class TestBuildLeaderTeamMatrixDf:
+    """PR-A: 統括隊×月マトリクス関数のテスト"""
+
+    def test_empty(self):
+        assert tbv.build_leader_team_matrix_df(pd.DataFrame()).empty
+
+    def test_missing_leader_team_column_returns_empty(self):
+        df = pd.DataFrame({"team": ["A"], "month": [5], "actual_amount": [100]})
+        assert tbv.build_leader_team_matrix_df(df).empty
+
+    def test_pivots_leader_team_x_month(self):
+        df = pd.DataFrame({
+            "team": ["A 隊", "A 隊", "B 隊", "B 隊"],
+            "leader_team": ["L1", "L1", "L2", "L2"],
+            "month": [5, 6, 5, 6],
+            "actual_amount": [100.0, 200.0, 300.0, 400.0],
+            "budget_amount": [50.0, 100.0, 150.0, 200.0],
+        })
+        m = tbv.build_leader_team_matrix_df(df, value="achievement_rate")
+        assert list(m.index) == ["L1", "L2"]
+        # achievement_rate は actual/budget*100 で再計算
+        assert m.loc["L1", 5] == 200.0
+        assert m.loc["L2", 6] == 200.0
+
+    def test_value_actual_amount_uses_sum(self):
+        df = pd.DataFrame({
+            "team": ["A 隊", "B 隊"],
+            "leader_team": ["L1", "L1"],
+            "month": [5, 5],
+            "actual_amount": [100.0, 200.0],
+            "budget_amount": [0.0, 0.0],
+        })
+        m = tbv.build_leader_team_matrix_df(df, value="actual_amount")
+        # 統括隊×月の単純合計
+        assert m.loc["L1", 5] == 300.0

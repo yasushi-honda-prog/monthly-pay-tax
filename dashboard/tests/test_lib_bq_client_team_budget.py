@@ -39,7 +39,7 @@ def _result_mock(client, rows):
 class TestLoadTeamBudgetActuals:
     def test_returns_dataframe(self, mock_client):
         df = pd.DataFrame({
-            "year": [2026], "month": [5], "team": ["X"],
+            "year": [2026], "month": [5], "team": ["X"], "leader_team": ["L"],
             "actual_amount": [480000.0], "actual_count": [12], "reporter_count": [3],
             "budget_amount": [500000.0], "achievement_rate": [96.0],
             "diff_amount": [-20000.0], "has_budget": [True], "has_actual": [True],
@@ -48,6 +48,8 @@ class TestLoadTeamBudgetActuals:
         result = bq_client.load_team_budget_actuals(2026, 2026, 5, 5)
         assert len(result) == 1
         assert result.iloc[0]["team"] == "X"
+        # PR-A: leader_team 列を返す
+        assert result.iloc[0]["leader_team"] == "L"
 
     def test_sql_uses_view_name(self, mock_client):
         _to_dataframe_mock(mock_client, pd.DataFrame())
@@ -55,6 +57,13 @@ class TestLoadTeamBudgetActuals:
         sql = mock_client.query.call_args.args[0]
         assert "v_team_budget_actuals" in sql
         assert "@y_start" in sql and "@m_end" in sql
+
+    def test_sql_selects_leader_team_column(self, mock_client):
+        """PR-A: load_team_budget_actuals は leader_team 列を SELECT する"""
+        _to_dataframe_mock(mock_client, pd.DataFrame())
+        bq_client.load_team_budget_actuals(2026, 2026, 5, 5)
+        sql = mock_client.query.call_args.args[0]
+        assert "leader_team" in sql
 
     def test_params_bound(self, mock_client):
         _to_dataframe_mock(mock_client, pd.DataFrame())
@@ -103,6 +112,41 @@ class TestLoadActiveTeams:
         sql = mock_client.query.call_args.args[0]
         assert "DISTINCT" in sql
         assert "team IS NOT NULL" in sql
+
+
+class TestLoadActiveLeaderTeams:
+    """PR-A: 統括隊 distinct リスト取得関数のテスト"""
+
+    def test_returns_leader_team_list(self, mock_client):
+        rows = [
+            {"leader_team": "ゆずるん統括隊"},
+            {"leader_team": "ヤスス＋ヒデデン統括隊"},
+        ]
+        _result_mock(mock_client, rows)
+        leaders = bq_client.load_active_leader_teams(2026, 2026, 5, 5)
+        assert leaders == ["ゆずるん統括隊", "ヤスス＋ヒデデン統括隊"]
+
+    def test_returns_empty_when_no_rows(self, mock_client):
+        _result_mock(mock_client, [])
+        leaders = bq_client.load_active_leader_teams(2026, 2026, 5, 5)
+        assert leaders == []
+
+    def test_sql_uses_distinct_leader_team(self, mock_client):
+        _result_mock(mock_client, [])
+        bq_client.load_active_leader_teams(2026, 2026, 5, 5)
+        sql = mock_client.query.call_args.args[0]
+        assert "DISTINCT leader_team" in sql
+        assert "leader_team IS NOT NULL" in sql
+        assert "v_team_budget_actuals" in sql
+
+    def test_params_bound(self, mock_client):
+        _result_mock(mock_client, [])
+        bq_client.load_active_leader_teams(2026, 2026, 4, 6)
+        job_config = mock_client.query.call_args.kwargs["job_config"]
+        params = {p.name: p.value for p in job_config.query_parameters}
+        assert params["y_start"] == 2026
+        assert params["m_start"] == 4
+        assert params["m_end"] == 6
 
 
 class TestComputeCurrentHashes:

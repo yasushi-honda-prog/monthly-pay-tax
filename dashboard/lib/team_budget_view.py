@@ -142,6 +142,90 @@ def build_matrix_df(actuals: pd.DataFrame, value: str = "achievement_rate") -> p
     return pivot
 
 
+# 統括隊集計 DataFrame の列定義 (PR-A)。
+# empty 時の早期 return / build_leader_team_matrix_df の同等処理で共有。
+_LEADER_TEAM_SUMMARY_COLUMNS = (
+    "leader_team", "actual_amount", "budget_amount",
+    "achievement_rate", "diff_amount", "team_count",
+)
+
+
+def _compute_rate(actual: float, budget: float) -> Optional[float]:
+    """達成率 (%) を計算。budget <= 0 なら None (ゼロ除算回避)。"""
+    if budget is None or budget <= 0:
+        return None
+    return (actual / budget) * 100
+
+
+def summarize_by_leader_team(actuals: pd.DataFrame) -> pd.DataFrame:
+    """統括隊 (leader_team) 別の集計 (PR-A、spec §4.3)。
+
+    Args:
+        actuals: v_team_budget_actuals (leader_team 列必須、PR-A 以降の load 出力)
+    Returns:
+        columns: leader_team, actual_amount, budget_amount, achievement_rate,
+                 diff_amount, team_count (配下隊の distinct 数)
+        leader_team の昇順でソート、leader_team NULL 行は除外 (VIEW 層で除外済み)
+        empty 入力 / leader_team 列不在 (PR-A 以前の出力) は空 DataFrame で返す
+    """
+    if actuals.empty or "leader_team" not in actuals.columns:
+        return pd.DataFrame(columns=list(_LEADER_TEAM_SUMMARY_COLUMNS))
+    grouped = (
+        actuals.dropna(subset=["leader_team"])
+        .groupby("leader_team", as_index=False)
+        .agg(
+            actual_amount=("actual_amount", lambda s: s.fillna(0).sum()),
+            budget_amount=("budget_amount", lambda s: s.fillna(0).sum()),
+            team_count=("team", "nunique"),
+        )
+    )
+    grouped["achievement_rate"] = grouped.apply(
+        lambda r: _compute_rate(r["actual_amount"], r["budget_amount"]),
+        axis=1,
+    )
+    grouped["diff_amount"] = grouped["actual_amount"] - grouped["budget_amount"]
+    return grouped.sort_values("leader_team").reset_index(drop=True)
+
+
+def build_leader_team_matrix_df(
+    actuals: pd.DataFrame, value: str = "achievement_rate"
+) -> pd.DataFrame:
+    """統括隊×月 ピボット DataFrame (PR-A、統括隊タブのヒートマップ用)。
+
+    Args:
+        actuals: v_team_budget_actuals (leader_team 列必須)
+        value: "achievement_rate" / "actual_amount" / "diff_amount" 等
+    Returns:
+        index=leader_team, columns=month, values=指定列の集計値
+        achievement_rate は配下隊の合計実額 / 合計予算から再計算 (単純平均ではない)
+    """
+    if actuals.empty or "leader_team" not in actuals.columns:
+        return pd.DataFrame()
+    df = actuals.dropna(subset=["leader_team"]).copy()
+    if value == "achievement_rate":
+        # 統括隊×月で実額/予算合計を取り、達成率を再計算
+        agg = (
+            df.groupby(["leader_team", "month"], as_index=False)
+            .agg(
+                actual_amount=("actual_amount", lambda s: s.fillna(0).sum()),
+                budget_amount=("budget_amount", lambda s: s.fillna(0).sum()),
+            )
+        )
+        agg[value] = agg.apply(
+            lambda r: _compute_rate(r["actual_amount"], r["budget_amount"]),
+            axis=1,
+        )
+        pivot = agg.pivot_table(
+            index="leader_team", columns="month", values=value, aggfunc="first"
+        )
+    else:
+        # actual_amount / diff_amount 等は単純合計で集計
+        pivot = df.pivot_table(
+            index="leader_team", columns="month", values=value, aggfunc="sum"
+        )
+    return pivot.sort_index()
+
+
 # ----- Streamlit レンダラ (副作用あり) -----
 
 

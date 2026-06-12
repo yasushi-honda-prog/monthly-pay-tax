@@ -94,6 +94,73 @@ def find_duplicates(rows: list[BudgetRow]) -> list[tuple[int, int, str]]:
     return sorted(k for k, n in counter.items() if n > 1)
 
 
+def fetch_hierarchy_teams(client: bigquery.Client) -> set[str]:
+    """team_hierarchy テーブルから operating の activity_category 集合を取得 (PR-A)。
+
+    Returns:
+        operating 隊として登録されている activity_category の集合。
+        空集合の場合は team_hierarchy が未投入の状態。
+    """
+    query = f"""
+    SELECT DISTINCT activity_category
+    FROM `{PROJECT}.{DATASET}.team_hierarchy`
+    WHERE leader_team_type = 'operating'
+    """
+    return {row.activity_category for row in client.query(query).result()}
+
+
+def validate_hierarchy_coverage(
+    client: bigquery.Client,
+    rows: list[BudgetRow],
+    *,
+    strict: bool = False,
+) -> int:
+    """CSV の team が team_hierarchy に存在するか確認 (PR-A、Codex セカンドオピニオン反映)。
+
+    Codex 指摘: 「CSV upload で team_hierarchy に存在しない team を投入できてしまう」
+    → 表示で除外できても、予算 only 行混入の原因になる。
+
+    Args:
+        client: BQ クライアント
+        rows: parse 済み CSV 行
+        strict: True なら未登録 team があったら exit 1、False なら warning のみ
+    Returns:
+        exit code (0 なら継続、1 なら strict モードで未登録あり)
+    """
+    hierarchy_teams = fetch_hierarchy_teams(client)
+    if not hierarchy_teams:
+        print(
+            "WARN: team_hierarchy が空です。hierarchy coverage check はスキップします。",
+            file=sys.stderr,
+        )
+        return 0
+    csv_teams = {r.team for r in rows}
+    unregistered = csv_teams - hierarchy_teams
+    if not unregistered:
+        return 0
+    print(
+        f"WARN: CSV の team のうち {len(unregistered)} 件が team_hierarchy に未登録です:",
+        file=sys.stderr,
+    )
+    for t in sorted(unregistered):
+        print(f"  - {t}", file=sys.stderr)
+    print(
+        "  → これらの予算行は v_team_budget_actuals (隊フィルタ後 VIEW) に出現しません。",
+        file=sys.stderr,
+    )
+    print(
+        "  → 隊として表示したい場合は scripts/upload_team_hierarchy.py で先に登録してください。",
+        file=sys.stderr,
+    )
+    if strict:
+        print(
+            "ERROR: --strict-hierarchy 指定のため、未登録 team の存在で中止します。",
+            file=sys.stderr,
+        )
+        return 1
+    return 0
+
+
 @dataclass
 class PreviewResult:
     new_count: int
@@ -265,6 +332,11 @@ def main(argv: list[str] | None = None) -> int:
                         help="BQ に書き込まず、変更プレビューのみ表示")
     parser.add_argument("--yes", action="store_true",
                         help="confirm prompt をスキップ (自動化用)")
+    parser.add_argument("--strict-hierarchy", action="store_true",
+                        help=("team が team_hierarchy に未登録なら exit 1 で中止 (PR-A)。"
+                              "ただし team_hierarchy が空の場合は WARN のみで継続。"))
+    parser.add_argument("--skip-hierarchy-check", action="store_true",
+                        help="team_hierarchy coverage check を完全にスキップ (緊急投入時のみ)")
     args = parser.parse_args(argv)
 
     # CSV 読み込み + validation
@@ -286,8 +358,14 @@ def main(argv: list[str] | None = None) -> int:
     print(f"=== {len(rows)} 件を team_budgets に MERGE {'(dry-run)' if args.dry_run else ''} ===")
     print(f"actor: {actor}")
 
-    # プレビュー
+    # team_hierarchy coverage 確認 (PR-A)
     client = bigquery.Client(project=PROJECT)
+    if not args.skip_hierarchy_check:
+        rc = validate_hierarchy_coverage(client, rows, strict=args.strict_hierarchy)
+        if rc != 0:
+            return rc
+
+    # プレビュー
     preview = preview_changes(client, rows)
     print_preview(preview)
 
