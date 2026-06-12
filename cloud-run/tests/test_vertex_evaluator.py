@@ -341,3 +341,14 @@ class TestBuildGenerationConfig:
         assert cfg.top_p == 0.8
         # safety_settings は 4 カテゴリ
         assert len(cfg.safety_settings) == 4
+
+    def test_thinking_budget_zero(self):
+        """Gemini 2.5 系の thinking バグ対策: thinking_budget=0 で無効化されること。
+
+        thinking がデフォルト有効だと max_output_tokens の枠を thinking が消費し、
+        最終応答テキストが空 → validate_ai_comment("empty") → EvaluationValidationError
+        で 3 回リトライ後に失敗する本番障害が発生した。本テストは設定が抜けないよう監視する。
+        """
+        cfg = vertex_evaluator.build_generation_config()
+        assert cfg.thinking_config is not None
+        assert cfg.thinking_config.thinking_budget == 0
