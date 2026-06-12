@@ -296,6 +296,55 @@ class TestSummarizeByLeaderTeam:
         assert result.iloc[0]["diff_amount"] == -300.0
 
 
+class TestBuildMonthlyTrend:
+    """PR-Q2M follow-up: 月次推移グラフの Decimal/float 不整合修正テスト"""
+
+    def test_empty_returns_schema(self):
+        result = tbv.build_monthly_trend(pd.DataFrame())
+        assert result.empty
+        for col in ("month", "actual_amount", "budget_amount"):
+            assert col in result.columns
+
+    def test_aggregates_by_month(self):
+        df = pd.DataFrame({
+            "month": [5, 5, 6, 6],
+            "actual_amount": [100.0, 200.0, 50.0, 150.0],
+            "budget_amount": [300.0, 100.0, 80.0, 120.0],
+        })
+        result = tbv.build_monthly_trend(df)
+        assert len(result) == 2
+        m5 = result[result["month"] == 5].iloc[0]
+        assert m5["actual_amount"] == 300.0
+        assert m5["budget_amount"] == 400.0
+        m6 = result[result["month"] == 6].iloc[0]
+        assert m6["actual_amount"] == 200.0
+        assert m6["budget_amount"] == 200.0
+
+    def test_decimal_amounts_converted_to_float(self):
+        """本番障害: BQ NUMERIC 列 (Decimal) を altair に渡すと Y 軸スケールが
+        桁違いになる (例: ¥4,232,055 → ¥4.5 兆表記)。float 化で正常表示する。
+        """
+        df = pd.DataFrame({
+            "month": [5, 6],
+            "actual_amount": [Decimal("4232055"), Decimal("1000000")],
+            "budget_amount": [Decimal("0"), Decimal("0")],
+        })
+        result = tbv.build_monthly_trend(df)
+        assert result["actual_amount"].dtype == float
+        assert result["budget_amount"].dtype == float
+        assert result.iloc[0]["actual_amount"] == 4232055.0
+        assert result.iloc[1]["actual_amount"] == 1000000.0
+
+    def test_sorted_by_month_ascending(self):
+        df = pd.DataFrame({
+            "month": [12, 5, 8],
+            "actual_amount": [1.0, 2.0, 3.0],
+            "budget_amount": [10.0, 20.0, 30.0],
+        })
+        result = tbv.build_monthly_trend(df)
+        assert list(result["month"]) == [5, 8, 12]
+
+
 class TestBuildLeaderTeamMatrixDf:
     """PR-A: 統括隊×月マトリクス関数のテスト"""
 
