@@ -194,6 +194,40 @@ def build_generation_config() -> "types.GenerateContentConfig":
     )
 
 
+def _describe_response_for_debug(response) -> dict:
+    """validation NG の原因切り分け用に response 構造を要約する。
+
+    - text 自体は含めない (PII リーク防止)
+    - finish_reason / safety_ratings / token 使用量を構造化して返す
+    - Gemini 2.5+ の thoughts_token_count が 0 でなければ thinking_budget=0
+      が反映されていない証拠 (デプロイ時の image / SDK バージョン疑う)
+    """
+    candidates = getattr(response, "candidates", None) or []
+    candidate_info: dict = {"count": len(candidates)}
+    if candidates:
+        c0 = candidates[0]
+        finish_reason = getattr(c0, "finish_reason", None)
+        if finish_reason is not None:
+            candidate_info["finish_reason"] = str(finish_reason).rsplit(".", 1)[-1]
+        safety_ratings = getattr(c0, "safety_ratings", None) or []
+        candidate_info["safety"] = [
+            {
+                "category": str(getattr(r, "category", "")).rsplit(".", 1)[-1] or None,
+                "probability": str(getattr(r, "probability", "")).rsplit(".", 1)[-1] or None,
+                "blocked": bool(getattr(r, "blocked", False)),
+            }
+            for r in safety_ratings
+        ]
+    usage = getattr(response, "usage_metadata", None)
+    usage_info = {
+        "prompt": getattr(usage, "prompt_token_count", None),
+        "candidates": getattr(usage, "candidates_token_count", None),
+        "thoughts": getattr(usage, "thoughts_token_count", None),
+        "total": getattr(usage, "total_token_count", None),
+    }
+    return {"candidate": candidate_info, "tokens": usage_info}
+
+
 def generate_comment(
     genai_client,
     user_prompt: str,
@@ -248,7 +282,11 @@ def generate_comment(
         if ok:
             return text, usage_dict
         last_reason = reason
-        logger.info("validation NG (attempt %s/%s): %s", attempt, total_attempts, reason)
+        debug_info = _describe_response_for_debug(response)
+        logger.info(
+            "validation NG (attempt %s/%s): %s detail=%s",
+            attempt, total_attempts, reason, debug_info,
+        )
         if attempt < total_attempts:
             sleep_fn(0.5)
 

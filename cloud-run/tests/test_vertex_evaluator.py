@@ -352,3 +352,70 @@ class TestBuildGenerationConfig:
         cfg = vertex_evaluator.build_generation_config()
         assert cfg.thinking_config is not None
         assert cfg.thinking_config.thinking_budget == 0
+
+
+class TestDescribeResponseForDebug:
+    """PR #236 後も `validation NG: empty` 継続障害の切り分け用デバッグログヘルパー。"""
+
+    def _mock_safety(self, category: str, probability: str, blocked: bool = False):
+        m = MagicMock()
+        m.category = category
+        m.probability = probability
+        m.blocked = blocked
+        return m
+
+    def _mock_response(
+        self, finish_reason=None, safety=None, thoughts=None, candidates=None, tokens=True,
+    ):
+        resp = MagicMock()
+        if candidates is None:
+            c0 = MagicMock()
+            c0.finish_reason = finish_reason
+            c0.safety_ratings = safety or []
+            resp.candidates = [c0]
+        else:
+            resp.candidates = candidates
+        if tokens:
+            usage = MagicMock()
+            usage.prompt_token_count = 1000
+            usage.candidates_token_count = 0
+            usage.thoughts_token_count = thoughts
+            usage.total_token_count = 1000 + (thoughts or 0)
+            resp.usage_metadata = usage
+        else:
+            resp.usage_metadata = None
+        return resp
+
+    def test_collects_finish_reason_and_safety(self):
+        resp = self._mock_response(
+            finish_reason="FinishReason.MAX_TOKENS",
+            safety=[
+                self._mock_safety("HarmCategory.HARM_CATEGORY_HATE_SPEECH",
+                                  "HarmProbability.NEGLIGIBLE"),
+            ],
+        )
+        info = vertex_evaluator._describe_response_for_debug(resp)
+        assert info["candidate"]["count"] == 1
+        assert info["candidate"]["finish_reason"] == "MAX_TOKENS"
+        assert info["candidate"]["safety"][0]["category"] == "HARM_CATEGORY_HATE_SPEECH"
+        assert info["candidate"]["safety"][0]["probability"] == "NEGLIGIBLE"
+        assert info["candidate"]["safety"][0]["blocked"] is False
+        assert info["tokens"]["prompt"] == 1000
+
+    def test_thoughts_token_count_surfaced(self):
+        """thoughts_token_count が 0 でないなら thinking_budget=0 無視を疑う"""
+        resp = self._mock_response(finish_reason="STOP", thoughts=300)
+        info = vertex_evaluator._describe_response_for_debug(resp)
+        assert info["tokens"]["thoughts"] == 300
+
+    def test_empty_candidates_no_crash(self):
+        resp = self._mock_response(candidates=[])
+        info = vertex_evaluator._describe_response_for_debug(resp)
+        assert info["candidate"] == {"count": 0}
+        assert info["tokens"]["prompt"] == 1000
+
+    def test_no_usage_metadata_no_crash(self):
+        resp = self._mock_response(finish_reason="STOP", tokens=False)
+        info = vertex_evaluator._describe_response_for_debug(resp)
+        assert info["tokens"]["prompt"] is None
+        assert info["tokens"]["thoughts"] is None
