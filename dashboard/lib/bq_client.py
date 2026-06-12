@@ -34,18 +34,23 @@ def load_team_budget_actuals(
 ) -> pd.DataFrame:
     """v_team_budget_actuals から期間内の予実データを取得 (spec §6.6, ttl=5 分)。
 
+    PR-A (2026-06-12) で leader_team 列を追加。team_hierarchy INNER JOIN により
+    operating 統括隊配下の隊のみ取得 (非「隊」活動分類は VIEW 層で根本除外)。
+
     Returns:
-        columns: year, month, team, actual_amount, actual_count, reporter_count,
-                 budget_amount, achievement_rate, diff_amount, has_budget, has_actual
+        columns: year, month, team, leader_team, actual_amount, actual_count,
+                 reporter_count, budget_amount, achievement_rate, diff_amount,
+                 has_budget, has_actual
     """
     client = get_bq_client()
     sql = f"""
-    SELECT year, month, team, actual_amount, actual_count, reporter_count,
-           budget_amount, achievement_rate, diff_amount, has_budget, has_actual
+    SELECT year, month, team, leader_team, actual_amount, actual_count,
+           reporter_count, budget_amount, achievement_rate, diff_amount,
+           has_budget, has_actual
     FROM `{TEAM_BUDGET_ACTUALS_VIEW}`
     WHERE year BETWEEN @y_start AND @y_end
       AND month BETWEEN @m_start AND @m_end
-    ORDER BY year, month, team
+    ORDER BY leader_team, team, year, month
     """
     job_config = bigquery.QueryJobConfig(
         query_parameters=[
@@ -102,7 +107,12 @@ def load_team_monthly_eval(
 def load_active_teams(
     year_start: int, year_end: int, month_start: int, month_end: int
 ) -> list[str]:
-    """期間内に予算 or 実額が存在する全 active 隊の一覧 (ttl=10 分、マスタ系)。"""
+    """期間内に予算 or 実額が存在する全 active 隊の一覧 (ttl=10 分、マスタ系)。
+
+    PR-A (2026-06-12) で v_team_budget_actuals が team_hierarchy INNER JOIN
+    によって 隊 (operating 統括隊配下) のみに絞られたため、本関数も自動的に
+    非「隊」を除外する (VIEW 層フィルタ任せ、UI 二重フィルタは持たない方針)。
+    """
     client = get_bq_client()
     sql = f"""
     SELECT DISTINCT team
@@ -121,6 +131,38 @@ def load_active_teams(
         ]
     )
     return [row["team"] for row in client.query(sql, job_config=job_config).result()]
+
+
+@st.cache_data(ttl=600)
+def load_active_leader_teams(
+    year_start: int, year_end: int, month_start: int, month_end: int
+) -> list[str]:
+    """期間内に予算 or 実額が存在する全 active 統括隊の一覧 (PR-A、ttl=10 分)。
+
+    v_team_budget_actuals の INNER JOIN により operating の統括隊のみが返る。
+    UI の統括隊フィルタ selectbox / 統括隊タブのランキング軸として使用。
+    """
+    client = get_bq_client()
+    sql = f"""
+    SELECT DISTINCT leader_team
+    FROM `{TEAM_BUDGET_ACTUALS_VIEW}`
+    WHERE year BETWEEN @y_start AND @y_end
+      AND month BETWEEN @m_start AND @m_end
+      AND leader_team IS NOT NULL AND leader_team != ''
+    ORDER BY leader_team
+    """
+    job_config = bigquery.QueryJobConfig(
+        query_parameters=[
+            bigquery.ScalarQueryParameter("y_start", "INT64", year_start),
+            bigquery.ScalarQueryParameter("y_end", "INT64", year_end),
+            bigquery.ScalarQueryParameter("m_start", "INT64", month_start),
+            bigquery.ScalarQueryParameter("m_end", "INT64", month_end),
+        ]
+    )
+    return [
+        row["leader_team"]
+        for row in client.query(sql, job_config=job_config).result()
+    ]
 
 
 @st.cache_data(ttl=300)

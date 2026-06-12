@@ -437,13 +437,16 @@ AS (
 
 
 -- ============================================================
--- v_team_budget_actuals: 予実集計の中核 VIEW
+-- v_team_budget_actuals: 予実集計の中核 VIEW (PR-A 2026-06-12 改訂)
 -- ============================================================
 -- 隊（活動）分類 × 年月の予算・実額・達成率・差額を一元提供。
 --   - actuals_agg: gyomu_reports から 2026/05 以降の隊×月集計
 --   - budgets_latest: team_budgets の重複防御 (QUALIFY ROW_NUMBER で最新を採用)
 --   - FULL OUTER JOIN で予算/実額の 4 パターン (どちらかなし含む) に対応
+--   - team_hierarchy INNER JOIN で 隊 (operating 統括隊配下) のみに絞る (PR-A)
+--   - leader_team 列を出力 (UI で統括隊集計に使用、PR-A)
 -- 詳細: docs/specs/2026-06-10-team-budget-eval-design.md §4.4
+--       docs/specs/2026-06-12-team-budget-leader-team-restructure.md §3.1
 CREATE OR REPLACE VIEW `monthly-pay-tax.pay_reports.v_team_budget_actuals` AS
 WITH budgets_latest AS (
   SELECT * EXCEPT(rn)
@@ -475,24 +478,40 @@ actuals_agg AS (
     AND month BETWEEN 1 AND 12
     AND (year > 2026 OR (year = 2026 AND month >= 5))
   GROUP BY year, month, team
+),
+combined AS (
+  -- FULL OUTER JOIN で予算 only / 実額 only / 両方ある の 3 パターンを捕捉
+  SELECT
+    COALESCE(a.year, b.year) AS year,
+    COALESCE(a.month, b.month) AS month,
+    COALESCE(a.team, b.team) AS team,
+    a.actual_amount,
+    a.actual_count,
+    a.reporter_count,
+    b.budget_amount
+  FROM actuals_agg a
+  FULL OUTER JOIN budgets_latest b
+    ON a.year = b.year AND a.month = b.month AND a.team = b.team
 )
 SELECT
-  COALESCE(a.year, b.year) AS year,
-  COALESCE(a.month, b.month) AS month,
-  COALESCE(a.team, b.team) AS team,
-  a.actual_amount,
-  a.actual_count,
-  a.reporter_count,
-  b.budget_amount,
-  CASE WHEN b.budget_amount IS NULL OR b.budget_amount = 0 THEN NULL
-       ELSE SAFE_DIVIDE(a.actual_amount, b.budget_amount) * 100 END AS achievement_rate,
-  CASE WHEN b.budget_amount IS NULL THEN NULL
-       ELSE COALESCE(a.actual_amount, 0) - b.budget_amount END AS diff_amount,
-  (b.budget_amount IS NOT NULL) AS has_budget,
-  (a.actual_amount IS NOT NULL) AS has_actual
-FROM actuals_agg a
-FULL OUTER JOIN budgets_latest b
-  ON a.year = b.year AND a.month = b.month AND a.team = b.team;
+  c.year,
+  c.month,
+  c.team,
+  h.leader_team,                                                    -- 新規列 (PR-A)
+  c.actual_amount,
+  c.actual_count,
+  c.reporter_count,
+  c.budget_amount,
+  CASE WHEN c.budget_amount IS NULL OR c.budget_amount = 0 THEN NULL
+       ELSE SAFE_DIVIDE(c.actual_amount, c.budget_amount) * 100 END AS achievement_rate,
+  CASE WHEN c.budget_amount IS NULL THEN NULL
+       ELSE COALESCE(c.actual_amount, 0) - c.budget_amount END AS diff_amount,
+  (c.budget_amount IS NOT NULL) AS has_budget,
+  (c.actual_amount IS NOT NULL) AS has_actual
+FROM combined c
+INNER JOIN `monthly-pay-tax.pay_reports.team_hierarchy` h
+  ON c.team = h.activity_category
+WHERE h.leader_team_type = 'operating';
 
 
 -- ============================================================

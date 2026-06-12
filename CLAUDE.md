@@ -268,6 +268,18 @@ BQ接続が必要なためローカル実行での完全な動作確認は困難
 3. **出力フィールド**: DataFrame/テーブルにスタブ行を追加する場合、既存カラム全てに対する値を定義したか確認
 4. **エッジケース**: フィルタ結果が0件（空DataFrame）の場合のコードパスを確認
 
+### ダッシュボード デプロイ後の cache 注意
+BQ migration を含むデプロイの場合、Streamlit の `@st.cache_data` (TTL 300-600s) が古い分類を最大 10 分保持し続ける可能性がある。新 revision に traffic が切替わっても、既存 WebSocket セッションは古い in-process cache を持つ。
+
+利用者側の対策:
+- ブラウザで **Cmd+Shift+R (macOS) / Ctrl+Shift+R (Win/Linux) でハードリロード**
+- それでも反映しない場合はシークレットウィンドウで開く
+
+開発者側の確認手順 (BQ migration を含む PR の場合):
+1. `gcloud run services describe pay-dashboard --region=asia-northeast1 --format="value(status.latestReadyRevisionName)"` で新 revision 確認
+2. `gh run list --workflow="Deploy Dashboard" --limit 1` で deploy 成功確認
+3. 利用者にハードリロード依頼 (本田様への報告必須)
+
 ## GCP環境
 
 | リソース | 値 |

@@ -301,3 +301,53 @@ def test_resolve_actor_unknown(monkeypatch):
     monkeypatch.delenv("GIT_COMMITTER_EMAIL", raising=False)
     monkeypatch.delenv("USER", raising=False)
     assert ub.resolve_actor() == "script:upload_budgets:unknown"
+
+
+# --- validate_hierarchy_coverage (PR-A) ---
+
+
+def _mock_hierarchy_client(activity_categories: list[str]) -> MagicMock:
+    """team_hierarchy SELECT に対して指定 activity_category を返す mock client"""
+    client = MagicMock()
+    rows = [MagicMock(activity_category=cat) for cat in activity_categories]
+    client.query.return_value.result.return_value = rows
+    return client
+
+
+def test_validate_hierarchy_all_registered():
+    """全 team が hierarchy に登録済み → exit 0"""
+    client = _mock_hierarchy_client(["A 隊", "B 隊", "C 隊"])
+    rows = [
+        ub.BudgetRow(year=2026, month=5, team="A 隊", budget_amount=100, memo=None),
+        ub.BudgetRow(year=2026, month=5, team="B 隊", budget_amount=200, memo=None),
+    ]
+    assert ub.validate_hierarchy_coverage(client, rows) == 0
+
+
+def test_validate_hierarchy_unregistered_warns_but_continues():
+    """未登録 team があっても strict なしなら exit 0 (warning のみ)"""
+    client = _mock_hierarchy_client(["A 隊"])
+    rows = [
+        ub.BudgetRow(year=2026, month=5, team="A 隊", budget_amount=100, memo=None),
+        ub.BudgetRow(year=2026, month=5, team="未登録隊", budget_amount=200, memo=None),
+    ]
+    assert ub.validate_hierarchy_coverage(client, rows, strict=False) == 0
+
+
+def test_validate_hierarchy_unregistered_strict_fails():
+    """未登録 team + strict モード → exit 1"""
+    client = _mock_hierarchy_client(["A 隊"])
+    rows = [
+        ub.BudgetRow(year=2026, month=5, team="A 隊", budget_amount=100, memo=None),
+        ub.BudgetRow(year=2026, month=5, team="未登録隊", budget_amount=200, memo=None),
+    ]
+    assert ub.validate_hierarchy_coverage(client, rows, strict=True) == 1
+
+
+def test_validate_hierarchy_empty_table_skips_check():
+    """team_hierarchy が空 → check skip (warning のみ、exit 0)"""
+    client = _mock_hierarchy_client([])
+    rows = [
+        ub.BudgetRow(year=2026, month=5, team="任意隊", budget_amount=100, memo=None),
+    ]
+    assert ub.validate_hierarchy_coverage(client, rows, strict=True) == 0
