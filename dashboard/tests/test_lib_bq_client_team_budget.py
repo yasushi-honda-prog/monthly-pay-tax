@@ -114,6 +114,45 @@ class TestLoadActiveTeams:
         assert "team IS NOT NULL" in sql
 
 
+class TestLoadLeaderTeamMonthlyBudgets:
+    """PR-Q2M: team_budgets_quarterly から月予算を算出する関数のテスト"""
+
+    def test_returns_dataframe_with_leader_team_and_monthly_budget(self, mock_client):
+        df = pd.DataFrame({
+            "leader_team": ["L1", "L2"],
+            "monthly_budget": [1000.0, 2000.0],
+        })
+        _to_dataframe_mock(mock_client, df)
+        result = bq_client.load_leader_team_monthly_budgets(2026, 5)
+        assert len(result) == 2
+        assert "leader_team" in result.columns
+        assert "monthly_budget" in result.columns
+
+    def test_returns_empty_when_table_empty(self, mock_client):
+        """team_budgets_quarterly が空 (= データ未投入) なら empty DataFrame"""
+        _to_dataframe_mock(mock_client, pd.DataFrame())
+        result = bq_client.load_leader_team_monthly_budgets(2026, 5)
+        assert result.empty
+
+    def test_sql_uses_fiscal_quarter_udf(self, mock_client):
+        """SQL に fiscal_quarter UDF と team_budgets_quarterly テーブル参照"""
+        _to_dataframe_mock(mock_client, pd.DataFrame())
+        bq_client.load_leader_team_monthly_budgets(2026, 5)
+        sql = mock_client.query.call_args.args[0]
+        assert "fiscal_quarter" in sql
+        assert "team_budgets_quarterly" in sql
+        # 四半期予算 / 3 = 月予算
+        assert "/ 3" in sql or "SAFE_DIVIDE" in sql
+
+    def test_params_bound(self, mock_client):
+        _to_dataframe_mock(mock_client, pd.DataFrame())
+        bq_client.load_leader_team_monthly_budgets(2026, 5)
+        job_config = mock_client.query.call_args.kwargs["job_config"]
+        params = {p.name: p.value for p in job_config.query_parameters}
+        assert params["year"] == 2026
+        assert params["month"] == 5
+
+
 class TestLoadActiveLeaderTeams:
     """PR-A: 統括隊 distinct リスト取得関数のテスト"""
 

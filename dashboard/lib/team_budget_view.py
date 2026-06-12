@@ -157,11 +157,18 @@ def _compute_rate(actual: float, budget: float) -> Optional[float]:
     return (actual / budget) * 100
 
 
-def summarize_by_leader_team(actuals: pd.DataFrame) -> pd.DataFrame:
+def summarize_by_leader_team(
+    actuals: pd.DataFrame,
+    leader_team_budgets: Optional[dict[str, float]] = None,
+) -> pd.DataFrame:
     """統括隊 (leader_team) 別の集計 (PR-A、spec §4.3)。
 
     Args:
         actuals: v_team_budget_actuals (leader_team 列必須、PR-A 以降の load 出力)
+        leader_team_budgets: 統括隊別 月予算の dict (PR-Q2M、四半期予算 / 3)。
+            指定時は actuals の budget_amount を無視し本 map の値を採用する
+            (隊×月予算 team_budgets は隊単位なので統括隊集計と粒度が合わない)。
+            キーにない統括隊は budget=0、map=None なら従来通り actuals から集計
     Returns:
         columns: leader_team, actual_amount, budget_amount, achievement_rate,
                  diff_amount, team_count (配下隊の distinct 数)
@@ -179,6 +186,12 @@ def summarize_by_leader_team(actuals: pd.DataFrame) -> pd.DataFrame:
             team_count=("team", "nunique"),
         )
     )
+    if leader_team_budgets is not None:
+        # PR-Q2M: 統括隊別月予算で budget_amount を上書き
+        # team_budgets_quarterly 由来の月予算 = SUM(全カテゴリ四半期予算) / 3
+        grouped["budget_amount"] = grouped["leader_team"].map(
+            lambda lt: float(leader_team_budgets.get(lt, 0.0))
+        )
     grouped["achievement_rate"] = grouped.apply(
         lambda r: _compute_rate(r["actual_amount"], r["budget_amount"]),
         axis=1,

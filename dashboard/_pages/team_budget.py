@@ -21,6 +21,7 @@ from lib.bq_client import (
     compute_current_hashes,
     load_active_leader_teams,
     load_active_teams,
+    load_leader_team_monthly_budgets,
     load_team_budget_actuals,
     load_team_monthly_eval,
 )
@@ -81,12 +82,38 @@ if not actuals_year.empty and "month" in actuals_year.columns:
 else:
     actuals_month = actuals_year
 
+# PR-Q2M: 統括隊別月予算 (team_budgets_quarterly の四半期予算 / 3)。
+# 空 DataFrame の場合 (データ未投入時) は dict 空で扱い、従来通り actuals
+# 由来の budget_amount にフォールバックする (隊×月予算 team_budgets は別系統)。
+_leader_budget_df = load_leader_team_monthly_budgets(year, month)
+if _leader_budget_df.empty:
+    leader_team_monthly_budgets: dict[str, float] = {}
+else:
+    # NaN は truthy なため `or 0.0` で fallback できない。pd.isna で明示チェック
+    leader_team_monthly_budgets = {
+        str(row["leader_team"]): (
+            0.0 if pd.isna(row["monthly_budget"]) else float(row["monthly_budget"])
+        )
+        for _, row in _leader_budget_df.iterrows()
+    }
+# 月予算が 1 件でも入っているなら override で集計、空なら従来通り None で集計
+_lt_budget_override = leader_team_monthly_budgets if leader_team_monthly_budgets else None
+
 
 # ============ 📊 全体 ============
 
 with tab_overall:
     st.subheader(f"{year}年{month}月 全体サマリー")
     summary = summarize_actuals(actuals_month)
+    # PR-Q2M: 統括隊月予算が投入されている場合は法人全体予算を上書き
+    if _lt_budget_override:
+        total_lt_budget = sum(leader_team_monthly_budgets.values())
+        summary["total_budget"] = total_lt_budget
+        summary["overall_diff"] = summary["total_actual"] - total_lt_budget
+        summary["overall_rate"] = (
+            (summary["total_actual"] / total_lt_budget * 100)
+            if total_lt_budget > 0 else None
+        )
     render_kpi_row(summary)
 
     if actuals_year.empty:
@@ -138,7 +165,7 @@ with tab_leader:
     if actuals_month.empty:
         st.info("当月のデータがありません。")
     else:
-        leader_summary = summarize_by_leader_team(actuals_month)
+        leader_summary = summarize_by_leader_team(actuals_month, _lt_budget_override)
         if leader_summary.empty:
             st.info("当月の統括隊データがありません。")
         else:
@@ -195,6 +222,10 @@ with tab_leader:
             st.altair_chart(leader_heatmap, use_container_width=True)
 
         # 統括隊別累積実額ランキング (棒グラフ + 予算マーカー)
+        # PR-Q2M: ランキングは「年累計実額」を表示。予算マーカーは team_budgets_quarterly
+        # に投入された範囲でのみ意味を持つため、現状は actuals_year 由来の budget をそのまま
+        # 使う (データ未投入時は ¥0 マーカーなし)。投入計画次第で本ロジックを年累計予算
+        # 集計に拡張予定 (follow-up)。
         st.subheader(f"{year}年 統括隊別累積実額ランキング")
         leader_ranking = summarize_by_leader_team(actuals_year)
         if not leader_ranking.empty:
