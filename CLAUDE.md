@@ -215,6 +215,42 @@ bq show --format=prettyjson monthly-pay-tax:pay_reports_backup | \
 # → role=OWNER の pay-collector@ エントリがあれば OK
 ```
 
+### Vertex AI API 有効化（隊×月評価機能 `/eval/team-monthly`）
+
+隊×月の AI 評価コメント生成（Cloud Run `POST /eval/team-monthly` → `vertex_evaluator.generate_comment()` → Gemini 2.5 Flash）は **Vertex AI / Agent Platform API (`aiplatform.googleapis.com`) の有効化が必要**。未有効化のまま「評価を更新」ボタンを押すと `403 PERMISSION_DENIED: Agent Platform API has not been used in project ... or it is disabled.` で 3 回リトライ後に失敗する。**本番環境では有効化済**（2026-06-12、PR-B (#218 系列) デプロイ後の初回ボタン押下で 403 顕在化し補完）。新規環境構築時のみ以下を実行:
+
+```bash
+# 1. 現状確認（未有効化なら出力空）
+gcloud services list --enabled --project=monthly-pay-tax | grep aiplatform
+
+# 2. 有効化（公式メッセージ通り伝播に数分かかる）
+gcloud services enable aiplatform.googleapis.com --project=monthly-pay-tax
+```
+
+確認コマンド:
+
+```bash
+gcloud services list --enabled --project=monthly-pay-tax | grep aiplatform
+# → "aiplatform.googleapis.com  Agent Platform API" が出れば OK
+```
+
+**IAM 権限**: Vertex AI を呼び出す pay-collector@ SA に `roles/aiplatform.user` が必要。**本番環境では既に付与済**（プロジェクト IAM 確認済み、2026-06-12）。新規環境構築時のみ以下を実行:
+
+```bash
+gcloud projects add-iam-policy-binding monthly-pay-tax \
+  --member="serviceAccount:pay-collector@monthly-pay-tax.iam.gserviceaccount.com" \
+  --role="roles/aiplatform.user"
+```
+
+確認コマンド:
+
+```bash
+gcloud projects get-iam-policy monthly-pay-tax --flatten="bindings[].members" \
+  --filter="bindings.members:serviceAccount:pay-collector@monthly-pay-tax.iam.gserviceaccount.com" \
+  --format="value(bindings.role)" | grep aiplatform
+# → "roles/aiplatform.user" が出れば OK
+```
+
 ### Step0 健全性チェック（毎朝の成功確認）
 
 Chat 障害通知は**失敗時のみ**飛ぶため、Step0 が成功した日は無通知（沈黙）。毎朝バッチ後に当日分 snapshot が5件揃ったかを能動確認する（2026-05-31 にクエリ動作確認、**2026-06-01 に ACL 付与後初の自動 Step0 実行で5件成功を確認＝snapshot 障害恒久対策の実証完了**。snapshot_time JST 06:00:46〜06:00:53 の連続レンジで手動補完ではなく自動バッチ作成と判別）:
