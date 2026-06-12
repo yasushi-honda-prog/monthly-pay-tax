@@ -161,12 +161,18 @@ def build_genai_client() -> "genai.Client":
 
 
 def build_generation_config() -> "types.GenerateContentConfig":
-    """生成パラメータ + システムプロンプト + safety_settings（spec §7.4）。"""
+    """生成パラメータ + システムプロンプト + safety_settings（spec §7.4）。
+
+    thinking_budget=0 で Gemini 2.5 系の thinking を無効化。デフォルト有効だと
+    max_output_tokens の枠を thinking が消費して最終応答テキストが空になる
+    既知挙動があるため、本ユースケース (短い経営評価コメント) では無効化する。
+    """
     return types.GenerateContentConfig(
         system_instruction=SYSTEM_PROMPT,
         max_output_tokens=config.GEMINI_MAX_TOKENS,
         temperature=config.GEMINI_TEMPERATURE,
         top_p=config.GEMINI_TOP_P,
+        thinking_config=types.ThinkingConfig(thinking_budget=0),
         safety_settings=[
             types.SafetySetting(
                 category=types.HarmCategory.HARM_CATEGORY_HARASSMENT,
