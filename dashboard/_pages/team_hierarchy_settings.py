@@ -31,7 +31,6 @@ from lib.doc_styles import (
 )
 from lib.team_hierarchy_repo import (
     delete_hierarchy_row,
-    fetch_distinct_leader_teams,
     fetch_hierarchy,
     fetch_unmapped_activity_categories,
     insert_hierarchy_row,
@@ -81,16 +80,10 @@ def _load_unmapped() -> pd.DataFrame:
     return fetch_unmapped_activity_categories()
 
 
-@st.cache_data(ttl=60)
-def _load_leader_teams() -> list[str]:
-    return fetch_distinct_leader_teams()
-
-
 def _invalidate_caches() -> None:
     """編集後に全 cache をクリア (個別 cache.clear で他ユーザーへの波及を最小化)。"""
     _load_hierarchy.clear()
     _load_unmapped.clear()
-    _load_leader_teams.clear()
 
 
 # CR-H1 反映: dialog はモジュールトップで定義 (条件分岐内にあると df_hierarchy 空時に未定義)
@@ -131,7 +124,11 @@ try:
                                .drop_duplicates(subset=["activity_category"], keep="first") \
                                .reset_index(drop=True)
     _hierarchy_duplicates = _original_hierarchy_count - len(df_hierarchy)
-    leader_team_options = _load_leader_teams()
+    # leader_team_options は df_hierarchy から派生させる (別キャッシュを持たないことで
+    # 追加・リネーム後に dropdown が古いまま残る不整合を構造的に防ぐ)。
+    leader_team_options = sorted(
+        df_hierarchy["leader_team"].dropna().drop_duplicates().tolist()
+    )
 except Exception as e:
     st.error(f"BQ 取得に失敗しました: {e}")
     st.stop()
