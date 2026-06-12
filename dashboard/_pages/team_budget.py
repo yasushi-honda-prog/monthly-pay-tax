@@ -31,6 +31,7 @@ from lib.team_budget_view import (
     achievement_color,
     build_leader_team_matrix_df,
     build_matrix_df,
+    build_monthly_trend,
     classify_achievement,
     format_diff,
     format_rate,
@@ -121,14 +122,7 @@ with tab_overall:
     else:
         # 月次推移 (実額 vs 予算、年内全月)
         st.subheader(f"{year}年 月次推移 (実額 vs 予算)")
-        monthly_trend = (
-            actuals_year.groupby("month", as_index=False)
-            .agg(
-                actual_amount=("actual_amount", lambda s: s.fillna(0).sum()),
-                budget_amount=("budget_amount", lambda s: s.fillna(0).sum()),
-            )
-            .sort_values("month")
-        )
+        monthly_trend = build_monthly_trend(actuals_year)
         trend_long = monthly_trend.melt(
             id_vars="month",
             value_vars=["actual_amount", "budget_amount"],

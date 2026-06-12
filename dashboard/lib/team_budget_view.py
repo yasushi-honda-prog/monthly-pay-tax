@@ -142,6 +142,40 @@ def build_matrix_df(actuals: pd.DataFrame, value: str = "achievement_rate") -> p
     return pivot
 
 
+# 月次推移グラフの集計列定義 (PR-Q2M follow-up)。
+_MONTHLY_TREND_COLUMNS = ("month", "actual_amount", "budget_amount")
+
+
+def build_monthly_trend(actuals: pd.DataFrame) -> pd.DataFrame:
+    """v_team_budget_actuals → 月別 (実額, 予算) 合計 DataFrame (PR-Q2M follow-up)。
+
+    BQ NUMERIC 列が pandas で Decimal になるため、altair / vega-lite に渡す前に
+    float 化する。Decimal のまま渡すと vega-lite が文字列解釈してしまい、
+    Y 軸スケールが桁違いになる本番障害が発生した (例: ¥4,232,055 → ¥4.5 兆表記)。
+
+    Args:
+        actuals: month / actual_amount / budget_amount 列を持つ DataFrame
+    Returns:
+        columns: month (int), actual_amount (float), budget_amount (float)
+        month 昇順でソート、empty 入力は schema 付き空 DataFrame で返す
+    """
+    if actuals.empty:
+        return pd.DataFrame(columns=list(_MONTHLY_TREND_COLUMNS))
+    trend = (
+        actuals.groupby("month", as_index=False)
+        .agg(
+            actual_amount=("actual_amount", lambda s: s.fillna(0).sum()),
+            budget_amount=("budget_amount", lambda s: s.fillna(0).sum()),
+        )
+        .sort_values("month")
+        .reset_index(drop=True)
+    )
+    # Decimal を vega-lite に渡すと桁が壊れるため float に正規化
+    trend["actual_amount"] = trend["actual_amount"].astype(float)
+    trend["budget_amount"] = trend["budget_amount"].astype(float)
+    return trend
+
+
 # 統括隊集計 DataFrame の列定義 (PR-A)。
 # empty 時の早期 return / build_leader_team_matrix_df の同等処理で共有。
 _LEADER_TEAM_SUMMARY_COLUMNS = (
