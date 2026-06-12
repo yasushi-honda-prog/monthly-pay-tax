@@ -204,7 +204,7 @@ def validate_hierarchy_coverage(client, df):
     ...
 ```
 
-`--strict` フラグなしの場合は warning のみ。`--strict` 付きの場合は exit 1。
+`--strict-hierarchy` フラグなしの場合は warning のみ。`--strict-hierarchy` 付きの場合は exit 1。
 
 ---
 
