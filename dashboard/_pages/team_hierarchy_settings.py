@@ -43,6 +43,13 @@ from lib.team_hierarchy_repo import (
 # team_hierarchy に重複行が混入。本ロックでセッション内の race を防ぐ。
 ADD_LOCK_KEY = "th_add_lock_ts"
 ADD_LOCK_DURATION_SEC = 5
+ADD_FORM_RESET_FLAG_KEY = "_th_add_reset_flag"
+ADD_FORM_WIDGET_KEYS = (
+    "add_target_unmapped",
+    "add_leader_choice",
+    "add_new_leader_text",
+    "add_note",
+)
 
 # --- 認証チェック ---
 email = st.session_state.get("user_email", "")
@@ -163,6 +170,14 @@ st.divider()
 
 
 # --- 1. 未マッピング隊の補完 ---
+# 前回 add 成功時の reset flag を、widget 描画前に消化して
+# session_state を初期化する (Codex セカンドオピニオン採用パターン)。
+# widget 生成後に session_state を直接 pop すると StreamlitAPIException
+# になるケースがあるため、必ず form/widget 描画より「前」で実施する。
+if st.session_state.pop(ADD_FORM_RESET_FLAG_KEY, False):
+    for _k in ADD_FORM_WIDGET_KEYS:
+        st.session_state.pop(_k, None)
+
 render_section_header(
     "未マッピング隊の補完 (UNMAPPED → 統括隊割当)", icon="➕", color="blue"
 )
@@ -207,10 +222,15 @@ else:
         with col3:
             new_note = st.text_input("note (任意)", key="add_note")
 
+        # disabled= 制約は外す。Streamlit form 内では leader_choice の値変更が
+        # submit までトリガーされず、disabled が前 run 開始時の session_state 値で
+        # 固定されるため、ユーザーが UI 上で「(新規入力)」に戻しても次 submit まで
+        # 反応しない (本田様実機報告「新規入力さえできない」の原因)。
+        # actual_leader の選択ロジック (下記) で leader_choice が "(新規入力)" の
+        # 場合のみ text 値を採用するので、UI 制約として disabled は不要。
         new_leader_text = st.text_input(
             "統括隊 (新規入力)",
-            placeholder="ヤスス+ヒデデン統括隊 など",
-            disabled=(leader_choice != "(新規入力)"),
+            placeholder="「(新規入力)」選択時のみ反映 / 例: ヤスス+ヒデデン統括隊",
             key="add_new_leader_text",
         )
 
@@ -252,6 +272,10 @@ else:
                                 f"{target_unmapped} を {actual_leader} として追加しました。"
                             )
                             _invalidate_caches()
+                            # 連続入力を可能にするため form widget を次 run でリセット。
+                            # ここで直接 pop すると同 run 内の widget 競合になるため
+                            # flag だけ立て、次 run の form 描画前で消化する。
+                            st.session_state[ADD_FORM_RESET_FLAG_KEY] = True
                             st.rerun()
                     except Exception as e:
                         st.error(f"追加に失敗しました: {e}")
