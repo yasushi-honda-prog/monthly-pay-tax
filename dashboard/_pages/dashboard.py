@@ -17,7 +17,7 @@ import streamlit as st
 
 from lib.bq_client import load_data
 from lib.constants import PROJECT_ID, DATASET
-from lib.gyomu_list_view import filter_wam_only
+from lib.gyomu_list_view import filter_wam_only, render_gyomu_list_view
 from lib.ui_helpers import (
     add_gyomu_date_dt,
     clean_numeric_series,
@@ -529,7 +529,35 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 
-# --- 業務報告一覧 / WAM業務報告 タブ本体（同じテーブルビューを key_prefix で共存） ---
+# --- 業務報告一覧 / WAM業務報告 タブ本体 ---
+# Issue #254: render 関数本体を lib/gyomu_list_view.py に注入型 API として抽出。
+# tab3 / tab_wam は loader 呼出 + 正規化を内部 helper でまとめ、lib 関数を呼ぶ。
+
+
+def _load_normalized_gyomu_for_view(name_map: dict[str, str]) -> "pd.DataFrame":
+    """業務報告 DF をロードし、表示用に正規化する (tab3 / tab_wam 共通)。
+
+    Raises:
+        BQ 取得失敗時は st.error + st.stop() (呼び出し元には返らない)
+    Returns:
+        正規化済 DataFrame (display_name 列追加済)。空 DF はそのまま返す
+        (lib.render_gyomu_list_view 側で empty_message を表示)
+    """
+    try:
+        df = load_gyomu_with_members()
+    except Exception as e:
+        st.error(f"データ取得エラー: {e}")
+        st.stop()
+    if df.empty:
+        return df
+    df = fill_empty_nickname(df)
+    df["year"] = valid_years(df["year"])
+    df = df[df["year"].notna()]
+    df["year"] = df["year"].astype(int)
+    df["display_name"] = df["nickname"].map(lambda n: name_map.get(n, n))
+    return df
+
+
 def _render_gyomu_list_tab(
     name_map: dict,
     all_members: list,
@@ -545,237 +573,28 @@ def _render_gyomu_list_tab(
     wam_only: bool = False,
     empty_message: str = "データがありません",
 ) -> None:
-    """業務報告一覧のテーブルビューを描画する。
+    """tab3 / tab_wam のラッパ (既存呼出シグネチャ維持、内部で新 API 呼出)。
 
-    tab3 (key_prefix="list") と tab_wam (key_prefix="wam_list") を同じページに
-    並存させるため、widget key と reset counter を key_prefix から派生させる。
-    wam_only=True なら work_category が「（WAM）」プレフィックスの行のみ表示する。
-
-    selected_month == "期間指定" のときは range_*_year/month で年またぎ範囲指定する
-    (tab1 月別報酬サマリーと同じパターン)。それ以外のときは range_* は使われない。
+    Issue #254: 本体ロジックは lib/gyomu_list_view.py:render_gyomu_list_view
+    に移譲。本関数は loader 呼出 + 正規化 + 呼出転送のみ。
     """
-    try:
-        df_gyomu_all = load_gyomu_with_members()
-    except Exception as e:
-        st.error(f"データ取得エラー: {e}")
-        st.stop()
-
-    if df_gyomu_all.empty:
-        st.info(empty_message)
-        return
-
-    df_gyomu_all = fill_empty_nickname(df_gyomu_all)
-    df_gyomu_all["year"] = valid_years(df_gyomu_all["year"])
-    df_gyomu_all = df_gyomu_all[df_gyomu_all["year"].notna()]
-    df_gyomu_all["year"] = df_gyomu_all["year"].astype(int)
-    df_gyomu_all["display_name"] = df_gyomu_all["nickname"].map(lambda n: name_map.get(n, n))
-
-    # 期間・メンバー絞り込みまでをベースラインとして保持
-    # (フィルタ後件数 vs ベース件数を比較表示するため)
-    if selected_month != "期間指定":
-        result_base = df_gyomu_all[df_gyomu_all["year"] == selected_year]
-        month_val = int(selected_month.replace("月", ""))
-        result_base = result_base[result_base["month"] == month_val]
-    else:
-        # 期間指定: 年またぎ範囲対応 (tab1 と同じ year*100+month ベース)
-        _start_ym = range_start_year * 100 + range_start_month
-        _end_ym = range_end_year * 100 + range_end_month
-        if _end_ym < _start_ym:
-            st.warning("終了年月が開始年月より前になっています")
-            result_base = df_gyomu_all.iloc[0:0]
-        else:
-            # month は NaN 含む可能性があるため to_numeric で安全変換 (NaN は比較で False)
-            _ym_num = (
-                df_gyomu_all["year"].astype(int) * 100
-                + pd.to_numeric(df_gyomu_all["month"], errors="coerce")
-            )
-            result_base = df_gyomu_all[(_ym_num >= _start_ym) & (_ym_num <= _end_ym)]
-    if selected_members:
-        result_base = result_base[result_base["nickname"].isin(selected_members)]
-
-    if wam_only:
-        result_base = filter_wam_only(result_base)
-
-    total_base = len(result_base)
-    if total_base == 0:
-        st.info(empty_message)
-        return
-
-    # Streamlit widget の value は session_state.pop() / on_click callback では
-    # 確実にクリアできない (widget 内部キャッシュが残るため、ユーザー入力後の値が復元される)。
-    # widget key に counter を含めて、リセット時に counter++ することで
-    # 新しい widget としてマウントさせるのが確実な公式パターン。
-    counter_key = f"{key_prefix}_reset_counter"
-    if counter_key not in st.session_state:
-        st.session_state[counter_key] = 0
-    _rc = st.session_state[counter_key]
-
-    # --- フィルタ行 1: 隊（活動）分類 → 業務分類(依存) → スポンサー ---
-    fcol1, fcol2, fcol3 = st.columns(3)
-    with fcol1:
-        categories = ["隊（活動）分類"] + sorted(
-            result_base["activity_category"].dropna().unique().tolist()
-        )
-        sel_cat = st.selectbox(
-            "隊（活動）分類", categories, key=f"{key_prefix}_cat_{_rc}", label_visibility="collapsed",
-        )
-
-    # 隊（活動）分類で絞った中間結果から、業務分類とスポンサーの選択肢を動的生成
-    result_after_cat = (
-        result_base if sel_cat == "隊（活動）分類"
-        else result_base[result_base["activity_category"] == sel_cat]
+    df_gyomu_all = _load_normalized_gyomu_for_view(name_map)
+    render_gyomu_list_view(
+        df_gyomu_all=df_gyomu_all,
+        name_map=name_map,
+        all_members=all_members,
+        selected_members=selected_members,
+        selected_year=selected_year,
+        selected_month=selected_month,
+        range_start_year=range_start_year,
+        range_start_month=range_start_month,
+        range_end_year=range_end_year,
+        range_end_month=range_end_month,
+        key_prefix=key_prefix,
+        wam_only=wam_only,
+        empty_message=empty_message,
     )
 
-    with fcol2:
-        work_categories = sorted(
-            result_after_cat["work_category"].dropna().unique().tolist()
-        )
-        # 隊（活動）分類変更で選択肢から外れた業務分類は自動的に除外される
-        # (st.multiselect は options に無い session_state 値を黙って捨てる)
-        sel_wcat = st.multiselect(
-            "業務分類", work_categories, key=f"{key_prefix}_wcat_{_rc}",
-            placeholder="全業務分類", label_visibility="collapsed",
-        )
-
-    with fcol3:
-        sponsor_series = result_after_cat["sponsor"].dropna().astype(str).str.strip()
-        sponsors = sorted(sponsor_series[sponsor_series != ""].unique().tolist())
-        sel_sponsor = st.multiselect(
-            "スポンサー", sponsors, key=f"{key_prefix}_sponsor_{_rc}",
-            placeholder="全スポンサー", label_visibility="collapsed",
-        )
-
-    # --- フィルタ行 2: キーワード検索 + 検索対象選択 + リセット ---
-    # 検索対象ラベル → 実カラム名のマッピング
-    _SEARCH_TARGET_MAP: dict[str, str] = {
-        "メンバー": "nickname",
-        "内容": "description",
-        "スポンサー": "sponsor",
-        "業務分類": "work_category",
-        "隊（活動）分類": "activity_category",
-    }
-    scol1, scol2, scol3 = st.columns([3, 2, 1])
-    with scol1:
-        keyword = st.text_input(
-            "検索", key=f"{key_prefix}_keyword_{_rc}",
-            placeholder="🔍 キーワード入力 (部分一致)",
-            label_visibility="collapsed",
-        )
-    with scol2:
-        sel_targets = st.multiselect(
-            "検索対象", list(_SEARCH_TARGET_MAP.keys()),
-            key=f"{key_prefix}_search_targets_{_rc}",
-            placeholder="検索対象 (空=全カラム横断)",
-            label_visibility="collapsed",
-            help="検索対象カラムを限定したい場合は選択 (複数選択可)。空の場合は全カラム横断検索。",
-        )
-    with scol3:
-        def _reset_filters() -> None:
-            st.session_state[counter_key] += 1
-        st.button(
-            "リセット", key=f"{key_prefix}_reset", use_container_width=True,
-            help="隊（活動）分類・業務分類・スポンサー・検索キーワード・検索対象をクリア",
-            on_click=_reset_filters,
-        )
-
-    # --- フィルタ適用 ---
-    result = result_after_cat
-    if sel_wcat:
-        result = result[result["work_category"].isin(sel_wcat)]
-    if sel_sponsor:
-        result = result[result["sponsor"].astype(str).str.strip().isin(sel_sponsor)]
-    if keyword:
-        kw = keyword.strip().lower()
-        # 検索対象が空なら全カラム横断、選択ありなら選択カラムのみ OR 検索
-        _target_cols = (
-            [_SEARCH_TARGET_MAP[t] for t in sel_targets]
-            if sel_targets else list(_SEARCH_TARGET_MAP.values())
-        )
-        # regex=False: 検索欄に [ や ( 等の正規表現記号を入れても re.error で落ちない
-        def _col_match(col: str) -> "pd.Series":
-            return result[col].fillna("").astype(str).str.lower().str.contains(
-                kw, regex=False, na=False,
-            )
-        mask = _col_match(_target_cols[0])
-        for _c in _target_cols[1:]:
-            mask = mask | _col_match(_c)
-        result = result[mask]
-
-    result = add_gyomu_date_dt(result)
-    result["amount_num"] = clean_numeric_series(result["amount"])
-
-    k1, k2, k3 = st.columns(3)
-    with k1:
-        render_kpi("総額", f"¥{result['amount_num'].sum():,.0f}")
-    with k2:
-        render_kpi("件数", f"{len(result):,}")
-    with k3:
-        # 「報告者数」= 当該期間に業務報告 (gyomu_reports) を提出した distinct メンバー数。
-        # 分母は: 絞り込みなし → 全メンバー (all_members 198 名)、絞り込みあり → 選択メンバー数。
-        # 「メンバー数」ラベルだと「全メンバー数」と誤読されるため (PR #186 で本田様指摘)、
-        # 定義に忠実な「報告者数」+ 分母併記に変更。
-        _reporter_total = len(selected_members) if selected_members else len(all_members)
-        render_kpi("報告者数", f"{result['nickname'].nunique()} / {_reporter_total} 名")
-
-    # 絞り込み中は「X 件 / 全 Y 件中」、未絞り込み時は単純表示
-    if len(result) < total_base:
-        st.markdown(
-            f'<div class="count-badge">{len(result):,} 件 / 全 {total_base:,} 件中</div>',
-            unsafe_allow_html=True,
-        )
-    else:
-        st.markdown(f'<div class="count-badge">{len(result):,} 件</div>', unsafe_allow_html=True)
-
-    # st.dataframe (glide-data-grid) は row_height/width だけでは長文を折返さない。
-    # 「内容」列を Python 側で固定文字数ごとに改行を入れて pre-format する。
-    # 日本語混在 (半角/全角) を考慮して 22 文字 / 行で改行 (経験則: large 列幅で 2 行 ≒ 40 文字)。
-    def _wrap_jp(s: object, width: int = 22) -> str:
-        if s is None or (isinstance(s, float) and pd.isna(s)):
-            return ""
-        text = str(s)
-        if len(text) <= width:
-            return text
-        return "\n".join(text[i:i + width] for i in range(0, len(text), width))
-
-    view = result[
-        [
-            "display_name", "source_url", "date_dt", "day_of_week",
-            "activity_category", "work_category",
-            "sponsor", "description",
-            "unit_price", "work_hours", "travel_distance_km", "amount",
-        ]
-    ].copy()
-    view["description"] = view["description"].apply(_wrap_jp)
-
-    st.dataframe(
-        view.rename(columns={
-            "display_name": "メンバー",
-            "source_url": "URL",
-            "date_dt": "日付",
-            "day_of_week": "曜日",
-            "activity_category": "隊（活動）分類",
-            "work_category": "業務分類",
-            "sponsor": "スポンサー",
-            "description": "内容",
-            "unit_price": "単価",
-            "work_hours": "時間",
-            "travel_distance_km": "移動距離(km)",
-            "amount": "金額",
-        }),
-        column_config={
-            "URL": st.column_config.LinkColumn(display_text="開く"),
-            "日付": st.column_config.DateColumn(format="M/D"),
-            # 「内容」: pre-format で改行挿入済み + 列幅 large + row_height で wrap を可視化
-            "内容": st.column_config.TextColumn("内容", width="large"),
-            "業務分類": st.column_config.TextColumn("業務分類", width="medium"),
-            "隊（活動）分類": st.column_config.TextColumn("隊（活動）分類", width="medium"),
-            "スポンサー": st.column_config.TextColumn("スポンサー", width="medium"),
-        },
-        use_container_width=True,
-        hide_index=True,
-        height=600,
-        row_height=66,  # 3 行分の表示余地 (1 行 ≒ 22px)
-    )
 
 
 # --- Tab 4 フラグメント定義（グループ選択時にスクリプト全体を再実行させない） ---

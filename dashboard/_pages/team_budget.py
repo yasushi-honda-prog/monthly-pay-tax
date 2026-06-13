@@ -17,6 +17,7 @@ import pandas as pd
 import streamlit as st
 
 from lib.auth import require_user
+from lib.bq_client import load_data
 from lib.bq_client import (
     compute_current_hashes,
     get_bq_client,
@@ -51,6 +52,7 @@ from lib.team_budget_repo import (
     load_other_team_budgets_in_leader,
     upsert_team_budget,
 )
+from lib.gyomu_list_view import render_gyomu_list_view
 from lib.team_budget_view import (
     achievement_color,
     build_leader_team_matrix_df,
@@ -67,7 +69,11 @@ from lib.team_budget_view import (
     summarize_actuals,
     summarize_by_leader_team,
 )
-from lib.ui_helpers import render_sidebar_year_month
+from lib.ui_helpers import (
+    fill_empty_nickname,
+    render_sidebar_year_month,
+    valid_years,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -80,6 +86,82 @@ _BUCKET_LABEL = {
 }
 _BUCKET_COLOR_RANGE = ["#d4edda", "#fff3cd", "#f8d7da"]
 _LEADER_TEAM_FILTER_ALL = "全て"
+
+
+# --- Issue #254 ドリルダウン業務報告詳細用 loader ---
+# dashboard.py の同名関数と同じ SQL を持つ二重定義。本来は lib/bq_client.py に
+# 共通化すべきだが、本 PR のスコープを #254 + #245 に絞るため次 PR で対応予定。
+# (code-review #3 指摘、TODO Issue 起票候補)
+
+
+@st.cache_data(ttl=21600)
+def _drill_load_gyomu_with_members() -> pd.DataFrame:
+    """業務報告 + メンバー結合 DF を取得 (dashboard.py 同等)"""
+    query = f"""
+    SELECT
+        source_url,
+        nickname, full_name, year, date, month, day_of_week,
+        activity_category, work_category, sponsor, description,
+        unit_price, work_hours, travel_distance_km, amount
+    FROM `{PROJECT_ID}.{DATASET}.v_gyomu_enriched`
+    WHERE year IS NOT NULL
+        AND (date IS NOT NULL OR amount IS NOT NULL)
+    ORDER BY year, date
+    """
+    return load_data(query)
+
+
+@st.cache_data(ttl=21600)
+def _drill_load_all_members() -> list:
+    """全メンバー nickname list (dashboard.py 同等の縮小版、ドリルダウン分母用)"""
+    query = f"""
+    SELECT DISTINCT nickname
+    FROM `{PROJECT_ID}.{DATASET}.members`
+    WHERE nickname IS NOT NULL AND TRIM(nickname) != ''
+    ORDER BY nickname
+    """
+    return load_data(query)["nickname"].tolist()
+
+
+@st.cache_data(ttl=21600)
+def _drill_load_name_map() -> dict[str, str]:
+    """nickname → display_name 辞書 (dashboard.py 同等)"""
+    query = f"""
+    SELECT DISTINCT nickname, full_name
+    FROM `{PROJECT_ID}.{DATASET}.members`
+    WHERE nickname IS NOT NULL AND TRIM(nickname) != ''
+    """
+    df = load_data(query)
+    result: dict[str, str] = {}
+    for _, row in df.iterrows():
+        nick = str(row["nickname"])
+        full = str(row.get("full_name", "") or "").strip()
+        result[nick] = f"{nick}（{full}）" if full else nick
+    return result
+
+
+def _drill_load_normalized_gyomu(name_map: dict[str, str]) -> pd.DataFrame:
+    """業務報告 DF をロードし、render_gyomu_list_view 用に正規化する。
+    dashboard.py の _load_normalized_gyomu_for_view と同等ロジック。
+
+    BQ 取得失敗時は st.error 表示後、空 DF を返す (code-review #4 反映、
+    st.stop だと上の集計 / AI 評価 / 月予算編集 UI まで停止する cascading
+    failure になるため、業務報告詳細セクションのみ empty_message 表示に
+    フォールバックする設計)。
+    """
+    try:
+        df = _drill_load_gyomu_with_members()
+    except Exception as e:
+        st.error(f"業務報告データ取得エラー: {e}")
+        return pd.DataFrame()
+    if df.empty:
+        return df
+    df = fill_empty_nickname(df)
+    df["year"] = valid_years(df["year"])
+    df = df[df["year"].notna()]
+    df["year"] = df["year"].astype(int)
+    df["display_name"] = df["nickname"].map(lambda n: name_map.get(n, n))
+    return df
 
 
 def _infer_leader_team(actuals_month: pd.DataFrame, team: str):
@@ -571,13 +653,15 @@ with tab_drilldown:
     if not all_teams:
         st.warning(f"{year}/{month} には active な隊がありません。")
     else:
-        # 統括隊フィルタ (selectbox の隊リストを絞り込む)
-        leader_options = load_active_leader_teams(year, year, month, month)
-        drill_filter_leader = st.selectbox(
-            "統括隊で絞り込み",
-            [_LEADER_TEAM_FILTER_ALL] + leader_options,
-            key="tb_drilldown_filter_leader",
-        )
+        # Issue #254: 上部 selector を横並び (統括隊 + 隊)
+        sel_col1, sel_col2, _spacer = st.columns([2, 3, 5])
+        with sel_col1:
+            leader_options = load_active_leader_teams(year, year, month, month)
+            drill_filter_leader = st.selectbox(
+                "統括隊で絞り込み",
+                [_LEADER_TEAM_FILTER_ALL] + leader_options,
+                key="tb_drilldown_filter_leader",
+            )
         if (
             drill_filter_leader != _LEADER_TEAM_FILTER_ALL
             and not actuals_month.empty
@@ -600,137 +684,125 @@ with tab_drilldown:
                 st.session_state.pop("tb_drill_team", None)
             prev_team = st.session_state.get("tb_selected_team")
             default_idx = teams.index(prev_team) if prev_team in teams else 0
-            team = st.selectbox(
-                "隊を選択", teams, index=default_idx, key="tb_drill_team",
-            )
-
-            # 1 隊の集計 (期間内 actuals_month から抽出)
-            if not actuals_month.empty and "team" in actuals_month.columns:
-                actuals_team = actuals_month[actuals_month["team"] == team]
-            else:
-                actuals_team = actuals_month
-
-            st.markdown("### 集計")
-            if actuals_team.empty:
-                st.warning("当月の集計データがありません。")
-            else:
-                row = actuals_team.iloc[0]
-                col_b, col_a, col_r = st.columns(3)
-                col_b.metric("予算", format_yen(row["budget_amount"]))
-                col_a.metric("実額", format_yen(row["actual_amount"]))
-                col_r.metric(
-                    "達成率",
-                    format_rate(row["achievement_rate"]),
-                    delta=format_diff(row["diff_amount"]),
+            with sel_col2:
+                team = st.selectbox(
+                    "隊を選択", teams, index=default_idx, key="tb_drill_team",
                 )
 
-            # 月予算編集 (admin 限定、Issue #244 / spec 2026-06-13)
-            if is_admin:
-                _render_team_budget_editor(
-                    year=year, month=month, team=team,
-                    actuals_month=actuals_month,
-                    leader_team_monthly_budgets=leader_team_monthly_budgets,
-                    user_email=email,
+            # Issue #254: 2 カラム横分割 (左=集計+AI評価 / 右=月予算編集+業務報告詳細)
+            col_left, col_right = st.columns([1, 1])
+
+            with col_left:
+                # 1 隊の集計 (期間内 actuals_month から抽出)
+                if not actuals_month.empty and "team" in actuals_month.columns:
+                    actuals_team = actuals_month[actuals_month["team"] == team]
+                else:
+                    actuals_team = actuals_month
+
+                st.markdown("### 集計")
+                if actuals_team.empty:
+                    st.warning("当月の集計データがありません。")
+                else:
+                    row = actuals_team.iloc[0]
+                    col_b, col_a, col_r = st.columns(3)
+                    col_b.metric("予算", format_yen(row["budget_amount"]))
+                    col_a.metric("実額", format_yen(row["actual_amount"]))
+                    col_r.metric(
+                        "達成率",
+                        format_rate(row["achievement_rate"]),
+                        delta=format_diff(row["diff_amount"]),
+                    )
+
+                # AI 評価コメント
+                st.markdown("### AI 評価コメント")
+                eval_df = load_team_monthly_eval(year, month, team=team)
+                eval_row = eval_df.iloc[0].to_dict() if not eval_df.empty else None
+
+                current = compute_current_hashes(year, month, (team,), PROMPT_VERSION)
+                stored = eval_row.get("actual_data_hash") if eval_row else None
+                outdated = is_outdated(stored, current.get(team))
+
+                def _clear_team_eval_cache():
+                    """予実管理関連の cache のみクリア (Codex Low-1: 全 cache nuke を回避)"""
+                    for fn in (load_team_monthly_eval, load_team_budget_actuals,
+                               compute_current_hashes, load_active_teams,
+                               load_active_leader_teams):
+                        try:
+                            fn.clear()
+                        except AttributeError:
+                            pass
+
+                def _on_update():
+                    with st.spinner("Vertex AI Gemini で評価生成中... (約 30 秒)"):
+                        try:
+                            result = invoke_team_eval(
+                                year=year, month=month, teams=[team], force=False,
+                            )
+                            s = result.get("summary", {})
+                            st.success(
+                                f"評価生成完了 (generated={s.get('generated', 0)}"
+                                f" skipped_hash={s.get('skipped_hash_match', 0)}"
+                                f" failed={s.get('failed', 0)})"
+                            )
+                        except Exception as exc:  # noqa: BLE001
+                            logger.exception("invoke_team_eval failed")
+                            st.error(f"評価生成失敗: {exc}")
+                            return
+                    _clear_team_eval_cache()
+                    st.rerun()
+
+                def _on_force_update():
+                    with st.spinner("Vertex AI Gemini で強制再生成中... (約 30 秒)"):
+                        try:
+                            result = invoke_team_eval(
+                                year=year, month=month, teams=[team], force=True,
+                            )
+                            s = result.get("summary", {})
+                            st.success(f"強制再生成完了 (generated={s.get('generated', 0)})")
+                        except Exception as exc:  # noqa: BLE001
+                            logger.exception("invoke_team_eval force failed")
+                            st.error(f"強制再生成失敗: {exc}")
+                            return
+                    _clear_team_eval_cache()
+                    st.rerun()
+
+                render_ai_comment_card(
+                    eval_row,
+                    outdated=outdated,
+                    is_admin=is_admin,
+                    on_update=_on_update,
+                    on_force_update=_on_force_update,
+                    key_suffix=f"{year}-{month}-{team}",
                 )
 
-            # AI 評価コメント
-            st.markdown("### AI 評価コメント")
-            eval_df = load_team_monthly_eval(year, month, team=team)
-            eval_row = eval_df.iloc[0].to_dict() if not eval_df.empty else None
+            with col_right:
+                # 月予算編集 (admin 限定、Issue #244 / spec 2026-06-13)
+                if is_admin:
+                    _render_team_budget_editor(
+                        year=year, month=month, team=team,
+                        actuals_month=actuals_month,
+                        leader_team_monthly_budgets=leader_team_monthly_budgets,
+                        user_email=email,
+                    )
 
-            current = compute_current_hashes(year, month, (team,), PROMPT_VERSION)
-            stored = eval_row.get("actual_data_hash") if eval_row else None
-            outdated = is_outdated(stored, current.get(team))
-
-            def _clear_team_eval_cache():
-                """予実管理関連の cache のみクリア (Codex Low-1: 全 cache nuke を回避)"""
-                for fn in (load_team_monthly_eval, load_team_budget_actuals,
-                           compute_current_hashes, load_active_teams,
-                           load_active_leader_teams):
-                    try:
-                        fn.clear()
-                    except AttributeError:
-                        # cache_data でラップされていない場合は no-op
-                        pass
-
-            def _on_update():
-                with st.spinner("Vertex AI Gemini で評価生成中... (約 30 秒)"):
-                    try:
-                        result = invoke_team_eval(
-                            year=year, month=month, teams=[team], force=False,
-                        )
-                        s = result.get("summary", {})
-                        st.success(
-                            f"評価生成完了 (generated={s.get('generated', 0)}"
-                            f" skipped_hash={s.get('skipped_hash_match', 0)}"
-                            f" failed={s.get('failed', 0)})"
-                        )
-                    except Exception as exc:  # noqa: BLE001 - ユーザー向け表示
-                        logger.exception("invoke_team_eval failed")
-                        st.error(f"評価生成失敗: {exc}")
-                        return
-                _clear_team_eval_cache()
-                st.rerun()
-
-            def _on_force_update():
-                with st.spinner("Vertex AI Gemini で強制再生成中... (約 30 秒)"):
-                    try:
-                        result = invoke_team_eval(
-                            year=year, month=month, teams=[team], force=True,
-                        )
-                        s = result.get("summary", {})
-                        st.success(f"強制再生成完了 (generated={s.get('generated', 0)})")
-                    except Exception as exc:  # noqa: BLE001 - ユーザー向け表示
-                        logger.exception("invoke_team_eval force failed")
-                        st.error(f"強制再生成失敗: {exc}")
-                        return
-                _clear_team_eval_cache()
-                st.rerun()
-
-            render_ai_comment_card(
-                eval_row,
-                outdated=outdated,
-                is_admin=is_admin,
-                on_update=_on_update,
-                on_force_update=_on_force_update,
-                key_suffix=f"{year}-{month}-{team}",
-            )
-
-            # 業務報告詳細
-            st.markdown("### 業務報告詳細")
-            search_kw = st.text_input("キーワード検索 (内容・業務分類・スポンサー対象)", "")
-            gyomu_sql = f"""
-            SELECT
-              g.date, g.work_category, g.sponsor, g.description,
-              g.unit_price, g.hours, g.amount, m.full_name AS reporter
-            FROM `{PROJECT_ID}.{DATASET}.gyomu_reports` g
-            LEFT JOIN `{PROJECT_ID}.{DATASET}.members` m ON g.source_url = m.report_url
-            WHERE SAFE_CAST(g.year AS INT64) = {int(year)}
-              AND `{PROJECT_ID}.{DATASET}`.extract_month(g.date) = {int(month)}
-              AND g.activity_category = @team_param
-            ORDER BY g.date
-            """
-            try:
-                from google.cloud import bigquery as _bq
-                from lib.bq_client import get_bq_client as _get_client
-                _cfg = _bq.QueryJobConfig(
-                    query_parameters=[_bq.ScalarQueryParameter("team_param", "STRING", team)]
+                # 業務報告詳細 (Issue #254 + #245 統合: render_gyomu_list_view 呼出に置換)
+                st.markdown("### 業務報告詳細")
+                _drill_name_map = _drill_load_name_map()
+                _drill_df_gyomu = _drill_load_normalized_gyomu(_drill_name_map)
+                _drill_all_members = _drill_load_all_members()
+                # safe-refactor HIGH #1 反映: key_prefix に team を含めることで
+                # 隊切替時の widget key 衝突 (StreamlitAPIException) を防ぐ。
+                # team_slug は team 名 (日本語含む) をそのまま使用、Streamlit の
+                # widget key は str であれば日本語可
+                render_gyomu_list_view(
+                    df_gyomu_all=_drill_df_gyomu,
+                    name_map=_drill_name_map,
+                    all_members=_drill_all_members,
+                    selected_members=[],
+                    selected_year=year,
+                    selected_month=f"{month}月",
+                    key_prefix=f"drilldown_{team}",
+                    fixed_activity_category=team,
+                    compact=True,
+                    empty_message=f"{year}年{month}月 「{team}」の業務報告はありません",
                 )
-                gyomu_df = _get_client().query(gyomu_sql, job_config=_cfg).to_dataframe()
-            except Exception as exc:  # noqa: BLE001
-                logger.exception("gyomu detail query failed")
-                st.error(f"業務報告取得失敗: {exc}")
-                gyomu_df = pd.DataFrame()
-
-            if not gyomu_df.empty and search_kw:
-                # NaN を 'nan' に str 化して誤マッチするのを避けるため na=False を渡す
-                # (Agent F5)。全列に対する OR マッチ。
-                mask = (
-                    gyomu_df.astype(str)
-                    .apply(lambda col: col.str.contains(search_kw, case=False, na=False, regex=False))
-                    .any(axis=1)
-                )
-                gyomu_df = gyomu_df[mask]
-
-            st.dataframe(gyomu_df, use_container_width=True, hide_index=True)
-            st.caption(f"件数: {len(gyomu_df)} 件")
