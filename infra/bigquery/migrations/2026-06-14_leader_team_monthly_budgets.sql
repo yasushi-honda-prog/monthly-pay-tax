@@ -45,15 +45,19 @@
 --     fall back ロジックを残しているため、テーブル不在でも UI は壊れない (defensive)
 -- ============================================================
 
+-- 注: BQ DDL の列制約順序は `column_name TYPE [DEFAULT default_expression] [NOT NULL]`。
+-- 逆順 (NOT NULL DEFAULT X) は構文エラー (本番 apply 時に Syntax error で顕在化、
+-- 一時的に DEFAULT...NOT NULL 順の修正版で apply 済み。本ファイルも追従)。
+-- 公式: https://cloud.google.com/bigquery/docs/reference/standard-sql/data-definition-language#column_definition
 CREATE TABLE IF NOT EXISTS `monthly-pay-tax.pay_reports.leader_team_monthly_budgets` (
   fiscal_year     INT64    NOT NULL,
   month           INT64    NOT NULL,           -- 1-12
   leader_team     STRING   NOT NULL,
   budget_amount   NUMERIC  NOT NULL,
-  version         INT64    NOT NULL DEFAULT 1,
-  created_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP(),
+  version         INT64    DEFAULT 1 NOT NULL,
+  created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP() NOT NULL,
   created_by      STRING   NOT NULL,
-  updated_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP(),
+  updated_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP() NOT NULL,
   updated_by      STRING   NOT NULL
 )
 CLUSTER BY fiscal_year, leader_team;
