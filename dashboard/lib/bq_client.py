@@ -211,16 +211,23 @@ def load_active_leader_teams(
 def compute_current_hashes(
     year: int, month: int, teams: tuple[str, ...]
 ) -> dict[str, str]:
-    """各隊の現在の actual_data_hash を計算 (spec §6.6)。
+    """各隊の現在の actual_data_hash を計算 (spec §6.6 + 2026-06-13 拡張)。
+
+    2026-06-13 拡張: 既存 BQ SQL hash (gyomu_reports 集計) に加え、
+    team_budgets.budget_amount と PROMPT_VERSION を Python 側で合成して
+    composite hash を返す。これにより予算編集時にも outdated 判定が発火する
+    (docs/specs/2026-06-13-team-monthly-budget-input.md §4.2 / §5.3)。
 
     team_monthly_eval.actual_data_hash と突き合わせて outdated バッジ表示に使う。
     引数 teams は cache key 化のため tuple で受ける。
 
     Returns:
-        {team: data_hash}
+        {team: composite_hash}
     """
     if not teams:
         return {}
+    from lib.constants import PROMPT_VERSION
+    from lib.team_budget_hash import compose_actual_data_hash
     client = get_bq_client()
     # CTE 名に `rows` は使わない (BigQuery の予約語 ROWS と衝突して
     #  "Unexpected keyword ROWS" 構文エラーになる)。
@@ -256,7 +263,7 @@ def compute_current_hashes(
             bigquery.ArrayQueryParameter("teams", "STRING", list(teams)),
         ]
     )
-    fetched = {
+    bq_hashes = {
         row["team"]: row["data_hash"]
         for row in client.query(sql, job_config=job_config).result()
     }
@@ -264,4 +271,30 @@ def compute_current_hashes(
     # (cloud-run/vertex_evaluator.compute_actual_data_hash も IFNULL(..., '') で
     #  「データなし」を空文字として表現する。dashboard 側で None のままだと
     #  is_outdated が「未判定」と扱い、データ削除を outdated と検知できない)
-    return {team: fetched.get(team, "") for team in teams}
+    bq_hashes = {team: bq_hashes.get(team, "") for team in teams}
+
+    # team_budgets から budget_amount を一括取得 (UNNEST IN で 1 query)
+    budget_sql = f"""
+    SELECT team, budget_amount
+    FROM `{PROJECT_ID}.{DATASET}.team_budgets`
+    WHERE year = @year AND month = @month
+      AND team IN UNNEST(@teams)
+    """
+    budget_job_config = bigquery.QueryJobConfig(
+        query_parameters=[
+            bigquery.ScalarQueryParameter("year", "INT64", year),
+            bigquery.ScalarQueryParameter("month", "INT64", month),
+            bigquery.ArrayQueryParameter("teams", "STRING", list(teams)),
+        ]
+    )
+    budgets = {
+        row["team"]: row["budget_amount"]
+        for row in client.query(budget_sql, job_config=budget_job_config).result()
+    }
+    # 未設定隊は None で composite に渡す
+    return {
+        team: compose_actual_data_hash(
+            bq_hashes[team], budgets.get(team), PROMPT_VERSION
+        )
+        for team in teams
+    }
