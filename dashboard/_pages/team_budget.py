@@ -27,6 +27,28 @@ from lib.bq_client import (
 )
 from lib.cloud_run_client import invoke_team_eval
 from lib.constants import DATASET, PROJECT_ID
+from lib.bq_client import get_bq_client
+from lib.team_budget_cache import (
+    invalidate_team_budget_caches,
+    load_other_team_budgets_cached,
+    load_team_budget_cached,
+)
+from lib.team_budget_edit_logic import (
+    DeleteConfirmState,
+    OverflowConfirmState,
+    compute_remaining_budget,
+    transition_on_confirm_cancel,
+    transition_on_confirm_continue,
+    transition_on_delete_click,
+    transition_on_delete_confirm_cancel,
+    transition_on_save_click,
+)
+from lib.team_budget_repo import (
+    UpsertConflict,
+    delete_team_budget,
+    load_other_team_budgets_in_leader,
+    upsert_team_budget,
+)
 from lib.team_budget_view import (
     achievement_color,
     build_leader_team_matrix_df,
@@ -55,6 +77,204 @@ _BUCKET_LABEL = {
 }
 _BUCKET_COLOR_RANGE = ["#d4edda", "#fff3cd", "#f8d7da"]
 _LEADER_TEAM_FILTER_ALL = "全て"
+
+
+def _infer_leader_team(actuals_month: pd.DataFrame, team: str):
+    """actuals_month から指定隊の leader_team を引く (なければ None)"""
+    if actuals_month.empty or "leader_team" not in actuals_month.columns:
+        return None
+    rows = actuals_month[actuals_month["team"] == team]
+    if rows.empty:
+        return None
+    val = rows.iloc[0]["leader_team"]
+    return val if pd.notna(val) else None
+
+
+def _render_team_budget_editor(
+    *,
+    year: int,
+    month: int,
+    team: str,
+    actuals_month: pd.DataFrame,
+    leader_team_monthly_budgets: dict,
+    user_email: str,
+) -> None:
+    """隊×月予算の admin 編集セクション (要望 1b/2/3、spec 2026-06-13)。
+
+    - 統括隊月予算未投入なら保存ボタン disabled (Codex 指摘 g)
+    - 超過時はソフトブロック (確認ダイアログ + 続行可、Codex 指摘 l)
+    - 楽観ロック競合は UpsertConflict → 画面更新誘導 (Codex 指摘 c)
+    - 削除は row DELETE + 確認ダイアログ (Codex 指摘 b)
+    """
+    st.markdown("### 月予算編集 (admin)")
+
+    leader = _infer_leader_team(actuals_month, team)
+    if leader is None:
+        st.info(
+            "統括隊情報がありません。team_hierarchy への登録を確認してください。"
+        )
+        return
+
+    leader_monthly_budget = (
+        leader_team_monthly_budgets.get(leader)
+        if leader_team_monthly_budgets else None
+    )
+    current_row = load_team_budget_cached(year, month, team)
+    other_total = load_other_team_budgets_cached(year, month, leader, team)
+    remaining = compute_remaining_budget(leader_monthly_budget, other_total)
+
+    # ---- 参考表示 ----
+    ref1, ref2, ref3 = st.columns(3)
+    ref1.metric(
+        "統括隊月予算",
+        format_yen(leader_monthly_budget)
+        if leader_monthly_budget is not None else "未投入",
+    )
+    ref2.metric("配下他隊合計", format_yen(other_total))
+    ref3.metric(
+        "残額",
+        format_yen(remaining) if remaining is not None else "—",
+    )
+    if remaining is not None and remaining < 0:
+        st.warning(
+            f"⚠ 配下他隊合計が統括隊月予算を超過しています "
+            f"(¥{abs(remaining):,.0f} 超)"
+        )
+
+    if leader_monthly_budget is None:
+        st.warning(
+            f"⚠ 統括隊「{leader}」の四半期予算が未投入です。"
+            "先に統括隊四半期予算を投入してください (scripts/upload_team_budgets_quarterly.py)。"
+        )
+        return
+
+    # ---- 入力 widget ----
+    edit_key = f"tb_edit_{year}_{month}_{team}"
+    overflow_key = f"{edit_key}_overflow"
+    delete_key = f"{edit_key}_delete"
+
+    initial_amount = (
+        int(current_row.budget_amount) if current_row else 0
+    )
+    new_amount = st.number_input(
+        "予算金額",
+        min_value=0, step=10000, value=initial_amount,
+        key=f"{edit_key}_amount",
+    )
+    new_memo = st.text_input(
+        "メモ (任意)",
+        value=(current_row.memo or "") if current_row else "",
+        max_chars=255,
+        key=f"{edit_key}_memo",
+    )
+
+    overflow_state: OverflowConfirmState = st.session_state.get(
+        overflow_key, OverflowConfirmState()
+    )
+    delete_state: DeleteConfirmState = st.session_state.get(
+        delete_key, DeleteConfirmState()
+    )
+
+    def _do_save():
+        try:
+            upsert_team_budget(
+                get_bq_client(),
+                year=year, month=month, team=team,
+                budget_amount=float(new_amount),
+                memo=new_memo or None,
+                expected_version=current_row.version if current_row else None,
+                actor=user_email,
+            )
+        except UpsertConflict as exc:
+            st.error(
+                f"⚠ 競合検知: {exc}。他の管理者が編集中の可能性があります。"
+                "画面を更新してください。"
+            )
+            return
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("team_budget save failed")
+            st.error(f"保存失敗: {exc}")
+            return
+
+        invalidate_team_budget_caches()
+        st.session_state.pop(overflow_key, None)
+        st.session_state.pop(delete_key, None)
+        st.success("予算を保存しました")
+        prev_amount = current_row.budget_amount if current_row else None
+        if prev_amount != float(new_amount):
+            st.info(
+                "💡 予算が変更されたため、AI 評価コメントの再生成を推奨します"
+            )
+        st.rerun()
+
+    # ---- confirm 状態優先表示 ----
+    if overflow_state.pending:
+        st.error(
+            f"⚠ 統括隊月予算を ¥{overflow_state.pending_overflow_by:,.0f} "
+            "超過します。続行しますか？"
+        )
+        cy, cn = st.columns(2)
+        if cy.button("続行して保存", key=f"{edit_key}_confirm_yes"):
+            st.session_state[overflow_key] = (
+                transition_on_confirm_continue(overflow_state)
+            )
+            _do_save()
+        if cn.button("キャンセル", key=f"{edit_key}_confirm_no"):
+            st.session_state[overflow_key] = transition_on_confirm_cancel()
+            st.rerun()
+    elif delete_state.pending and current_row:
+        st.error(
+            f"予算 ¥{current_row.budget_amount:,.0f} を削除しますか？"
+        )
+        dy, dn = st.columns(2)
+        if dy.button("削除する", key=f"{edit_key}_delete_yes"):
+            try:
+                delete_team_budget(
+                    get_bq_client(),
+                    year=year, month=month, team=team,
+                    expected_version=current_row.version,
+                    actor=f"delete:{user_email}",
+                )
+            except UpsertConflict as exc:
+                st.error(
+                    f"⚠ 削除競合: {exc}。画面を更新してください。"
+                )
+            else:
+                invalidate_team_budget_caches()
+                st.session_state.pop(delete_key, None)
+                st.success("予算を削除しました")
+                st.info(
+                    "💡 予算が削除されたため、AI 評価コメントの再生成を推奨します"
+                )
+                st.rerun()
+        if dn.button("削除キャンセル", key=f"{edit_key}_delete_no"):
+            st.session_state[delete_key] = transition_on_delete_confirm_cancel()
+            st.rerun()
+    else:
+        # 通常: 保存 + 削除ボタン
+        col_save, col_del = st.columns(2)
+        if col_save.button("保存", key=f"{edit_key}_save"):
+            # 保存直前に他隊合計を fresh fetch (cache 不使用、Codex 指摘 f)
+            fresh_other = load_other_team_budgets_in_leader(
+                get_bq_client(),
+                year=year, month=month,
+                leader_team=leader, exclude_team=team,
+            )
+            new_state, save_now = transition_on_save_click(
+                current=overflow_state,
+                new_amount=float(new_amount),
+                new_memo=new_memo or None,
+                other_total=fresh_other,
+                leader_monthly_budget=leader_monthly_budget,
+            )
+            st.session_state[overflow_key] = new_state
+            if save_now:
+                _do_save()
+            else:
+                st.rerun()
+        if current_row and col_del.button("予算削除", key=f"{edit_key}_delete_btn"):
+            st.session_state[delete_key] = transition_on_delete_click()
+            st.rerun()
 
 # --- 認証 ---
 email = st.session_state.get("user_email", "")
@@ -353,6 +573,15 @@ with tab_drilldown:
                     "達成率",
                     format_rate(row["achievement_rate"]),
                     delta=format_diff(row["diff_amount"]),
+                )
+
+            # 月予算編集 (admin 限定、Issue #244 / spec 2026-06-13)
+            if is_admin:
+                _render_team_budget_editor(
+                    year=year, month=month, team=team,
+                    actuals_month=actuals_month,
+                    leader_team_monthly_budgets=leader_team_monthly_budgets,
+                    user_email=email,
                 )
 
             # AI 評価コメント
