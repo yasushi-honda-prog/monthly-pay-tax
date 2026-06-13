@@ -50,7 +50,7 @@
 | AI 評価への反映 | `actual_data_hash` に budget_amount と prompt_version を含める形に migration | Codex 指摘 e、「追加実装ゼロ」では予算変更が再生成 trigger にならないため |
 | 1b/2 のロジック改修 | なし。team_budgets 入力で自動解消 | データフローは v_team_budget_actuals → load_team_budget_actuals → build_monthly_trend / build_matrix_df、既存パスで成立 |
 | team selectbox の範囲 | 既存 `load_active_teams` 流用 (VIEW INNER JOIN で operating 配下に限定済) | Codex 指摘 i、新規対応不要 |
-| 整合性監査 | Phase 1 では `team_budget_audit_log` 等の専用 audit 不要 | Codex 指摘 k。`updated_by` で当面しのぐ。削除時は `"delete:" + actor` の pseudo-tag |
+| 整合性監査 | Phase 1 では `team_budget_audit_log` 等の専用 audit 不要 | Codex 指摘 k。`updated_by` で当面しのぐ。**削除時の actor 永続監査なし**（DELETE で row が消えるため `"delete:" + actor` は残らない、Codex 最終指摘 g 訂正） |
 | 他隊合計 cache | TTL 60s、保存直前は再取得必須 | Codex 指摘 f、cache 信用しないことで race を最小化 |
 
 ---
@@ -116,7 +116,7 @@ CREATE TABLE `monthly-pay-tax.pay_reports.team_budgets` (
   created_at TIMESTAMP NOT NULL,
   created_by STRING NOT NULL,         -- email or "script:upload_budgets:<email>"
   updated_at TIMESTAMP NOT NULL,
-  updated_by STRING NOT NULL          -- email、削除時は "delete:<email>" (pseudo-tag)
+  updated_by STRING NOT NULL          -- email。削除時に "delete:<email>" を渡しても DELETE で row 自体が消えるため永続しない (Codex 最終指摘 g 訂正)
 )
 PARTITION BY DATE(updated_at)
 CLUSTER BY year, month, team;
@@ -427,7 +427,7 @@ if previous_budget != new_amount:
 ## 8. スコープ外 (本 PR ではやらない)
 
 1. **scripts/upload_budgets.py の team_budget_repo 共有化**: refactor 抑制 (本 PR scope creep 回避)、follow-up PR
-2. **team_budget_audit_log (Codex 指摘 k)**: 専用 audit テーブル新設は不要、`updated_by` で当面しのぐ
+2. **team_budget_audit_log (Codex 指摘 k)**: 専用 audit テーブル新設は不要、`updated_by` で当面しのぐ。**削除 actor の永続監査が必要になった場合は soft delete (deleted_at/deleted_by 列追加) migration を follow-up PR で**。それまでは Step 0 snapshot バックアップ / BigQuery audit logs で間接追跡可能
 3. **soft delete (deleted_at / deleted_by 列追加)**: row DELETE で十分、必要になったら follow-up
 4. **一括編集 UI (隊×月マトリクス UI)**: brainstorm Phase 3 質問 #1 (再) で「隊ドリルダウンインライン編集のみ」確定
 5. **要望 4 (隊ドリルダウン業務報告詳細強化)**: Issue #245 postponed、別セッション

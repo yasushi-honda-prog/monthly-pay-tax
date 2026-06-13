@@ -168,6 +168,11 @@ def _render_team_budget_editor(
         max_chars=255,
         key=f"{edit_key}_memo",
     )
+    # Codex 最終レビュー指摘 c: 0 円明示と削除の区別を caption で明示
+    st.caption(
+        "💡 「0 円」は明示的な予算 (¥0 で達成率算出)、"
+        "予算を未設定状態に戻すには「予算削除」ボタンを使用してください。"
+    )
 
     overflow_state: OverflowConfirmState = st.session_state.get(
         overflow_key, OverflowConfirmState()
