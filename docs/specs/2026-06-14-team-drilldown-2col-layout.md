@@ -61,48 +61,75 @@ Issue #248 (PR #250) の実機検証中、本田様から下記指摘:
 
 ### 共通モジュール化方式 (確定: 案 i = lib 抽出)
 
-`dashboard.py` 内の `_render_gyomu_list_view` 関数を `dashboard/lib/gyomu_list_view.py` に **抽出** し、両ページから import する。
+**重要 (Codex セカンドオピニオン High #2 反映)**: `dashboard/lib/gyomu_list_view.py` は **既存ファイル** (現在 `filter_wam_only()` を持つ)。本 spec は「**既存 lib に `render_gyomu_list_view` 関数を追加**」が正確な表現。
+
+`dashboard.py` 内の `_render_gyomu_list_view` 関数を **既存** `dashboard/lib/gyomu_list_view.py` に **抽出** し、両ページから import する。
 
 ```
 dashboard/
 ├── lib/
-│   └── gyomu_list_view.py  (新規: 抽出した render_gyomu_list_view)
+│   └── gyomu_list_view.py  (既存: filter_wam_only / render_gyomu_list_view 追加)
 ├── _pages/
 │   ├── dashboard.py        (修正: import + 呼出のみに簡素化)
 │   └── team_budget.py      (修正: 2 カラム化 + render_gyomu_list_view 呼出)
 └── tests/
-    ├── test_lib_gyomu_list_view.py  (新規: 隊 fix モード etc.)
+    ├── test_lib_gyomu_list_view.py  (既存 + 新規: 隊 fix モード etc.)
     └── test_pages_team_budget.py    (修正: ドリルダウンタブのレイアウト整合性)
 ```
 
-### 関数シグネチャ拡張
+**循環依存防止 (Codex High #2)**: lib 側から `dashboard._pages.dashboard` への import 禁止。loader (`load_gyomu_with_members`, `name_map` 等) は呼び出し元責務に寄せる注入型 API。
+
+### 関数シグネチャ拡張 (Codex High #1 / Medium 反映)
+
+データ取得は呼び出し元責務に寄せる **注入型 API**。lib 側は純粋 UI 関数 (loader 呼出なし)。
 
 ```python
 def render_gyomu_list_view(
+    *,
+    # データ (呼び出し元から注入)
     df_gyomu_all: pd.DataFrame,
-    name_map: dict,
-    selected_members: list,
+    name_map: dict[str, str],
+    all_members: list[str],
+    # 選択状態
+    selected_members: list[str],
     selected_year: int,
     selected_month: str,            # "6月" or "期間指定"
-    range_start_year: int | None,
-    range_start_month: int | None,
-    range_end_year: int | None,
-    range_end_month: int | None,
-    *,
+    range_start_year: int | None = None,
+    range_start_month: int | None = None,
+    range_end_year: int | None = None,
+    range_end_month: int | None = None,
+    # 識別 / 表示制御
     key_prefix: str,
     wam_only: bool = False,
     empty_message: str = "データがありません",
     # ↓ 新規追加 (Issue #254/#245)
     fixed_activity_category: str | None = None,
+    compact: bool = False,
 ) -> None:
     """業務報告一覧のテーブルビューを描画する。
 
     fixed_activity_category 指定時:
       - 内部 filter: activity_category == fixed_activity_category
-      - 隊（活動）分類 selectbox を UI 非表示 (fcol1 を空 col に置換 or 2 列レイアウト)
+      - 隊（活動）分類 selectbox を UI 非表示 (fcol1 を 2 列レイアウトに圧縮)
+      - 検索対象 options から「隊（活動）分類」を除外 (Codex Medium 反映、
+        UI 非表示と意味合致)
       - 業務分類 / スポンサーの依存型ドロップダウンは継承
+
+    compact=True (隊ドリルダウン右カラム用、Codex High #3 反映):
+      - dataframe height を 600 → 360 に圧縮
+      - 表示列から activity_category を除外 (fixed の場合は冗長)
+      - 横スクロール発生を抑える
+
+    session_state key 衝突対策 (Codex Medium 反映):
+      - reset_counter は fixed_activity_category 変更時にも advance
+        (前隊のフィルタ条件が残らないように)
     """
 ```
+
+**API 設計判断の根拠**:
+- Codex High #1: keyword-only + 注入型で、`dashboard.py` の二重 loader 呼出を回避
+- Codex Medium "backward compatible": fixed_activity_category は末尾追加、compact も同様
+- 循環依存防止: lib → dashboard._pages の import を完全排除
 
 ### 隊ドリルダウンタブの再構築
 
@@ -196,15 +223,20 @@ with tab_drilldown:
 
 ## テスト戦略
 
-### 新規テスト (`test_lib_gyomu_list_view.py`)
+### 新規テスト (`test_lib_gyomu_list_view.py` 既存 + 新規追加、Codex 指摘反映)
 
-| テストケース | 目的 |
-|---|---|
-| `fixed_activity_category=None` で既存挙動 | regression check (隊フィルタ UI 表示) |
-| `fixed_activity_category="○○隊"` で隊 fix | 内部 filter 適用、UI 非表示確認 |
-| `fixed_activity_category="存在しない隊"` で 0 件 | empty_message 表示 |
-| 依存型ドロップダウン (業務分類 / スポンサー) | fixed mode でも動作する |
-| キーワード検索 + リセット | fixed mode で counter increment 動作 |
+| # | テストケース | 目的 |
+|---|---|---|
+| T1 | `fixed_activity_category=None` で既存挙動 | regression check (隊フィルタ UI 表示) |
+| T2 | `fixed_activity_category="○○隊"` で隊 fix | 内部 filter 適用、UI 非表示確認 |
+| T3 | `fixed_activity_category="存在しない隊"` で 0 件 | empty_message 表示 |
+| T4 | 依存型ドロップダウン (業務分類 / スポンサー) | fixed mode でも動作する |
+| T5 | キーワード検索 + リセット | fixed mode で counter increment 動作 |
+| T6 | fixed mode で検索対象から activity_category 除外 (Codex Medium) | UI と意味合致 |
+| T7 | fixed_activity_category 変更時に reset_counter advance (Codex Medium) | 前隊条件残留防止 |
+| T8 | compact=True で height = 360 / activity_category 列除外 (Codex High #3) | 右カラム破綻防止 |
+| T9 | 期間指定 None 安全性 (selected_month != "期間指定" で range_* 不参照) (Codex Medium) | 将来の呼び出しミス防止 |
+| T10 | 必須列欠落時のエラーメッセージ可読性 (Codex テスト戦略ギャップ) | df_gyomu_all バリデーション |
 
 ### 既存テスト regression check
 
@@ -235,25 +267,38 @@ with tab_drilldown:
 
 ## Open Questions
 
-なし (Phase 3-5 で全主要判断完了)。
+Codex セカンドオピニオン後の残 OQ (本田様確認候補):
+
+1. **2 カラム比率**: `[1, 1]` vs `[0.9, 1.1]` (右広め) → 実装時に実機確認、優先度低
+2. **月予算編集の配置**: 右カラム上部 (現案) vs expander 化 → admin 用途のみで頻度低、現案維持で十分
+3. **compact mode の表示列セット**: 確定列を spec 内に固定するか実装時判断 → 実装時判断 (実機で破綻が見える)
 
 ---
 
-## 実装ステップ (impl-plan で具体化予定)
+## 実装ステップ (impl-plan で具体化、Codex 推奨順反映)
 
-1. **T1**: `_render_gyomu_list_view` を `lib/gyomu_list_view.py` に抽出 (機能変更なし、純粋な move + rename)
-   - `dashboard.py` から該当関数 + 依存ヘルパ移動
-   - `dashboard.py` 側を `from lib.gyomu_list_view import render_gyomu_list_view` に置換
-   - 既存テスト全 PASS 確認
-2. **T2**: `fixed_activity_category` keyword 追加 + filter 適用 + 隊 UI 条件分岐
-   - 新規テスト 5 ケース追加 (test_lib_gyomu_list_view.py)
-3. **T3**: `team_budget.py` の隊ドリルダウンタブを 2 カラムレイアウトに再構築
+Codex セカンドオピニオン「T1 を分割すべき」反映:
+
+1. **T1a**: 既存 `dashboard/lib/gyomu_list_view.py` に `render_gyomu_list_view` 関数を追加 (注入型 API)
+   - シグネチャ確定: `df_gyomu_all` / `all_members` / `name_map` を必須引数
+   - 既存 `_render_gyomu_list_view` から内部ロジックを抽出 (loader 呼出除外)
+2. **T1b**: `dashboard.py` 側を新 API 呼出に置換 + regression check
+   - `_render_gyomu_list_view` を削除、`render_gyomu_list_view` 呼出に置換
+   - loader 呼出 (`load_gyomu_with_members`) と `name_map` 構築は呼び出し元に残す
+   - 既存テスト全 PASS 確認 (regression なし)
+3. **T2**: `fixed_activity_category` + `compact` keyword 追加 + filter 適用 + UI 条件分岐
+   - 隊フィルタ UI 非表示 (2 列レイアウトに圧縮)
+   - 検索対象 options から activity_category 除外
+   - reset_counter advance on fixed_activity_category 変更
+   - 新規テスト T1-T10 追加 (test_lib_gyomu_list_view.py)
+4. **T3**: `team_budget.py` の隊ドリルダウンタブを 2 カラムレイアウトに再構築
    - 上部 selector 横並び (st.columns([2, 3, 5]))
    - 左 (集計 + AI 評価) / 右 (月予算編集 + 業務報告詳細) の st.columns([1, 1])
-   - 業務報告詳細を `render_gyomu_list_view` 呼出に置換
+     - **判断点 (Codex Low)**: カラム比率 [1, 1] vs [0.9, 1.1] (右広め) → 実装時に実機確認
+   - 業務報告詳細を `render_gyomu_list_view(compact=True, fixed_activity_category=team, ...)` 呼出に置換
    - 既存テスト regression check
-4. **T4**: Quality Gate 3 段 (safe-refactor → code-review high → Evaluator)
-5. **T5**: PR 作成 + 6 エージェントレビュー + Codex セカンドオピニオン候補
+5. **T4**: Quality Gate 3 段 (safe-refactor → code-review high → Evaluator)
+6. **T5**: PR 作成 + 6 エージェントレビュー + Codex セカンドオピニオン候補
 
 ---
 
