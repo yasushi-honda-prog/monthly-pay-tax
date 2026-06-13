@@ -153,6 +153,43 @@ class TestLoadLeaderTeamMonthlyBudgets:
         assert params["month"] == 5
 
 
+class TestLoadLeaderTeamYearlyMonthlyBudgets:
+    """hotfix 2026-06-13: 年内 12 ヶ月分の統括隊月予算合計"""
+
+    def test_returns_month_budget_dict(self, mock_client):
+        from decimal import Decimal
+        bq_client.load_leader_team_yearly_monthly_budgets.clear()
+        rows = [
+            {"month": i, "monthly_budget": Decimal("1000000") if 5 <= i <= 7
+             else Decimal("0")}
+            for i in range(1, 13)
+        ]
+        _result_mock(mock_client, rows)
+        result = bq_client.load_leader_team_yearly_monthly_budgets(2026)
+        assert len(result) == 12
+        assert result[5] == 1000000.0
+        assert result[1] == 0.0
+
+    def test_sql_uses_generate_array_and_fiscal_quarter(self, mock_client):
+        bq_client.load_leader_team_yearly_monthly_budgets.clear()
+        _result_mock(mock_client, [])
+        bq_client.load_leader_team_yearly_monthly_budgets(2026)
+        sql = mock_client.query.call_args.args[0]
+        assert "GENERATE_ARRAY(1, 12)" in sql
+        assert "fiscal_quarter" in sql
+        assert "team_budgets_quarterly" in sql
+        assert "/ 3" in sql or "SAFE_DIVIDE" in sql
+
+    def test_returns_empty_when_no_quarterly_data(self, mock_client):
+        """team_budgets_quarterly 未投入時は 12 ヶ月とも 0"""
+        bq_client.load_leader_team_yearly_monthly_budgets.clear()
+        # SQL は LEFT JOIN + IFNULL なので 12 ヶ月分 monthly_budget=0 が返る
+        rows = [{"month": i, "monthly_budget": 0} for i in range(1, 13)]
+        _result_mock(mock_client, rows)
+        result = bq_client.load_leader_team_yearly_monthly_budgets(2026)
+        assert all(v == 0.0 for v in result.values())
+
+
 class TestLoadActiveLeaderTeams:
     """PR-A: 統括隊 distinct リスト取得関数のテスト"""
 
