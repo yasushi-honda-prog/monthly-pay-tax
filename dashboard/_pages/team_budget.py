@@ -40,6 +40,7 @@ from lib.team_budget_edit_logic import (
     DeleteConfirmState,
     OverflowConfirmState,
     compute_remaining_budget,
+    overflow_amount,
     transition_on_confirm_cancel,
     transition_on_confirm_continue,
     transition_on_delete_click,
@@ -261,6 +262,17 @@ def _render_team_budget_editor(
         "💡 「0 円」は明示的な予算 (¥0 で達成率算出)、"
         "予算を未設定状態に戻すには「予算削除」ボタンを使用してください。"
     )
+
+    # Issue #263: 入力中のリアルタイム超過警告 (UX 用途、cache 値で十分)。
+    # 保存時の判定は _do_save 内で fresh_other を再取得して確定する。
+    _input_overflow_by = overflow_amount(
+        float(new_amount), other_total, leader_monthly_budget
+    )
+    if _input_overflow_by > 0:
+        st.warning(
+            f"⚠ 入力値が統括隊月予算の残額を ¥{_input_overflow_by:,.0f} "
+            "超過しています。保存時に「続行確認ダイアログ」が表示されます。"
+        )
 
     overflow_state: OverflowConfirmState = st.session_state.get(
         overflow_key, OverflowConfirmState()
