@@ -19,6 +19,7 @@ import streamlit as st
 from lib.auth import require_user
 from lib.bq_client import (
     compute_current_hashes,
+    get_bq_client,
     load_active_leader_teams,
     load_active_teams,
     load_leader_team_monthly_budgets,
@@ -27,7 +28,6 @@ from lib.bq_client import (
 )
 from lib.cloud_run_client import invoke_team_eval
 from lib.constants import DATASET, PROJECT_ID
-from lib.bq_client import get_bq_client
 from lib.team_budget_cache import (
     invalidate_team_budget_caches,
     load_other_team_budgets_cached,
