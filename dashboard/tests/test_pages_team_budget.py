@@ -364,6 +364,58 @@ class TestRenderTeamBudgetEditor:
         assert st_mock.number_input.called
         assert st_mock.text_input.called
 
+    def test_input_overflow_shows_realtime_warning(self):
+        """Issue #263: 入力値が残額を超過 → 入力中にリアルタイム警告表示
+
+        統括隊月予算 ¥1,000,000 / 配下他隊合計 ¥0 / 残額 ¥1,000,000 に対して
+        入力値 ¥1,500,000 (= ¥500,000 超過) を与え、st.warning に
+        超過額 "500,000" が含まれることを検証する。
+        """
+        with patch("pages.team_budget.load_team_budget_cached", return_value=None), \
+             patch("pages.team_budget.load_other_team_budgets_cached", return_value=0.0), \
+             patch("pages.team_budget.st") as st_mock:
+            self._setup_st_mock(st_mock)
+            st_mock.number_input.return_value = 1500000  # 残額超過
+            self._render(
+                year=2026, month=5, team="A 隊",
+                actuals_month=self._actuals_with_leader(),
+                leader_team_monthly_budgets={"L1 統括隊": 1000000.0},
+                user_email="admin@example.com",
+            )
+        # st.warning の呼び出しに「500,000」(超過額) を含むメッセージがあるか
+        warning_messages = [
+            str(c.args[0]) for c in st_mock.warning.call_args_list if c.args
+        ]
+        assert any("500,000" in m for m in warning_messages), (
+            f"超過警告が表示されていない: {warning_messages}"
+        )
+
+    def test_input_within_remaining_no_overflow_warning(self):
+        """Issue #263: 入力値が残額以下 → 超過警告は表示されない
+
+        統括隊月予算 ¥1,000,000 / 配下他隊合計 ¥500,000 / 残額 ¥500,000 に対して
+        入力値 ¥300,000 を与え、超過額に関する warning が呼ばれないことを検証。
+        (統括隊予算未投入時の保存禁止 warning と区別するため、メッセージ内容で判定)
+        """
+        with patch("pages.team_budget.load_team_budget_cached", return_value=None), \
+             patch("pages.team_budget.load_other_team_budgets_cached", return_value=500000.0), \
+             patch("pages.team_budget.st") as st_mock:
+            self._setup_st_mock(st_mock)
+            st_mock.number_input.return_value = 300000  # 残額内
+            self._render(
+                year=2026, month=5, team="A 隊",
+                actuals_month=self._actuals_with_leader(),
+                leader_team_monthly_budgets={"L1 統括隊": 1000000.0},
+                user_email="admin@example.com",
+            )
+        warning_messages = [
+            str(c.args[0]) for c in st_mock.warning.call_args_list if c.args
+        ]
+        # 「超過」を含む warning が出ていない
+        assert not any("超過" in m and "入力値" in m for m in warning_messages), (
+            f"残額内なのに超過警告が出ている: {warning_messages}"
+        )
+
     def test_user_role_does_not_call_editor(self):
         """Evaluator AC2: user role では _render_team_budget_editor が呼ばれない
 
