@@ -263,6 +263,27 @@ with tab_drilldown:
 - **業務報告詳細の追加ソート機能**: 別 Issue (ROI 評価後)
 - **format_diff と format_diff_yen の統合** (PR #256 follow-up): 別 Issue
 
+### code-review 指摘の将来対応 (本 PR スコープ外、別 Issue 化候補)
+
+- **silent failure: 年月切替時のフィルタ条件リセット** (code-review #1)
+  - サイドバーで年月を切り替えると、前期選択の業務分類 / スポンサー / キーワード
+    が残ったまま新期間のデータに適用される。`multiselect` は options に無い
+    session_state 値を黙って捨てるため、0 件表示などの混乱を生む可能性
+  - 対策案: `(year, month, fixed_activity_category)` を tuple で監視し、
+    いずれか変化で counter advance
+- **DRY 違反: `_drill_load_gyomu_with_members` と `load_gyomu_with_members`
+  の二重 SQL + 二重 cache** (code-review #3)
+  - 対策案: `lib/bq_client.py` または新規 `lib/gyomu_loader.py` に共通化
+- **UX: 報告者数の分母誤読リスク** (code-review #5)
+  - fixed mode で「○○隊で 3 / 198 名」と表示され、隊規模 5-10 名で 1.5%
+    という誤読を生む。fixed mode では分母を「隊内メンバー数」に変更すべき
+- **テスト: mock state leakage** (code-review #6)
+  - `mock_streamlit.columns` の上書きが次テストに残る (autouse fixture は
+    `session_state` と `user` のみリセット)
+- **`SettingWithCopyWarning` リスク** (code-review #7)
+  - `result_after_cat = result_base[result_base[...]==...]` 以降のチェーンで
+    pandas chained assignment 警告のリスク
+
 ---
 
 ## Open Questions

@@ -275,10 +275,37 @@ class TestRenderGyomuListView:
         assert len(spec_2_calls) >= 1
 
     def test_T5_reset_button_advances_counter(self, render_df, mock_streamlit):
-        """T5: リセットボタンの on_click で counter advance"""
+        """T5 (code-review CONFIRMED #2 反映): リセットボタンの on_click で
+        counter advance を直接検証する (button mock の return False では callback
+        は実行されないため、on_click 引数を捕捉して invoke)"""
+        captured_on_click = []
+
+        def capture_button(label, **kwargs):
+            on_click = kwargs.get("on_click")
+            if on_click is not None and label == "リセット":
+                captured_on_click.append(on_click)
+            return False
+
+        mock_streamlit.button = capture_button
+        mock_streamlit.selectbox = MagicMock(return_value="隊（活動）分類")
+        mock_streamlit.multiselect = MagicMock(return_value=[])
+        mock_streamlit.text_input = MagicMock(return_value="")
+        render_gyomu_list_view(
+            df_gyomu_all=render_df,
+            name_map={"alice": "Alice 太郎", "bob": "Bob 次郎", "carol": "Carol 三郎"},
+            all_members=["alice", "bob", "carol"],
+            selected_members=[],
+            selected_year=2026,
+            selected_month="6月",
+            key_prefix="reset_test",
+        )
         # 初期 counter は 0
-        self._call(render_df, mock_streamlit, key_prefix="reset_test")
         assert mock_streamlit.session_state.get("reset_test_reset_counter") == 0
+        # リセットボタンの on_click が捕捉されていること
+        assert len(captured_on_click) == 1
+        # callback を直接実行 → counter が 1 に advance
+        captured_on_click[0]()
+        assert mock_streamlit.session_state["reset_test_reset_counter"] == 1
 
     def test_T6_fixed_mode_excludes_activity_category_from_search_targets(
         self, render_df, mock_streamlit,

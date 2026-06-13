@@ -17,6 +17,7 @@ import pandas as pd
 import streamlit as st
 
 from lib.auth import require_user
+from lib.bq_client import load_data
 from lib.bq_client import (
     compute_current_hashes,
     get_bq_client,
@@ -88,9 +89,9 @@ _LEADER_TEAM_FILTER_ALL = "全て"
 
 
 # --- Issue #254 ドリルダウン業務報告詳細用 loader ---
-# dashboard.py の同名関数と同じクエリだが、cross-page import を避けるため local 定義。
-# 将来 lib/bq_client.py への共通化候補 (本 PR ではスコープ外)。
-from lib.bq_client import load_data  # noqa: E402
+# dashboard.py の同名関数と同じ SQL を持つ二重定義。本来は lib/bq_client.py に
+# 共通化すべきだが、本 PR のスコープを #254 + #245 に絞るため次 PR で対応予定。
+# (code-review #3 指摘、TODO Issue 起票候補)
 
 
 @st.cache_data(ttl=21600)
@@ -143,13 +144,16 @@ def _drill_load_normalized_gyomu(name_map: dict[str, str]) -> pd.DataFrame:
     """業務報告 DF をロードし、render_gyomu_list_view 用に正規化する。
     dashboard.py の _load_normalized_gyomu_for_view と同等ロジック。
 
-    BQ 取得失敗時は st.error + st.stop()。
+    BQ 取得失敗時は st.error 表示後、空 DF を返す (code-review #4 反映、
+    st.stop だと上の集計 / AI 評価 / 月予算編集 UI まで停止する cascading
+    failure になるため、業務報告詳細セクションのみ empty_message 表示に
+    フォールバックする設計)。
     """
     try:
         df = _drill_load_gyomu_with_members()
     except Exception as e:
         st.error(f"業務報告データ取得エラー: {e}")
-        st.stop()
+        return pd.DataFrame()
     if df.empty:
         return df
     df = fill_empty_nickname(df)
@@ -786,6 +790,10 @@ with tab_drilldown:
                 _drill_name_map = _drill_load_name_map()
                 _drill_df_gyomu = _drill_load_normalized_gyomu(_drill_name_map)
                 _drill_all_members = _drill_load_all_members()
+                # safe-refactor HIGH #1 反映: key_prefix に team を含めることで
+                # 隊切替時の widget key 衝突 (StreamlitAPIException) を防ぐ。
+                # team_slug は team 名 (日本語含む) をそのまま使用、Streamlit の
+                # widget key は str であれば日本語可
                 render_gyomu_list_view(
                     df_gyomu_all=_drill_df_gyomu,
                     name_map=_drill_name_map,
@@ -793,7 +801,7 @@ with tab_drilldown:
                     selected_members=[],
                     selected_year=year,
                     selected_month=f"{month}月",
-                    key_prefix="drilldown",
+                    key_prefix=f"drilldown_{team}",
                     fixed_activity_category=team,
                     compact=True,
                     empty_message=f"{year}年{month}月 「{team}」の業務報告はありません",
