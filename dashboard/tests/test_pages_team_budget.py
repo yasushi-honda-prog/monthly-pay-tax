@@ -253,6 +253,123 @@ class TestRenderTeamBudgetEditor:
         assert st_mock.number_input.called
         assert st_mock.text_input.called
 
+    def test_user_role_does_not_call_editor(self):
+        """Evaluator AC2: user role では _render_team_budget_editor が呼ばれない
+
+        page module の `if is_admin:` ガードによって editor 関数が skip される
+        ことを `assert_not_called` で直接検証する。
+        """
+        import streamlit as st
+        st.session_state["user_email"] = "u@example.com"
+        st.session_state["user_role"] = "user"
+        sys.modules.pop("pages.team_budget", None)
+
+        # active_teams を 1 件以上にして tab_drilldown の if is_admin: ガードまで到達
+        sample_actuals = pd.DataFrame({
+            "year": [2026], "month": [5], "team": ["A 隊"],
+            "leader_team": ["L1 統括隊"],
+            "actual_amount": [100.0], "actual_count": [1], "reporter_count": [1],
+            "budget_amount": [200.0], "achievement_rate": [50.0],
+            "diff_amount": [-100.0], "has_budget": [True], "has_actual": [True],
+        })
+        with patch("lib.ui_helpers.render_sidebar_year_month", return_value=(2026, 5)), \
+             patch("lib.bq_client.load_team_budget_actuals", return_value=sample_actuals), \
+             patch("lib.bq_client.load_team_monthly_eval", return_value=pd.DataFrame()), \
+             patch("lib.bq_client.load_active_teams", return_value=["A 隊"]), \
+             patch("lib.bq_client.load_active_leader_teams", return_value=["L1 統括隊"]), \
+             patch("lib.bq_client.load_leader_team_monthly_budgets", return_value=pd.DataFrame()), \
+             patch("lib.bq_client.compute_current_hashes", return_value={"A 隊": ""}), \
+             patch("lib.bq_client.get_bq_client"), \
+             patch("lib.auth.require_user"), \
+             patch("_pages.team_budget._render_team_budget_editor") as render_mock:
+            importlib.import_module("pages.team_budget")
+            # user role なので editor は呼ばれない
+            render_mock.assert_not_called()
+
+    def test_upsert_conflict_renders_error_with_reload_hint(self):
+        """Evaluator AC7: UpsertConflict 時に「画面を更新」を含む st.error が呼ばれる"""
+        from lib.team_budget_repo import TeamBudgetRow, UpsertConflict
+        from datetime import datetime, timezone
+        existing = TeamBudgetRow(
+            year=2026, month=5, team="A 隊", budget_amount=1000.0,
+            memo=None, version=1,
+            updated_at=datetime(2026, 6, 13, tzinfo=timezone.utc),
+            updated_by="admin@example.com",
+        )
+        # 保存ボタン押下を模す: 1 番目の columns 呼出 (parent cols) で
+        # ref1/ref2/ref3、2 番目の呼出 (save/delete cols) で col_save.button=True
+        col_save = MagicMock()
+        col_save.button.return_value = True  # 「保存」押下
+        col_del = MagicMock()
+        col_del.button.return_value = False
+        ref_cols = (MagicMock(), MagicMock(), MagicMock())
+        with patch("pages.team_budget.load_team_budget_cached", return_value=existing), \
+             patch("pages.team_budget.load_other_team_budgets_cached", return_value=0.0), \
+             patch("pages.team_budget.load_other_team_budgets_in_leader", return_value=0.0), \
+             patch("pages.team_budget.upsert_team_budget",
+                   side_effect=UpsertConflict("version mismatch (expected=1, affected=0)")), \
+             patch("pages.team_budget.st") as st_mock:
+            self._setup_st_mock(st_mock)
+            # 1 回目: ref1/ref2/ref3, 2 回目: col_save/col_del
+            st_mock.columns.side_effect = [ref_cols, (col_save, col_del)]
+            st_mock.number_input.return_value = 1500.0
+            st_mock.text_input.return_value = "memo"
+            self._render(
+                year=2026, month=5, team="A 隊",
+                actuals_month=self._actuals_with_leader(),
+                leader_team_monthly_budgets={"L1 統括隊": 2000.0},
+                user_email="admin@example.com",
+            )
+        # error が呼ばれ、メッセージに「更新」を含む
+        assert st_mock.error.called
+        error_msg = str(st_mock.error.call_args)
+        assert "更新" in error_msg
+
+    def test_delete_confirm_yes_calls_delete_team_budget(self):
+        """Evaluator AC9 + AC17: 削除確認「削除する」→ delete_team_budget 呼出 + 再生成 info"""
+        from lib.team_budget_repo import TeamBudgetRow
+        from datetime import datetime, timezone
+        existing = TeamBudgetRow(
+            year=2026, month=5, team="A 隊", budget_amount=1000.0,
+            memo=None, version=2,
+            updated_at=datetime(2026, 6, 13, tzinfo=timezone.utc),
+            updated_by="admin@example.com",
+        )
+        # delete_state.pending=True で confirm dialog 経路に入り「削除する」押下
+        dy = MagicMock()
+        dy.button.return_value = True  # 「削除する」押下
+        dn = MagicMock()
+        dn.button.return_value = False
+        ref_cols = (MagicMock(), MagicMock(), MagicMock())
+        with patch("pages.team_budget.load_team_budget_cached", return_value=existing), \
+             patch("pages.team_budget.load_other_team_budgets_cached", return_value=0.0), \
+             patch("pages.team_budget.delete_team_budget") as del_mock, \
+             patch("pages.team_budget.st") as st_mock:
+            self._setup_st_mock(st_mock)
+            st_mock.columns.side_effect = [ref_cols, (dy, dn)]
+            st_mock.number_input.return_value = 1000.0
+            st_mock.text_input.return_value = ""
+            # 削除待機状態を session_state にセット
+            from lib.team_budget_edit_logic import DeleteConfirmState
+            st_mock.session_state = {
+                f"tb_edit_2026_5_A 隊_delete": DeleteConfirmState(pending=True),
+            }
+            self._render(
+                year=2026, month=5, team="A 隊",
+                actuals_month=self._actuals_with_leader(),
+                leader_team_monthly_budgets={"L1 統括隊": 2000.0},
+                user_email="admin@example.com",
+            )
+        # delete_team_budget が呼ばれた (actor は "delete:" プレフィックス付き)
+        del_mock.assert_called_once()
+        call_kwargs = del_mock.call_args.kwargs
+        assert call_kwargs["expected_version"] == 2
+        assert call_kwargs["actor"].startswith("delete:")
+        # 「再生成を推奨」info も呼ばれた
+        assert st_mock.info.called
+        info_msg = str(st_mock.info.call_args)
+        assert "再生成" in info_msg
+
     def test_initial_amount_preserves_decimal_precision(self):
         """code-review MEDIUM: 既存 row の Decimal 値 (1500.50) を切り捨てない"""
         from lib.team_budget_repo import TeamBudgetRow

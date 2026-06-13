@@ -299,3 +299,30 @@ class TestComputeCurrentHashes:
         job_config = mock_client.query.call_args_list[0].kwargs["job_config"]
         teams_param = [p for p in job_config.query_parameters if p.name == "teams"][0]
         assert teams_param.values == ["X", "Y"]
+
+    def test_prompt_version_in_cache_key(self, mock_client):
+        """Evaluator 見落 #3: prompt_version 引数が cache key に含まれ、
+        異なる prompt_version で別 cache (異なる query 実行) になることを確認"""
+        from decimal import Decimal
+        bq_client.compute_current_hashes.clear()
+
+        # v1 で 1 回目
+        _hash_and_budget_mock(
+            mock_client,
+            [{"team": "A", "data_hash": "h-a"}],
+            [{"team": "A", "budget_amount": Decimal("1000")}],
+        )
+        h1 = bq_client.compute_current_hashes(2026, 5, ("A",), "v1")
+        call_count_after_v1 = mock_client.query.call_count
+
+        # v2 で 2 回目: cache miss なら新 query (call_count 増加) + 異なる hash
+        _hash_and_budget_mock(
+            mock_client,
+            [{"team": "A", "data_hash": "h-a"}],
+            [{"team": "A", "budget_amount": Decimal("1000")}],
+        )
+        h2 = bq_client.compute_current_hashes(2026, 5, ("A",), "v2")
+        # v1 と v2 で異なる cache key → 新規 query が走った
+        assert mock_client.query.call_count > call_count_after_v1
+        # composite hash も別 (prompt_version 反映)
+        assert h1["A"] != h2["A"]
