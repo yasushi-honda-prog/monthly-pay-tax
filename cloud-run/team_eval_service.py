@@ -236,8 +236,11 @@ def process_one_team(
             achievement_rate=agg["achievement_rate"], diff=agg["diff_amount"],
             top_categories=top_categories, samples_text=samples_text,
         )
+        # 隊名は公開情報のため、応答内で言及されても PII リーク扱いしない
+        # (短い nickname と隊名の部分文字列が偶然マッチする false positive を防止)
         comment, usage = vertex_evaluator.generate_comment(
             genai_client, user_prompt, member_names,
+            validation_context=(team,),
         )
 
         # 6. upsert + claim release
