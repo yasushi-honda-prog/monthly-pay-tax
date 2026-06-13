@@ -76,6 +76,20 @@ class TestFormatDiff:
         assert tbv.format_diff(val) == expected
 
 
+class TestFormatDiffYen:
+    """Issue #253: マトリクスセル用の '¥+1,234,567' / '¥-5,678' / '—' 形式"""
+
+    @pytest.mark.parametrize("val, expected", [
+        (1234567, "¥+1,234,567"),
+        (-2345678, "¥-2,345,678"),
+        (0, "¥+0"),
+        (None, "—"),
+        (float("nan"), "—"),
+    ])
+    def test_format(self, val, expected):
+        assert tbv.format_diff_yen(val) == expected
+
+
 class TestIsOutdated:
     def test_match_returns_false(self):
         assert tbv.is_outdated("abc", "abc") is False

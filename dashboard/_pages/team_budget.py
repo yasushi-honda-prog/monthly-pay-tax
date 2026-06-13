@@ -58,6 +58,7 @@ from lib.team_budget_view import (
     build_monthly_trend,
     classify_achievement,
     format_diff,
+    format_diff_yen,
     format_rate,
     format_yen,
     is_outdated,
@@ -495,7 +496,7 @@ with tab_leader:
 # ============ 🏷️ 隊マトリクス ============
 
 with tab_matrix:
-    st.subheader(f"FY{fiscal_year} 隊×月マトリクス (達成率%)")
+    st.subheader(f"FY{fiscal_year} 隊×月マトリクス (差額)")
     if actuals_year.empty:
         st.info(f"FY{fiscal_year} のデータがありません。")
     else:
@@ -514,23 +515,38 @@ with tab_matrix:
         if filtered.empty:
             st.info(f"統括隊「{filter_leader}」配下の隊にデータがありません。")
         else:
+            # Issue #253: セル値は差額 (実額 - 予算)、セル色は達成率レンジで判定。
+            # diff_matrix と rate_matrix は同じ filtered から生成しており
+            # index/columns が一致 (build_matrix_df は team × month で pivot)
+            diff_matrix = build_matrix_df(filtered, value="diff_amount")
             rate_matrix = build_matrix_df(filtered, value="achievement_rate")
 
-            def _style_cell(v):
-                return f"background-color: {achievement_color(v)}"
+            def _color_col_by_rate(col):
+                """列ごとに、対応する達成率 (rate_matrix の同じ team/month セル)
+                でセル背景色を決定する (Issue #253)"""
+                if col.name not in rate_matrix.columns:
+                    return ["" for _ in col.index]
+                return [
+                    f"background-color: {achievement_color(rate_matrix.loc[idx, col.name])}"
+                    if idx in rate_matrix.index
+                    else ""
+                    for idx in col.index
+                ]
 
-            styled = rate_matrix.style.map(_style_cell).format(
-                lambda v: format_rate(v) if pd.notna(v) else "⚠ 未設定"
+            styled = (
+                diff_matrix.style
+                .apply(_color_col_by_rate, axis=0)
+                .format(lambda v: format_diff_yen(v) if pd.notna(v) else "⚠ 未設定")
             )
             st.dataframe(styled, use_container_width=True)
             st.caption(
-                "セル色: 緑=80-120% 適正 / 黄=60-80%・120-150% 注意 / "
-                "赤=<60%・>150% 乖離大 / 灰=データなし"
+                "セル値: 差額 = 実額 - 予算 / セル色: 達成率で判定 (緑=80-120% 適正 / "
+                "黄=60-80%・120-150% 注意 / 赤=<60%・>150% 乖離大 / 灰=データなし)"
             )
 
             # セルクリック相当の隊ジャンプ用
             with st.expander("ドリルダウンへ移動 (隊選択)"):
-                selectable_teams = sorted(rate_matrix.index.tolist())
+                selectable_teams = sorted(diff_matrix.index.tolist())
                 chosen = st.selectbox(
                     "隊を選んでドリルダウンタブへ反映",
                     [""] + selectable_teams,
