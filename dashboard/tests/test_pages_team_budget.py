@@ -1,4 +1,4 @@
-"""dashboard/_pages/team_budget.py のページレベルテスト
+"""dashboard/pages.team_budget.py のページレベルテスト
 
 Streamlit と BQ クライアントは conftest.py で全モック化。本テストでは:
 - ページモジュールが import 時にエラーを起こさないこと
@@ -23,14 +23,14 @@ import pytest
 def reset_module():
     """前回 import のキャッシュを除去 + selectbox を年月リテラルを返すよう patch"""
     sys.modules.pop("pages.team_budget", None)
-    sys.modules.pop("_pages.team_budget", None)
+    sys.modules.pop("pages.team_budget", None)
 
     # render_sidebar_year_month が selectbox 経由で 'viewer' を返す問題を回避し、
     # 確定的に (2026, 5) を返すよう patch
     with patch("lib.ui_helpers.render_sidebar_year_month", return_value=(2026, 5)):
         yield
     sys.modules.pop("pages.team_budget", None)
-    sys.modules.pop("_pages.team_budget", None)
+    sys.modules.pop("pages.team_budget", None)
 
 
 @pytest.fixture
@@ -158,3 +158,122 @@ class TestTeamBudgetPage:
              patch("lib.bq_client.get_bq_client"), \
              patch("lib.auth.require_user"):
             importlib.import_module("pages.team_budget")
+
+
+class TestRenderTeamBudgetEditor:
+    """code-review MEDIUM: admin role の月予算編集セクション統合テスト。
+
+    page module 全体の実行は既存 test_imports_for_admin がカバー済。
+    本クラスでは _render_team_budget_editor を直接呼んで挙動を検証する。
+    """
+
+    @pytest.fixture(autouse=True)
+    def _patch_bq_and_load(self, monkeypatch):
+        """page import 中の BQ アクセスを全 mock。各 test 内でも patch 維持"""
+        import streamlit as st
+        st.session_state["user_email"] = "admin@example.com"
+        st.session_state["user_role"] = "admin"
+        sys.modules.pop("pages.team_budget", None)
+        sys.modules.pop("pages.team_budget", None)
+        with patch("lib.ui_helpers.render_sidebar_year_month", return_value=(2026, 5)), \
+             patch("lib.bq_client.load_team_budget_actuals", return_value=pd.DataFrame()), \
+             patch("lib.bq_client.load_team_monthly_eval", return_value=pd.DataFrame()), \
+             patch("lib.bq_client.load_active_teams", return_value=[]), \
+             patch("lib.bq_client.load_active_leader_teams", return_value=[]), \
+             patch("lib.bq_client.load_leader_team_monthly_budgets", return_value=pd.DataFrame()), \
+             patch("lib.bq_client.compute_current_hashes", return_value={}), \
+             patch("lib.bq_client.get_bq_client"), \
+             patch("lib.auth.require_user"):
+            mod = importlib.import_module("pages.team_budget")
+            self._render = mod._render_team_budget_editor
+            yield
+
+    def _actuals_with_leader(self):
+        return pd.DataFrame({
+            "year": [2026], "month": [5], "team": ["A 隊"],
+            "leader_team": ["L1 統括隊"],
+        })
+
+    @staticmethod
+    def _setup_st_mock(st_mock):
+        """st.columns(N) が N 個の mock を tuple で返すよう設定 + button defaults"""
+        st_mock.session_state = {}
+        st_mock.button.return_value = False
+        st_mock.columns.side_effect = (
+            lambda spec: tuple(
+                MagicMock() for _ in range(
+                    spec if isinstance(spec, int) else len(spec)
+                )
+            )
+        )
+
+    def test_warns_when_leader_team_unknown(self):
+        empty_actuals = pd.DataFrame({"year": [], "month": [], "team": [],
+                                       "leader_team": []})
+        with patch("pages.team_budget.load_team_budget_cached") as load_b, \
+             patch("pages.team_budget.load_other_team_budgets_cached") as load_o, \
+             patch("pages.team_budget.st") as st_mock:
+            self._render(
+                year=2026, month=5, team="A 隊",
+                actuals_month=empty_actuals,
+                leader_team_monthly_budgets={},
+                user_email="admin@example.com",
+            )
+        st_mock.info.assert_called_once()
+        load_b.assert_not_called()
+        load_o.assert_not_called()
+
+    def test_warns_when_leader_monthly_budget_none(self):
+        """code-review MEDIUM g: 統括隊予算未投入時は保存禁止 + 誘導 warning"""
+        with patch("pages.team_budget.load_team_budget_cached", return_value=None), \
+             patch("pages.team_budget.load_other_team_budgets_cached", return_value=0.0), \
+             patch("pages.team_budget.st") as st_mock:
+            self._setup_st_mock(st_mock)
+            self._render(
+                year=2026, month=5, team="A 隊",
+                actuals_month=self._actuals_with_leader(),
+                leader_team_monthly_budgets={},
+                user_email="admin@example.com",
+            )
+        assert st_mock.warning.called
+
+    def test_renders_widgets_when_budget_available(self):
+        """通常: 統括隊予算あり → 入力 widget 表示"""
+        with patch("pages.team_budget.load_team_budget_cached", return_value=None), \
+             patch("pages.team_budget.load_other_team_budgets_cached", return_value=500000.0), \
+             patch("pages.team_budget.st") as st_mock:
+            self._setup_st_mock(st_mock)
+            self._render(
+                year=2026, month=5, team="A 隊",
+                actuals_month=self._actuals_with_leader(),
+                leader_team_monthly_budgets={"L1 統括隊": 1000000.0},
+                user_email="admin@example.com",
+            )
+        # 入力 widget が呼ばれた (保存ボタンは col_save.button で st.button とは別 attribute)
+        assert st_mock.number_input.called
+        assert st_mock.text_input.called
+
+    def test_initial_amount_preserves_decimal_precision(self):
+        """code-review MEDIUM: 既存 row の Decimal 値 (1500.50) を切り捨てない"""
+        from lib.team_budget_repo import TeamBudgetRow
+        from datetime import datetime, timezone
+        existing = TeamBudgetRow(
+            year=2026, month=5, team="A 隊",
+            budget_amount=1500.50,
+            memo=None, version=1,
+            updated_at=datetime(2026, 6, 13, tzinfo=timezone.utc),
+            updated_by="admin@example.com",
+        )
+        with patch("pages.team_budget.load_team_budget_cached", return_value=existing), \
+             patch("pages.team_budget.load_other_team_budgets_cached", return_value=0.0), \
+             patch("pages.team_budget.st") as st_mock:
+            self._setup_st_mock(st_mock)
+            self._render(
+                year=2026, month=5, team="A 隊",
+                actuals_month=self._actuals_with_leader(),
+                leader_team_monthly_budgets={"L1 統括隊": 1000000.0},
+                user_email="admin@example.com",
+            )
+        call_kwargs = st_mock.number_input.call_args.kwargs
+        assert call_kwargs["value"] == 1500.50
+        assert isinstance(call_kwargs["step"], float)

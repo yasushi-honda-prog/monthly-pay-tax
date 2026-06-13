@@ -259,6 +259,32 @@ class TestUpsertTeamBudgetUpdate:
         assert "SELECT" in select_sql
         assert "team_budgets" in select_sql
 
+    def test_update_conflict_when_affected_rows_is_none(self):
+        """code-review HIGH: BQ が num_dml_affected_rows=None を返すケースで silent fail しない"""
+        client = MagicMock()
+        dml_job = MagicMock()
+        dml_job.num_dml_affected_rows = None
+        client.query.return_value = dml_job
+        with pytest.raises(UpsertConflict, match="version mismatch"):
+            upsert_team_budget(
+                client, year=2026, month=5, team="A 隊",
+                budget_amount=2000.0, memo=None,
+                expected_version=2, actor="admin@example.com",
+            )
+
+    def test_insert_conflict_when_affected_rows_is_none(self):
+        """code-review HIGH: INSERT 経路も None 検知"""
+        client = MagicMock()
+        dml_job = MagicMock()
+        dml_job.num_dml_affected_rows = None
+        client.query.return_value = dml_job
+        with pytest.raises(UpsertConflict, match="INSERT conflict"):
+            upsert_team_budget(
+                client, year=2026, month=5, team="A 隊",
+                budget_amount=1000.0, memo=None,
+                expected_version=None, actor="admin@example.com",
+            )
+
 
 class TestDeleteTeamBudget:
     def test_delete_success(self):
@@ -297,6 +323,18 @@ class TestDeleteTeamBudget:
         params = client.query.call_args.kwargs["job_config"].query_parameters
         names = {p.name: p.value for p in params}
         assert names == {"year": 2026, "month": 7, "team": "Z 隊", "expected_version": 5}
+
+    def test_delete_conflict_when_affected_rows_is_none(self):
+        """code-review HIGH: DELETE で None 検知"""
+        client = MagicMock()
+        dml_job = MagicMock()
+        dml_job.num_dml_affected_rows = None
+        client.query.return_value = dml_job
+        with pytest.raises(UpsertConflict, match="version mismatch on delete"):
+            delete_team_budget(
+                client, year=2026, month=5, team="A 隊",
+                expected_version=1, actor="admin@example.com",
+            )
 
 
 class TestLoadOtherTeamBudgetsInLeader:

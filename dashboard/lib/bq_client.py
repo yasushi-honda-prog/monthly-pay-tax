@@ -209,14 +209,19 @@ def load_active_leader_teams(
 
 @st.cache_data(ttl=300)
 def compute_current_hashes(
-    year: int, month: int, teams: tuple[str, ...]
+    year: int, month: int, teams: tuple[str, ...],
+    prompt_version: str,
 ) -> dict[str, str]:
     """各隊の現在の actual_data_hash を計算 (spec §6.6 + 2026-06-13 拡張)。
 
     2026-06-13 拡張: 既存 BQ SQL hash (gyomu_reports 集計) に加え、
-    team_budgets.budget_amount と PROMPT_VERSION を Python 側で合成して
+    team_budgets.budget_amount と prompt_version を Python 側で合成して
     composite hash を返す。これにより予算編集時にも outdated 判定が発火する
     (docs/specs/2026-06-13-team-monthly-budget-input.md §4.2 / §5.3)。
+
+    code-review MEDIUM: prompt_version を関数引数化することで cache key に
+    含め、env var 変更時の stale cache を防ぐ。呼び出し側は lib.constants から
+    import して渡す責務。
 
     team_monthly_eval.actual_data_hash と突き合わせて outdated バッジ表示に使う。
     引数 teams は cache key 化のため tuple で受ける。
@@ -226,7 +231,6 @@ def compute_current_hashes(
     """
     if not teams:
         return {}
-    from lib.constants import PROMPT_VERSION
     from lib.team_budget_hash import compose_actual_data_hash
     client = get_bq_client()
     # CTE 名に `rows` は使わない (BigQuery の予約語 ROWS と衝突して
@@ -294,7 +298,7 @@ def compute_current_hashes(
     # 未設定隊は None で composite に渡す
     return {
         team: compose_actual_data_hash(
-            bq_hashes[team], budgets.get(team), PROMPT_VERSION
+            bq_hashes[team], budgets.get(team), prompt_version
         )
         for team in teams
     }

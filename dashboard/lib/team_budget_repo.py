@@ -191,11 +191,13 @@ def upsert_team_budget(
     job = client.query(sql, job_config=bigquery.QueryJobConfig(query_parameters=params))
     job.result()  # 完了待ち + 例外 raise
     affected = getattr(job, "num_dml_affected_rows", None)
-    if affected == 0:
+    # code-review HIGH: affected が None / 0 / その他 1 以外は conflict 扱いに
+    # 厳格化 (BQ client が None を返すケースの silent fail 防止)
+    if affected != 1:
         msg = (
-            "INSERT conflict (既存行が存在)"
+            "INSERT conflict (既存行が存在 or BQ unclear)"
             if expected_version is None
-            else f"version mismatch (expected={expected_version})"
+            else f"version mismatch (expected={expected_version}, affected={affected})"
         )
         raise UpsertConflict(msg)
 
@@ -239,8 +241,11 @@ def delete_team_budget(
     )
     job.result()
     affected = getattr(job, "num_dml_affected_rows", None)
-    if affected == 0:
-        raise UpsertConflict(f"version mismatch on delete (expected={expected_version})")
+    # code-review HIGH: None / 0 / その他 1 以外を全て conflict 扱い
+    if affected != 1:
+        raise UpsertConflict(
+            f"version mismatch on delete (expected={expected_version}, affected={affected})"
+        )
 
 
 def load_other_team_budgets_in_leader(

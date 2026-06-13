@@ -27,7 +27,7 @@ from lib.bq_client import (
     load_team_monthly_eval,
 )
 from lib.cloud_run_client import invoke_team_eval
-from lib.constants import DATASET, PROJECT_ID
+from lib.constants import DATASET, PROJECT_ID, PROMPT_VERSION
 from lib.team_budget_cache import (
     invalidate_team_budget_caches,
     load_other_team_budgets_cached,
@@ -153,12 +153,13 @@ def _render_team_budget_editor(
     overflow_key = f"{edit_key}_overflow"
     delete_key = f"{edit_key}_delete"
 
+    # code-review MEDIUM: int() cast すると Decimal 小数部 (1500.50 等) を切り捨てるため float で保持
     initial_amount = (
-        int(current_row.budget_amount) if current_row else 0
+        float(current_row.budget_amount) if current_row else 0.0
     )
     new_amount = st.number_input(
         "予算金額",
-        min_value=0, step=10000, value=initial_amount,
+        min_value=0.0, step=10000.0, value=initial_amount,
         key=f"{edit_key}_amount",
     )
     new_memo = st.text_input(
@@ -176,36 +177,41 @@ def _render_team_budget_editor(
     )
 
     def _do_save():
+        # code-review MEDIUM: overflow_state の cleanup を finally で確実に
+        # (失敗時に confirmed=True が残ると次回 save で超過チェック skip する bug)
         try:
-            upsert_team_budget(
-                get_bq_client(),
-                year=year, month=month, team=team,
-                budget_amount=float(new_amount),
-                memo=new_memo or None,
-                expected_version=current_row.version if current_row else None,
-                actor=user_email,
-            )
-        except UpsertConflict as exc:
-            st.error(
-                f"⚠ 競合検知: {exc}。他の管理者が編集中の可能性があります。"
-                "画面を更新してください。"
-            )
-            return
-        except Exception as exc:  # noqa: BLE001
-            logger.exception("team_budget save failed")
-            st.error(f"保存失敗: {exc}")
-            return
+            try:
+                upsert_team_budget(
+                    get_bq_client(),
+                    year=year, month=month, team=team,
+                    budget_amount=float(new_amount),
+                    memo=new_memo or None,
+                    expected_version=current_row.version if current_row else None,
+                    actor=user_email,
+                )
+            except UpsertConflict as exc:
+                st.error(
+                    f"⚠ 競合検知: {exc}。他の管理者が編集中の可能性があります。"
+                    "画面を更新してください。"
+                )
+                return
+            except Exception as exc:  # noqa: BLE001
+                logger.exception("team_budget save failed")
+                st.error(f"保存失敗: {exc}")
+                return
 
-        invalidate_team_budget_caches()
-        st.session_state.pop(overflow_key, None)
-        st.session_state.pop(delete_key, None)
-        st.success("予算を保存しました")
-        prev_amount = current_row.budget_amount if current_row else None
-        if prev_amount != float(new_amount):
-            st.info(
-                "💡 予算が変更されたため、AI 評価コメントの再生成を推奨します"
-            )
-        st.rerun()
+            invalidate_team_budget_caches()
+            st.success("予算を保存しました")
+            prev_amount = current_row.budget_amount if current_row else None
+            if prev_amount != float(new_amount):
+                st.info(
+                    "💡 予算が変更されたため、AI 評価コメントの再生成を推奨します"
+                )
+            st.rerun()
+        finally:
+            # 成功/失敗いずれも confirm state をクリア (失敗時の再試行は仕切り直し)
+            st.session_state.pop(overflow_key, None)
+            st.session_state.pop(delete_key, None)
 
     # ---- confirm 状態優先表示 ----
     if overflow_state.pending:
@@ -589,7 +595,7 @@ with tab_drilldown:
             eval_df = load_team_monthly_eval(year, month, team=team)
             eval_row = eval_df.iloc[0].to_dict() if not eval_df.empty else None
 
-            current = compute_current_hashes(year, month, (team,))
+            current = compute_current_hashes(year, month, (team,), PROMPT_VERSION)
             stored = eval_row.get("actual_data_hash") if eval_row else None
             outdated = is_outdated(stored, current.get(team))
 

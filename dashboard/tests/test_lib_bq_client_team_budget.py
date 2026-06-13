@@ -210,7 +210,7 @@ class TestComputeCurrentHashes:
     def test_empty_teams_returns_empty_dict(self, mock_client):
         # cache 残留対策
         bq_client.compute_current_hashes.clear()
-        result = bq_client.compute_current_hashes(2026, 5, ())
+        result = bq_client.compute_current_hashes(2026, 5, (), "v1")
         assert result == {}
         # クエリも発行しない
         assert mock_client.query.call_count == 0
@@ -227,7 +227,7 @@ class TestComputeCurrentHashes:
             # B は budget 未設定
         ]
         _hash_and_budget_mock(mock_client, hash_rows, budget_rows)
-        result = bq_client.compute_current_hashes(2026, 5, ("A", "B"))
+        result = bq_client.compute_current_hashes(2026, 5, ("A", "B"), "v1")
         assert result == {
             "A": _expected_composite("h-a", Decimal("1000")),
             "B": _expected_composite("h-b", None),
@@ -240,7 +240,7 @@ class TestComputeCurrentHashes:
         hash_rows = [{"team": "A", "data_hash": "h-a"}]  # B は返らない
         budget_rows = []
         _hash_and_budget_mock(mock_client, hash_rows, budget_rows)
-        result = bq_client.compute_current_hashes(2026, 5, ("A", "B"))
+        result = bq_client.compute_current_hashes(2026, 5, ("A", "B"), "v1")
         assert result == {
             "A": _expected_composite("h-a", None),
             "B": _expected_composite("", None),
@@ -254,13 +254,13 @@ class TestComputeCurrentHashes:
         hash_rows = [{"team": "A", "data_hash": "samebq"}]
         budget_rows_1 = [{"team": "A", "budget_amount": Decimal("1000")}]
         _hash_and_budget_mock(mock_client, hash_rows, budget_rows_1)
-        h1 = bq_client.compute_current_hashes(2026, 5, ("A",))["A"]
+        h1 = bq_client.compute_current_hashes(2026, 5, ("A",), "v1")["A"]
 
         bq_client.compute_current_hashes.clear()
         hash_rows_2 = [{"team": "A", "data_hash": "samebq"}]
         budget_rows_2 = [{"team": "A", "budget_amount": Decimal("2000")}]
         _hash_and_budget_mock(mock_client, hash_rows_2, budget_rows_2)
-        h2 = bq_client.compute_current_hashes(2026, 5, ("A",))["A"]
+        h2 = bq_client.compute_current_hashes(2026, 5, ("A",), "v1")["A"]
 
         assert h1 != h2
 
@@ -268,7 +268,7 @@ class TestComputeCurrentHashes:
         """1 回目 query (hash SQL) が UNNEST + ORDER BY tie-breaker を使う"""
         bq_client.compute_current_hashes.clear()
         _hash_and_budget_mock(mock_client, [], [])
-        bq_client.compute_current_hashes(2026, 5, ("A", "B"))
+        bq_client.compute_current_hashes(2026, 5, ("A", "B"), "v1")
         sql = mock_client.query.call_args_list[0].args[0]
         assert "UNNEST(@teams)" in sql
         assert "ORDER BY row_hash, row_json" in sql
@@ -277,7 +277,7 @@ class TestComputeCurrentHashes:
         """2 回目 query (budget SELECT) が team_budgets を参照"""
         bq_client.compute_current_hashes.clear()
         _hash_and_budget_mock(mock_client, [], [])
-        bq_client.compute_current_hashes(2026, 5, ("A",))
+        bq_client.compute_current_hashes(2026, 5, ("A",), "v1")
         sql = mock_client.query.call_args_list[1].args[0]
         assert "team_budgets" in sql
         assert "UNNEST(@teams)" in sql
@@ -286,7 +286,7 @@ class TestComputeCurrentHashes:
         """CTE 名に `rows` を使うと BigQuery 予約語 ROWS と衝突する。回帰防止。"""
         bq_client.compute_current_hashes.clear()
         _hash_and_budget_mock(mock_client, [], [])
-        bq_client.compute_current_hashes(2026, 5, ("A",))
+        bq_client.compute_current_hashes(2026, 5, ("A",), "v1")
         sql = mock_client.query.call_args_list[0].args[0]
         assert "WITH rows AS" not in sql
         assert "FROM rows" not in sql
@@ -294,7 +294,7 @@ class TestComputeCurrentHashes:
     def test_teams_array_param(self, mock_client):
         bq_client.compute_current_hashes.clear()
         _hash_and_budget_mock(mock_client, [], [])
-        bq_client.compute_current_hashes(2026, 5, ("X", "Y"))
+        bq_client.compute_current_hashes(2026, 5, ("X", "Y"), "v1")
         # hash SQL (1 回目) の teams param
         job_config = mock_client.query.call_args_list[0].kwargs["job_config"]
         teams_param = [p for p in job_config.query_parameters if p.name == "teams"][0]
