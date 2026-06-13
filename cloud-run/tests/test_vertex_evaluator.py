@@ -264,42 +264,114 @@ class TestGenerateComment:
 
 
 class TestComputeActualDataHash:
-    def _client_returning(self, data_hash_value):
+    """2026-06-13 拡張: composite hash (bq_hash + budget + PROMPT_VERSION) 対応。
+
+    mock は 2 query 順序 (hash SQL → budget SELECT) を side_effect で扱う。
+    """
+
+    def _client_returning(self, data_hash_value, budget_amount=None,
+                          budget_row_present=True):
+        """hash SQL と budget SELECT の 2 query を順次返す mock client を作る。
+
+        Args:
+            data_hash_value: hash SQL の data_hash 戻り値 (None なら NULL 扱い)
+            budget_amount: budget SELECT の budget_amount 戻り値
+            budget_row_present: budget SELECT が 1 row 返すか (False なら未設定)
+        """
         client = MagicMock()
-        row = {"data_hash": data_hash_value}
-        client.query.return_value.result.return_value = [row]
+        hash_result = MagicMock()
+        hash_result.result.return_value = (
+            [{"data_hash": data_hash_value}] if data_hash_value is not None
+            or data_hash_value == "" else []
+        )
+        # NULL hash の表現: data_hash_value=None だが row は存在 (data_hash=None)
+        if data_hash_value is None:
+            hash_result.result.return_value = [{"data_hash": None}]
+
+        budget_result = MagicMock()
+        budget_result.result.return_value = (
+            [{"budget_amount": budget_amount}] if budget_row_present else []
+        )
+        client.query.side_effect = [hash_result, budget_result]
         return client
 
-    def test_returns_hash(self):
-        client = self._client_returning("abcdef123456")
+    def _expected(self, bq_hash, budget):
+        """vertex_evaluator が config.PROMPT_VERSION で合成した期待 hash"""
+        from team_budget_hash import compose_actual_data_hash as _compose
+        import config as _config
+        return _compose(bq_hash, budget, _config.PROMPT_VERSION)
+
+    def test_returns_composite_hash_with_budget(self):
+        from decimal import Decimal
+        client = self._client_returning("abcdef123456", Decimal("1000"))
         result = compute_actual_data_hash(client, 2026, 5, "X 隊")
-        assert result == "abcdef123456"
+        assert result == self._expected("abcdef123456", Decimal("1000"))
 
-    def test_returns_empty_when_null(self):
-        client = self._client_returning(None)
-        assert compute_actual_data_hash(client, 2026, 5, "X 隊") == ""
+    def test_returns_composite_hash_without_budget(self):
+        client = self._client_returning("abcdef123456", budget_row_present=False)
+        result = compute_actual_data_hash(client, 2026, 5, "X 隊")
+        assert result == self._expected("abcdef123456", None)
 
-    def test_returns_empty_when_no_rows(self):
+    def test_empty_bq_hash_when_null(self):
+        """SQL data_hash が NULL でも composite に空 bq_hash で続行"""
+        client = self._client_returning(None, budget_row_present=False)
+        result = compute_actual_data_hash(client, 2026, 5, "X 隊")
+        assert result == self._expected("", None)
+
+    def test_empty_bq_hash_when_no_rows(self):
+        """SQL が 0 row でも composite に空 bq_hash で続行"""
         client = MagicMock()
-        client.query.return_value.result.return_value = []
-        assert compute_actual_data_hash(client, 2026, 5, "X 隊") == ""
+        hash_result = MagicMock()
+        hash_result.result.return_value = []
+        budget_result = MagicMock()
+        budget_result.result.return_value = []
+        client.query.side_effect = [hash_result, budget_result]
+        result = compute_actual_data_hash(client, 2026, 5, "X 隊")
+        assert result == self._expected("", None)
 
     def test_query_uses_year_month_team_params(self):
-        client = self._client_returning("h")
+        client = self._client_returning("h", budget_row_present=False)
         compute_actual_data_hash(client, 2026, 5, "Z 隊")
-        # job_config が ScalarQueryParameter を含むことを軽く確認
-        _, kwargs = client.query.call_args
+        # hash SQL (1 回目) の params 確認
+        _, kwargs = client.query.call_args_list[0]
+        params = kwargs["job_config"].query_parameters
+        names = [p.name for p in params]
+        assert "year" in names and "month" in names and "team" in names
+
+    def test_budget_select_uses_year_month_team_params(self):
+        """budget SELECT (2 回目 query) も year/month/team params を持つ"""
+        client = self._client_returning("h", budget_row_present=False)
+        compute_actual_data_hash(client, 2026, 5, "Z 隊")
+        _, kwargs = client.query.call_args_list[1]
         params = kwargs["job_config"].query_parameters
         names = [p.name for p in params]
         assert "year" in names and "month" in names and "team" in names
 
     def test_sql_avoids_reserved_keyword_rows(self):
         """CTE 名に `rows` を使うと BigQuery 予約語 ROWS と衝突する。回帰防止。"""
-        client = self._client_returning("h")
+        client = self._client_returning("h", budget_row_present=False)
         compute_actual_data_hash(client, 2026, 5, "Z 隊")
-        sql = client.query.call_args.args[0]
+        sql = client.query.call_args_list[0].args[0]
         assert "WITH rows AS" not in sql
         assert "FROM rows" not in sql
+
+    def test_different_budget_produces_different_hash(self):
+        """同じ実額 + 異なる予算で異なる hash (予算編集 → outdated 判定の根拠)"""
+        from decimal import Decimal
+        c1 = self._client_returning("samebq", Decimal("1000"))
+        c2 = self._client_returning("samebq", Decimal("2000"))
+        h1 = compute_actual_data_hash(c1, 2026, 5, "X 隊")
+        h2 = compute_actual_data_hash(c2, 2026, 5, "X 隊")
+        assert h1 != h2
+
+    def test_budget_none_distinct_from_budget_zero(self):
+        """予算未設定 (row 不在) と 予算 0 (row 存在 budget=0) は別 hash"""
+        from decimal import Decimal
+        c_none = self._client_returning("samebq", budget_row_present=False)
+        c_zero = self._client_returning("samebq", Decimal("0"))
+        h_none = compute_actual_data_hash(c_none, 2026, 5, "X 隊")
+        h_zero = compute_actual_data_hash(c_zero, 2026, 5, "X 隊")
+        assert h_none != h_zero
 
 
 class TestLoadTeamSamples:
