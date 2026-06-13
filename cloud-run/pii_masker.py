@@ -12,6 +12,7 @@
 リークが残っていれば再生成する（spec §7.6）。
 """
 
+import hashlib
 import logging
 import re
 from typing import Iterable
@@ -159,6 +160,18 @@ def load_member_names(bq_client) -> set[str]:
     return {n for n in names if n and len(n) >= _MIN_NAME_LEN}
 
 
+def _name_fingerprint(name: str) -> str:
+    """PII リーク検出時の hit name 特徴を返す (個人特定不可)。
+
+    本番ログから真因 (どの member_master 名が応答に漏れたか) を切り分けるため、
+    name の長さと SHA256 hex 先頭 8 文字を出力する。元の name 文字列はログに
+    残さないため個人特定不可。再現側 (調査時) は member_master の全 name に
+    対して同じ計算をして照合することで identify できる。
+    """
+    h = hashlib.sha256(name.encode("utf-8")).hexdigest()[:8]
+    return f"len={len(name)}:hash={h}"
+
+
 def validate_ai_comment(
     comment: str,
     member_names: set[str],
@@ -198,7 +211,7 @@ def validate_ai_comment(
         if any(name in ctx for ctx in context_strings):
             continue
         if name in comment:
-            return False, "PIIリーク:名前"
+            return False, f"PIIリーク:名前:{_name_fingerprint(name)}"
     if EMAIL_RE.search(comment):
         return False, "PIIリーク:メール"
     if PHONE_RE.search(comment):
