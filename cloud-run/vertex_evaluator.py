@@ -328,9 +328,52 @@ FROM row_data
 """
 
 
-def compute_actual_data_hash(bq_client, year: int, month: int, team: str) -> str:
-    """spec §4.5。差分検知 hash を計算する。"""
+_BUDGET_SELECT_SQL = """
+SELECT budget_amount
+FROM `{project}.{dataset}.team_budgets`
+WHERE year = @year AND month = @month AND team = @team
+LIMIT 1
+"""
+
+
+def _fetch_team_budget_for_hash(bq_client, year: int, month: int, team: str):
+    """team_budgets から budget_amount を取得。未設定なら None を返す。
+
+    compose_actual_data_hash の入力として使用。本関数は hash 計算専用のため
+    cache しない (compute_actual_data_hash が呼ばれた時点で最新値を見るのが正しい)。
+    """
     from google.cloud import bigquery
+
+    query = _BUDGET_SELECT_SQL.format(
+        project=config.GCP_PROJECT_ID, dataset=config.BQ_DATASET
+    )
+    job_config = bigquery.QueryJobConfig(
+        query_parameters=[
+            bigquery.ScalarQueryParameter("year", "INT64", year),
+            bigquery.ScalarQueryParameter("month", "INT64", month),
+            bigquery.ScalarQueryParameter("team", "STRING", team),
+        ]
+    )
+    rows = list(bq_client.query(query, job_config=job_config).result())
+    if not rows:
+        return None
+    return rows[0]["budget_amount"]
+
+
+def compute_actual_data_hash(bq_client, year: int, month: int, team: str) -> str:
+    """spec §4.5 + 2026-06-13 拡張。差分検知 hash を計算する。
+
+    既存 BQ SQL hash (gyomu_reports 集計) に加え、team_budgets の budget_amount と
+    config.PROMPT_VERSION を Python 側で合成して composite hash を返す。
+
+    これにより予算編集 / プロンプト改訂時にも outdated 判定が発火する
+    (docs/specs/2026-06-13-team-monthly-budget-input.md §4.2 / §5.3)。
+
+    シグネチャ不変。既存呼び出し側 (team_eval_service) の修正は不要。
+    """
+    from google.cloud import bigquery
+
+    from team_budget_hash import compose_actual_data_hash as _compose
 
     query = _HASH_SQL.format(project=config.GCP_PROJECT_ID, dataset=config.BQ_DATASET)
     job_config = bigquery.QueryJobConfig(
@@ -341,9 +384,9 @@ def compute_actual_data_hash(bq_client, year: int, month: int, team: str) -> str
         ]
     )
     rows = list(bq_client.query(query, job_config=job_config).result())
-    if not rows:
-        return ""
-    return rows[0]["data_hash"] or ""
+    bq_hash = (rows[0]["data_hash"] or "") if rows else ""
+    budget = _fetch_team_budget_for_hash(bq_client, year, month, team)
+    return _compose(bq_hash, budget, config.PROMPT_VERSION)
 
 
 _SAMPLE_SQL = """

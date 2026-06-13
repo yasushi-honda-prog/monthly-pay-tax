@@ -1,5 +1,7 @@
 """定数定義"""
 
+import os
+
 PROJECT_ID = "monthly-pay-tax"
 DATASET = "pay_reports"
 USERS_TABLE = f"{PROJECT_ID}.{DATASET}.dashboard_users"
@@ -26,3 +28,7 @@ TEAM_HIERARCHY_COVERAGE_VIEW = f"{PROJECT_ID}.{DATASET}.v_team_hierarchy_coverag
 TEAM_BUDGETS_QUARTERLY_TABLE = f"{PROJECT_ID}.{DATASET}.team_budgets_quarterly"
 FISCAL_QUARTER_UDF = f"`{PROJECT_ID}.{DATASET}`.fiscal_quarter"
 LEADER_TEAM_TYPES: tuple[str, ...] = ("operating", "common")
+# actual_data_hash composite に使う prompt version。cloud-run/config.PROMPT_VERSION と
+# 同一値で揃える必要あり (両 Cloud Run service の env を一致させる)。
+# 既定値はデフォルト "v1"、env から上書き可。
+PROMPT_VERSION = os.environ.get("PROMPT_VERSION", "v1")

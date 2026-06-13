@@ -188,49 +188,141 @@ class TestLoadActiveLeaderTeams:
         assert params["m_end"] == 6
 
 
+def _hash_and_budget_mock(client, hash_rows, budget_rows):
+    """compute_current_hashes は 2 query (hash SQL → budget SELECT) を順次発行。
+    side_effect で順序対応する mock を作る。
+    """
+    hash_job = MagicMock()
+    hash_job.result.return_value = hash_rows
+    budget_job = MagicMock()
+    budget_job.result.return_value = budget_rows
+    client.query.side_effect = [hash_job, budget_job]
+
+
+def _expected_composite(bq_hash, budget):
+    """compose_actual_data_hash の期待値計算 helper"""
+    from lib.constants import PROMPT_VERSION
+    from lib.team_budget_hash import compose_actual_data_hash
+    return compose_actual_data_hash(bq_hash, budget, PROMPT_VERSION)
+
+
 class TestComputeCurrentHashes:
     def test_empty_teams_returns_empty_dict(self, mock_client):
-        result = bq_client.compute_current_hashes(2026, 5, ())
+        # cache 残留対策
+        bq_client.compute_current_hashes.clear()
+        result = bq_client.compute_current_hashes(2026, 5, (), "v1")
         assert result == {}
         # クエリも発行しない
         assert mock_client.query.call_count == 0
 
-    def test_returns_team_hash_dict(self, mock_client):
-        rows = [
+    def test_returns_composite_hash_dict(self, mock_client):
+        from decimal import Decimal
+        bq_client.compute_current_hashes.clear()
+        hash_rows = [
             {"team": "A", "data_hash": "h-a"},
             {"team": "B", "data_hash": "h-b"},
         ]
-        _result_mock(mock_client, rows)
-        result = bq_client.compute_current_hashes(2026, 5, ("A", "B"))
-        assert result == {"A": "h-a", "B": "h-b"}
+        budget_rows = [
+            {"team": "A", "budget_amount": Decimal("1000")},
+            # B は budget 未設定
+        ]
+        _hash_and_budget_mock(mock_client, hash_rows, budget_rows)
+        result = bq_client.compute_current_hashes(2026, 5, ("A", "B"), "v1")
+        assert result == {
+            "A": _expected_composite("h-a", Decimal("1000")),
+            "B": _expected_composite("h-b", None),
+        }
 
-    def test_missing_team_falls_back_to_empty_string(self, mock_client):
-        """指定 team が結果に含まれない (= 該当データなし) は '' で埋める
-        (cloud-run 側の IFNULL(..., '') と整合)"""
-        rows = [{"team": "A", "data_hash": "h-a"}]  # B は返らない
-        _result_mock(mock_client, rows)
-        result = bq_client.compute_current_hashes(2026, 5, ("A", "B"))
-        assert result == {"A": "h-a", "B": ""}
+    def test_missing_team_falls_back_to_empty_bq_hash(self, mock_client):
+        """指定 team が hash SQL 結果に含まれない (= データなし) は bq_hash='' で
+        compose に渡す (cloud-run 側の IFNULL(..., '') と整合)"""
+        bq_client.compute_current_hashes.clear()
+        hash_rows = [{"team": "A", "data_hash": "h-a"}]  # B は返らない
+        budget_rows = []
+        _hash_and_budget_mock(mock_client, hash_rows, budget_rows)
+        result = bq_client.compute_current_hashes(2026, 5, ("A", "B"), "v1")
+        assert result == {
+            "A": _expected_composite("h-a", None),
+            "B": _expected_composite("", None),
+        }
 
-    def test_sql_uses_unnest(self, mock_client):
-        _result_mock(mock_client, [])
-        bq_client.compute_current_hashes(2026, 5, ("A", "B"))
-        sql = mock_client.query.call_args.args[0]
+    def test_budget_changes_hash(self, mock_client):
+        """同 bq_hash でも budget 違いで composite hash が変わる
+        (予算編集 → outdated 判定の根拠)"""
+        from decimal import Decimal
+        bq_client.compute_current_hashes.clear()
+        hash_rows = [{"team": "A", "data_hash": "samebq"}]
+        budget_rows_1 = [{"team": "A", "budget_amount": Decimal("1000")}]
+        _hash_and_budget_mock(mock_client, hash_rows, budget_rows_1)
+        h1 = bq_client.compute_current_hashes(2026, 5, ("A",), "v1")["A"]
+
+        bq_client.compute_current_hashes.clear()
+        hash_rows_2 = [{"team": "A", "data_hash": "samebq"}]
+        budget_rows_2 = [{"team": "A", "budget_amount": Decimal("2000")}]
+        _hash_and_budget_mock(mock_client, hash_rows_2, budget_rows_2)
+        h2 = bq_client.compute_current_hashes(2026, 5, ("A",), "v1")["A"]
+
+        assert h1 != h2
+
+    def test_hash_sql_uses_unnest(self, mock_client):
+        """1 回目 query (hash SQL) が UNNEST + ORDER BY tie-breaker を使う"""
+        bq_client.compute_current_hashes.clear()
+        _hash_and_budget_mock(mock_client, [], [])
+        bq_client.compute_current_hashes(2026, 5, ("A", "B"), "v1")
+        sql = mock_client.query.call_args_list[0].args[0]
         assert "UNNEST(@teams)" in sql
-        # PR-C と同じ tie-breaker
         assert "ORDER BY row_hash, row_json" in sql
+
+    def test_budget_sql_selects_team_budgets(self, mock_client):
+        """2 回目 query (budget SELECT) が team_budgets を参照"""
+        bq_client.compute_current_hashes.clear()
+        _hash_and_budget_mock(mock_client, [], [])
+        bq_client.compute_current_hashes(2026, 5, ("A",), "v1")
+        sql = mock_client.query.call_args_list[1].args[0]
+        assert "team_budgets" in sql
+        assert "UNNEST(@teams)" in sql
 
     def test_sql_avoids_reserved_keyword_rows(self, mock_client):
         """CTE 名に `rows` を使うと BigQuery 予約語 ROWS と衝突する。回帰防止。"""
-        _result_mock(mock_client, [])
-        bq_client.compute_current_hashes(2026, 5, ("A",))
-        sql = mock_client.query.call_args.args[0]
+        bq_client.compute_current_hashes.clear()
+        _hash_and_budget_mock(mock_client, [], [])
+        bq_client.compute_current_hashes(2026, 5, ("A",), "v1")
+        sql = mock_client.query.call_args_list[0].args[0]
         assert "WITH rows AS" not in sql
         assert "FROM rows" not in sql
 
     def test_teams_array_param(self, mock_client):
-        _result_mock(mock_client, [])
-        bq_client.compute_current_hashes(2026, 5, ("X", "Y"))
-        job_config = mock_client.query.call_args.kwargs["job_config"]
+        bq_client.compute_current_hashes.clear()
+        _hash_and_budget_mock(mock_client, [], [])
+        bq_client.compute_current_hashes(2026, 5, ("X", "Y"), "v1")
+        # hash SQL (1 回目) の teams param
+        job_config = mock_client.query.call_args_list[0].kwargs["job_config"]
         teams_param = [p for p in job_config.query_parameters if p.name == "teams"][0]
         assert teams_param.values == ["X", "Y"]
+
+    def test_prompt_version_in_cache_key(self, mock_client):
+        """Evaluator 見落 #3: prompt_version 引数が cache key に含まれ、
+        異なる prompt_version で別 cache (異なる query 実行) になることを確認"""
+        from decimal import Decimal
+        bq_client.compute_current_hashes.clear()
+
+        # v1 で 1 回目
+        _hash_and_budget_mock(
+            mock_client,
+            [{"team": "A", "data_hash": "h-a"}],
+            [{"team": "A", "budget_amount": Decimal("1000")}],
+        )
+        h1 = bq_client.compute_current_hashes(2026, 5, ("A",), "v1")
+        call_count_after_v1 = mock_client.query.call_count
+
+        # v2 で 2 回目: cache miss なら新 query (call_count 増加) + 異なる hash
+        _hash_and_budget_mock(
+            mock_client,
+            [{"team": "A", "data_hash": "h-a"}],
+            [{"team": "A", "budget_amount": Decimal("1000")}],
+        )
+        h2 = bq_client.compute_current_hashes(2026, 5, ("A",), "v2")
+        # v1 と v2 で異なる cache key → 新規 query が走った
+        assert mock_client.query.call_count > call_count_after_v1
+        # composite hash も別 (prompt_version 反映)
+        assert h1["A"] != h2["A"]
