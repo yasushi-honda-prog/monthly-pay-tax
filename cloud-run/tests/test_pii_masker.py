@@ -1,80 +1,116 @@
-"""PII マスキング（pii_masker）のユニットテスト
+"""PII マスキング (pii_masker) のユニットテスト (R5 新仕様)
 
 spec: docs/specs/2026-06-10-team-budget-eval-design.md §7.3 / §7.6
 """
 
 from unittest.mock import MagicMock
 
-import pii_masker
 from pii_masker import (
     EMAIL_RE,
     PHONE_RE,
+    URL_RE,
+    PLACEHOLDER_RE,
+    MaskResult,
+    assert_no_raw_pii,
     load_member_names,
     mask_pii,
     validate_ai_comment,
 )
 
 
+# ==============================
+# mask_pii (R5: 戻り値が MaskResult)
+# ==============================
+
+
 class TestMaskPii:
     def test_empty_text_returns_empty(self):
-        assert mask_pii("", ["山田"]) == ""
+        result = mask_pii("", ["山田"])
+        assert isinstance(result, MaskResult)
+        assert result.masked_text == ""
+        assert result.detected_names == ()
+        assert result.detected_email == ()
+        assert result.detected_phone == ()
 
     def test_no_pii_returns_unchanged(self):
         text = "今月は活動時間が増えました"
-        assert mask_pii(text, ["山田", "鈴木"]) == text
+        result = mask_pii(text, ["山田", "鈴木"])
+        assert result.masked_text == text
+        assert result.detected_names == ()
 
     def test_replaces_member_name(self):
         text = "山田さんが訪問しました"
-        assert mask_pii(text, ["山田"]) == "<MEMBER>さんが訪問しました"
+        result = mask_pii(text, ["山田"])
+        assert result.masked_text == "<MEMBER>さんが訪問しました"
+        assert "山田" in result.detected_names
 
     def test_replaces_email(self):
         text = "連絡先は taro@example.com です"
-        assert mask_pii(text, []) == "連絡先は <EMAIL> です"
+        result = mask_pii(text, [])
+        assert result.masked_text == "連絡先は <EMAIL> です"
+        assert "taro@example.com" in result.detected_email
 
     def test_replaces_phone_with_hyphen(self):
         text = "電話は 03-1234-5678 です"
-        assert mask_pii(text, []) == "電話は <PHONE> です"
+        result = mask_pii(text, [])
+        assert result.masked_text == "電話は <PHONE> です"
+        assert "03-1234-5678" in result.detected_phone
 
     def test_replaces_mobile_phone(self):
         text = "携帯 090-1234-5678 に連絡"
-        assert mask_pii(text, []) == "携帯 <PHONE> に連絡"
+        result = mask_pii(text, [])
+        assert result.masked_text == "携帯 <PHONE> に連絡"
+        assert "090-1234-5678" in result.detected_phone
 
     def test_skips_single_char_name(self):
         """1 文字名は誤検知が大きいためマスクしない"""
         text = "健の活動報告です"
-        assert mask_pii(text, ["健"]) == text
+        result = mask_pii(text, ["健"])
+        assert result.masked_text == text
+        assert result.detected_names == ()
 
     def test_replaces_longer_name_first(self):
         """長い名前を先に置換しないと部分マッチで壊れる"""
         text = "山田太郎さんと山田さんが参加"
         result = mask_pii(text, ["山田", "山田太郎"])
-        assert result == "<MEMBER>さんと<MEMBER>さんが参加"
-        # "山田太郎" → <MEMBER> が先に発火する
-        # その後 "山田" のみ残った箇所が <MEMBER> に置換される
-        assert "山田" not in result
+        assert result.masked_text == "<MEMBER>さんと<MEMBER>さんが参加"
+        assert "山田" not in result.masked_text
+        # 長い順に置換が走るので detected_names には両方含まれる
+        assert "山田太郎" in result.detected_names
+        # 短い「山田」も残った箇所で hit → detected_names に含まれる
+        assert "山田" in result.detected_names
 
     def test_multiple_pii_types(self):
         text = "山田さん (taro@example.com / 090-1111-2222) 訪問"
         result = mask_pii(text, ["山田"])
-        assert "<MEMBER>" in result
-        assert "<EMAIL>" in result
-        assert "<PHONE>" in result
-        assert "山田" not in result
-        assert "taro@example.com" not in result
-        assert "090" not in result
+        assert "<MEMBER>" in result.masked_text
+        assert "<EMAIL>" in result.masked_text
+        assert "<PHONE>" in result.masked_text
+        assert "山田" not in result.masked_text
+        assert "taro@example.com" not in result.masked_text
+        assert "090" not in result.masked_text
+        assert "山田" in result.detected_names
+        assert "taro@example.com" in result.detected_email
+        assert "090-1111-2222" in result.detected_phone
 
     def test_ignores_empty_name_in_list(self):
         """空文字や空白だけのエントリは無視する"""
         text = "今月の活動"
-        # 空文字が混入していてもエラーにならない
-        assert mask_pii(text, ["", "  ", None]) == text  # type: ignore[list-item]
+        result = mask_pii(text, ["", "  ", None])  # type: ignore[list-item]
+        assert result.masked_text == text
+        assert result.detected_names == ()
 
     def test_idempotent(self):
         """マスク済みテキストを再マスクしても変化しない"""
         original = "山田さん 03-1234-5678 taro@example.com"
-        masked = mask_pii(original, ["山田"])
-        twice = mask_pii(masked, ["山田"])
-        assert masked == twice
+        first = mask_pii(original, ["山田"])
+        second = mask_pii(first.masked_text, ["山田"])
+        assert first.masked_text == second.masked_text
+
+
+# ==============================
+# Email / Phone / URL / Placeholder regex
+# ==============================
 
 
 class TestEmailRegex:
@@ -111,79 +147,93 @@ class TestPhoneRegex:
         assert PHONE_RE.search("+81-90-1234-5678")
 
     def test_no_match_short_digits(self):
-        """5-9 桁は電話番号として認識しない (番地・コード番号誤マッチ防止)"""
-        assert PHONE_RE.search("0-1-234") is None  # 5 桁
-        assert PHONE_RE.search("0123-456") is None  # 7 桁
-        assert PHONE_RE.search("0123-456-78") is None  # 9 桁
+        assert PHONE_RE.search("0-1-234") is None
+        assert PHONE_RE.search("0123-456") is None
+        assert PHONE_RE.search("0123-456-78") is None
 
     def test_no_match_long_digits(self):
-        """12 桁以上も拒否"""
-        assert PHONE_RE.search("0123-4567-89012") is None  # 12 桁
+        assert PHONE_RE.search("0123-4567-89012") is None
 
     def test_does_not_mask_statistics_in_text(self):
         """統計値風の数列をマスクしない (false positive 防止)"""
-        from pii_masker import mask_pii
-        # '0-15%' は 3 桁 → 電話番号扱いしない
-        assert mask_pii("達成率 0-15% で 203 件処理", []) == "達成率 0-15% で 203 件処理"
+        result = mask_pii("達成率 0-15% で 203 件処理", [])
+        assert result.masked_text == "達成率 0-15% で 203 件処理"
+        assert result.detected_phone == ()
+
+
+class TestUrlRegex:
+    def test_matches_http(self):
+        assert URL_RE.search("詳細は http://example.com まで")
+
+    def test_matches_https(self):
+        assert URL_RE.search("詳細は https://example.com/path?q=1 まで")
+
+    def test_no_match_without_scheme(self):
+        assert URL_RE.search("example.com") is None
+
+
+class TestPlaceholderRegex:
+    def test_matches_member(self):
+        assert PLACEHOLDER_RE.search("<MEMBER> が訪問")
+
+    def test_matches_email(self):
+        assert PLACEHOLDER_RE.search("連絡先 <EMAIL>")
+
+    def test_matches_phone(self):
+        assert PLACEHOLDER_RE.search("電話 <PHONE>")
+
+    def test_no_match_unknown_placeholder(self):
+        assert PLACEHOLDER_RE.search("<UNKNOWN>") is None
+
+
+# ==============================
+# validate_ai_comment (R5: member_names 引数撤廃)
+# ==============================
+
+
+def _valid_comment() -> str:
+    """検証 OK な雛形コメント (3 行 / 100-400 字)"""
+    return (
+        "達成率は適正範囲内で推移しており、予算策定時の想定と概ね一致しています。\n"
+        "業務の偏りも見られず、活動分類ごとのバランスも保たれた良好な状態です。\n"
+        "来月以降は予算進捗の中間モニタリングを実施し、早期の乖離検知を推奨します。"
+    )
 
 
 class TestValidateAiComment:
-    def _valid_comment(self) -> str:
-        """検証 OK な雛形コメント（3 行 / 100-400 字）"""
-        return (
-            "達成率は適正範囲内で推移しており、予算策定時の想定と概ね一致しています。\n"
-            "業務の偏りも見られず、活動分類ごとのバランスも保たれた良好な状態です。\n"
-            "来月以降は予算進捗の中間モニタリングを実施し、早期の乖離検知を推奨します。"
-        )
-
     def test_ok_valid_comment(self):
-        ok, reason = validate_ai_comment(self._valid_comment(), set())
+        ok, reason = validate_ai_comment(_valid_comment())
         assert ok is True
         assert reason == ""
 
     def test_ng_empty(self):
-        ok, reason = validate_ai_comment("", set())
+        ok, reason = validate_ai_comment("")
         assert ok is False
         assert reason == "empty"
 
     def test_ng_too_few_lines(self):
-        # 1 行 → 行数不正
         text = "あ" * 150
-        ok, reason = validate_ai_comment(text, set())
+        ok, reason = validate_ai_comment(text)
         assert ok is False
         assert reason.startswith("行数不正")
 
     def test_ng_too_many_lines(self):
         text = "\n".join(["あ" * 30] * 7)
-        ok, reason = validate_ai_comment(text, set())
+        ok, reason = validate_ai_comment(text)
         assert ok is False
         assert reason.startswith("行数不正")
 
     def test_ng_too_short(self):
         text = "短い\nテキスト"
-        ok, reason = validate_ai_comment(text, set())
+        ok, reason = validate_ai_comment(text)
         assert ok is False
         assert reason.startswith("文字数不正")
 
     def test_ng_too_long(self):
         text = "\n".join(["あ" * 200] * 3)
-        ok, reason = validate_ai_comment(text, set())
+        ok, reason = validate_ai_comment(text)
         assert ok is False
         assert reason.startswith("文字数不正")
-
-    def test_ng_member_leak(self):
-        text = (
-            "達成率は適正範囲内で推移しており、予算策定時の想定とほぼ一致しています。\n"
-            "今月は山田太郎さんの活動が顕著で、補助活動も伸びている状況が見られます。\n"
-            "来月以降も予算進捗の中間モニタリングを継続し、早期の乖離検知を推奨します。"
-        )
-        ok, reason = validate_ai_comment(text, {"山田太郎"})
-        assert ok is False
-        assert reason.startswith("PIIリーク:名前:")
-        # W7: 切り分け用に hit name の長さ + SHA256 prefix を reason に含める
-        # (個人特定不可、member_master と同じ計算で照合可能)
-        assert ":len=4:" in reason  # 「山田太郎」は 4 文字
-        assert ":hash=" in reason
 
     def test_ng_email_leak(self):
         text = (
@@ -191,7 +241,7 @@ class TestValidateAiComment:
             "詳細についての連絡は info@example.com までお願いしますという記載がありました。\n"
             "来月以降は予算進捗の中間モニタリングを実施し、早期の乖離検知を推奨します。"
         )
-        ok, reason = validate_ai_comment(text, set())
+        ok, reason = validate_ai_comment(text)
         assert ok is False
         assert reason == "PIIリーク:メール"
 
@@ -201,87 +251,250 @@ class TestValidateAiComment:
             "活動先からの連絡は 03-1234-5678 まで電話してほしいという依頼が見られました。\n"
             "来月以降は予算進捗の中間モニタリングを実施し、早期の乖離検知を推奨します。"
         )
-        ok, reason = validate_ai_comment(text, set())
+        ok, reason = validate_ai_comment(text)
         assert ok is False
         assert reason == "PIIリーク:電話"
 
-    def test_ignores_single_char_name_leak(self):
-        """1 文字名は普通名詞と衝突するため検知しない"""
-        ok, _ = validate_ai_comment(self._valid_comment(), {"健"})
-        assert ok is True
-
-    def test_exclude_substrings_skips_name_in_team_name(self):
-        """W6: 隊名内に内包される nickname は PII リーク扱いしない (false positive 防止)。
-
-        本番障害: 隊「すごいシステムつくり隊」の評価で、nickname「すごい」が
-        member_master に登録されているため、応答コメント内で隊名を言及すると
-        validate が PII リーク判定。隊名は公開情報なので除外する。
-        """
-        team_name = "すごいシステムつくり隊"
-        text = (
-            "達成率は適正範囲内で推移しており、予算策定時の想定と概ね一致しています。\n"
-            f"{team_name}の活動は安定的で、業務分類のバランスも保たれています。\n"
-            "来月以降は予算進捗の中間モニタリングを実施し、早期の乖離検知を推奨します。"
-        )
-        ok, reason = validate_ai_comment(
-            text, {"すごい"}, exclude_substrings=(team_name,),
-        )
-        assert ok is True, f"context exclude が機能せず: reason={reason}"
-        assert reason == ""
-
-    def test_exclude_substrings_does_not_skip_unrelated_name(self):
-        """W6: 隊名と無関係の本物の人名は引き続き検出される (PII 漏れ防止)。"""
-        team_name = "すごいシステムつくり隊"
-        text = (
-            "達成率は適正範囲内で推移しており、予算策定時の想定と概ね一致しています。\n"
-            "今月は田中さんの活動が顕著で、補助活動も伸びている状況が見られます。\n"
-            "来月以降は予算進捗の中間モニタリングを実施し、早期の乖離検知を推奨します。"
-        )
-        ok, reason = validate_ai_comment(
-            text, {"田中"}, exclude_substrings=(team_name,),
-        )
-        assert ok is False
-        assert reason.startswith("PIIリーク:名前:")
-
-    def test_exclude_substrings_empty_string_ignored(self):
-        """W6: 空文字や None が exclude_substrings に混入しても無視 (堅牢性)。"""
-        text = self._valid_comment() + "\n田中"
-        # 空文字を含んでも、田中 が空文字に内包されているとは判定しない
-        ok, reason = validate_ai_comment(
-            text, {"田中"}, exclude_substrings=("", None),
-        )
-        assert ok is False
-        assert reason.startswith("PIIリーク:名前:")
-
-    def test_no_exclude_substrings_defaults_to_strict(self):
-        """W6: exclude_substrings 未指定時は従来通り厳格判定 (後方互換)。"""
-        text = self._valid_comment().replace(
-            "業務の偏りも見られず",
-            "すごい施策で偏りも見られず",
-        )
-        ok, reason = validate_ai_comment(text, {"すごい"})
-        assert ok is False
-        assert reason.startswith("PIIリーク:名前:")
-
-    def test_name_fingerprint_deterministic_and_no_raw_name(self):
-        """W7: hit name の reason に長さと SHA256 prefix が含まれ、
-        生の name 文字列は含まれない (個人特定不可)。"""
+    def test_ng_url_leak(self):
+        """AC7: URL が AI 応答に含まれたら reject"""
         text = (
             "達成率は適正範囲内で推移しており、予算策定時の想定とほぼ一致しています。\n"
-            "今月は鈴木一郎さんの活動が顕著で、補助活動も伸びている状況が見られます。\n"
+            "詳細は https://example.com/team を参照ください、と案内された案件もありました。\n"
+            "来月以降は予算進捗の中間モニタリングを実施し、早期の乖離検知を推奨します。"
+        )
+        ok, reason = validate_ai_comment(text)
+        assert ok is False
+        assert reason == "PIIリーク:URL"
+
+    def test_ng_placeholder_member_leak(self):
+        """AC6: <MEMBER> placeholder が AI 応答に流出 → reject"""
+        text = (
+            "達成率は適正範囲内で推移しており、予算策定時の想定とほぼ一致しています。\n"
+            "今月は<MEMBER>さんの活動が顕著で、補助活動も伸びている状況が見られます。\n"
             "来月以降も予算進捗の中間モニタリングを継続し、早期の乖離検知を推奨します。"
         )
-        ok, reason = validate_ai_comment(text, {"鈴木一郎"})
+        ok, reason = validate_ai_comment(text)
         assert ok is False
-        # 形式: "PIIリーク:名前:len=4:hash=<8桁hex>"
-        assert reason.startswith("PIIリーク:名前:len=4:hash=")
-        # SHA256 prefix が 8 文字 hex で含まれる
-        hash_part = reason.split(":hash=", 1)[1]
-        assert len(hash_part) == 8
-        assert all(c in "0123456789abcdef" for c in hash_part)
-        # 生 name はログに残らない
-        assert "鈴木一郎" not in reason
-        assert "鈴木" not in reason
+        assert reason == "プレースホルダー流出"
+
+    def test_ng_placeholder_email_leak(self):
+        """AC6: <EMAIL> placeholder が AI 応答に流出 → reject"""
+        text = (
+            "達成率は適正範囲内で推移しており、予算策定時の想定とほぼ一致しています。\n"
+            "連絡先<EMAIL>から問合せが入った件は、業務の幅を広げる契機となります。\n"
+            "来月以降も予算進捗の中間モニタリングを継続し、早期の乖離検知を推奨します。"
+        )
+        ok, reason = validate_ai_comment(text)
+        assert ok is False
+        assert reason == "プレースホルダー流出"
+
+    def test_ng_placeholder_phone_leak(self):
+        """AC6: <PHONE> placeholder が AI 応答に流出 → reject"""
+        text = (
+            "達成率は適正範囲内で推移しており、予算策定時の想定とほぼ一致しています。\n"
+            "電話 <PHONE> への問合せが入った件は、業務の幅を広げる契機となります。\n"
+            "来月以降も予算進捗の中間モニタリングを継続し、早期の乖離検知を推奨します。"
+        )
+        ok, reason = validate_ai_comment(text)
+        assert ok is False
+        assert reason == "プレースホルダー流出"
+
+
+class TestValidateAiCommentAcceptanceCriteria:
+    """Codex 提示 AC1-AC7 のうち、validate_ai_comment 単体で検証可能なものをまとめる。"""
+
+    def test_ac1_hallucinated_common_noun_clashing_nickname_not_rejected(self):
+        """AC1: nickname='クニ' が member_master にあっても、validate は member_names を
+        参照しないため、Gemini 応答内の普通名詞「クニ」を reject しない。"""
+        text = (
+            "達成率は適正範囲内で推移しており、予算策定時の想定と概ね一致しています。\n"
+            "このクニの政策動向に沿った活動が継続されており、業務分類のバランスも良好です。\n"
+            "来月以降は予算進捗の中間モニタリングを実施し、早期の乖離検知を推奨します。"
+        )
+        ok, reason = validate_ai_comment(text)
+        assert ok is True, f"R5 設計違反: reason={reason}"
+
+    def test_ac4_nickname_partial_match_in_common_noun_not_rejected(self):
+        """AC4: nickname と普通名詞の部分一致でも reject しない。"""
+        text = (
+            "達成率は適正範囲内で推移しており、予算策定時の想定と概ね一致しています。\n"
+            "国家システムの方針に呼応した動きがあり、活動分類のバランスも保たれています。\n"
+            "来月以降は予算進捗の中間モニタリングを実施し、早期の乖離検知を推奨します。"
+        )
+        ok, reason = validate_ai_comment(text)
+        assert ok is True, f"R5 設計違反: reason={reason}"
+
+    def test_ac5_signature_has_no_member_names_param(self):
+        """AC5: validate_ai_comment のシグネチャから member_names / exclude_substrings 撤廃。"""
+        import inspect
+
+        sig = inspect.signature(validate_ai_comment)
+        assert list(sig.parameters.keys()) == ["comment"], (
+            f"R5: validate_ai_comment は comment のみを引数に取るべき "
+            f"(実際: {list(sig.parameters.keys())})"
+        )
+
+
+# ==============================
+# mask_pii completeness (property-based, Codex 指摘対応)
+# ==============================
+
+
+class TestMaskPiiCompleteness:
+    """mask_pii の完全性: detected_* が masked_text に残らないことを property-based に
+    検証する (Codex 指摘: assert_no_raw_pii だけでは mask 対象外名の残存を検出不可。
+    入口 mask の完全性は本テストで担保する)。
+    """
+
+    _NAME_FIXTURES = ["山田", "山田太郎", "鈴木", "佐藤花子", "クニ", "やまちゃん"]
+    _EMAIL_FIXTURES = ["taro@example.com", "info+team@example.co.jp"]
+    _PHONE_FIXTURES = ["03-1234-5678", "090-1234-5678", "+81-90-1234-5678"]
+
+    def test_detected_names_never_remain_in_masked_text(self):
+        """member_names に与えた名前が masked_text に残らない (placeholder に置換済)。"""
+        names = set(self._NAME_FIXTURES)
+        contexts = [
+            "山田さんと山田太郎さんと佐藤花子さんが参加",
+            "クニとやまちゃんと鈴木が同席",
+            "山田太郎,佐藤花子 ご来訪",
+            "やまちゃん やまちゃん 山田 (重複)",
+        ]
+        for text in contexts:
+            result = mask_pii(text, names)
+            for detected in result.detected_names:
+                assert detected not in result.masked_text, (
+                    f"mask 不完全: detected={detected!r} が masked_text に残存 "
+                    f"(input={text!r}, masked={result.masked_text!r})"
+                )
+
+    def test_detected_emails_never_remain_in_masked_text(self):
+        for email in self._EMAIL_FIXTURES:
+            text = f"連絡先は {email} と {email} です"
+            result = mask_pii(text, [])
+            assert email in result.detected_email
+            assert email not in result.masked_text, (
+                f"mask 不完全: email={email!r} が masked_text に残存"
+            )
+
+    def test_detected_phones_never_remain_in_masked_text(self):
+        for phone in self._PHONE_FIXTURES:
+            text = f"電話 {phone} に連絡し、{phone} へも折返し"
+            result = mask_pii(text, [])
+            assert phone in result.detected_phone
+            assert phone not in result.masked_text, (
+                f"mask 不完全: phone={phone!r} が masked_text に残存"
+            )
+
+    def test_all_pii_types_together_completeness(self):
+        text = (
+            "山田太郎さん (taro@example.com / 090-1234-5678) が "
+            "クニで佐藤花子さんと info@example.com の件を協議"
+        )
+        result = mask_pii(text, self._NAME_FIXTURES)
+        for n in result.detected_names:
+            assert n not in result.masked_text
+        for e in result.detected_email:
+            assert e not in result.masked_text
+        for p in result.detected_phone:
+            assert p not in result.masked_text
+
+
+# ==============================
+# assert_no_raw_pii (R5 新規)
+# ==============================
+
+
+class TestAssertNoRawPii:
+    """assert_no_raw_pii は mask 通過済テキスト (samples_text 等) のみを scan する。
+    prompt 全体を渡すと team 名 / top_categories と偶然一致して false positive する
+    旧設計は撤廃済み (W7 後追い修正、evaluator HIGH 1 対応)。"""
+
+    def test_passes_when_no_raw_pii_in_masked_output(self):
+        """detected_* が masked_output にない → 例外なし"""
+        mr = MaskResult(
+            masked_text="<MEMBER>さんが訪問",
+            detected_names=("山田",),
+        )
+        assert_no_raw_pii("- <MEMBER>さんが訪問", [mr])
+
+    def test_raises_when_name_in_masked_output(self):
+        """detected_name が masked_output に残っている → RuntimeError (mask 漏れ実装バグ)"""
+        mr = MaskResult(masked_text="<MEMBER>", detected_names=("山田",))
+        try:
+            assert_no_raw_pii("- 山田さんが残っている", [mr])
+            assert False, "RuntimeError が raise されるべき"
+        except RuntimeError as exc:
+            assert "kind=name" in str(exc)
+
+    def test_raises_when_email_in_masked_output(self):
+        mr = MaskResult(masked_text="<EMAIL>", detected_email=("taro@example.com",))
+        try:
+            assert_no_raw_pii("- taro@example.com が残っている", [mr])
+            assert False, "RuntimeError が raise されるべき"
+        except RuntimeError as exc:
+            assert "kind=email" in str(exc)
+
+    def test_raises_when_phone_in_masked_output(self):
+        mr = MaskResult(masked_text="<PHONE>", detected_phone=("03-1234-5678",))
+        try:
+            assert_no_raw_pii("- 03-1234-5678 が残っている", [mr])
+            assert False, "RuntimeError が raise されるべき"
+        except RuntimeError as exc:
+            assert "kind=phone" in str(exc)
+
+    def test_error_message_has_no_raw_pii(self):
+        """エラーメッセージに生 PII を含めない (長さ + hash prefix のみ)。"""
+        mr = MaskResult(masked_text="", detected_names=("鈴木一郎",))
+        try:
+            assert_no_raw_pii("- 鈴木一郎が残っている", [mr])
+            assert False
+        except RuntimeError as exc:
+            msg = str(exc)
+            assert "鈴木一郎" not in msg
+            assert "鈴木" not in msg
+            assert "len=4" in msg
+            assert "hash=" in msg
+
+    def test_passes_with_empty_mask_results(self):
+        """mask_results が空 → 例外なし"""
+        assert_no_raw_pii("任意の masked_output", [])
+
+    def test_handles_multiple_mask_results(self):
+        """複数 description にまたがる MaskResult (build_samples_text の戻り)"""
+        mr1 = MaskResult(masked_text="<MEMBER>", detected_names=("山田",))
+        mr2 = MaskResult(masked_text="<EMAIL>", detected_email=("a@b.com",))
+        assert_no_raw_pii("- <MEMBER>\n- <EMAIL>", [mr1, mr2])
+        try:
+            assert_no_raw_pii("- <MEMBER>\n- a@b.com", [mr1, mr2])
+            assert False
+        except RuntimeError:
+            pass
+
+    def test_does_not_false_positive_on_team_name_or_top_categories(self):
+        """evaluator HIGH 1 対応: assert_no_raw_pii の scan 対象は samples_text のみ。
+        team 名や top_categories (work_category) に detected_name と同じ文字列が
+        出現しても、scan しないので false positive しない。
+
+        本テストは PR #233-#241 の連鎖障害と同型の false reject を assert レイヤーに
+        再導入しないことを機械的に固定する (R5 設計の根本意図)。"""
+        # description「すごい施策が功を奏した」を mask 通過した結果
+        mr = MaskResult(
+            masked_text="今月は<MEMBER>施策が功を奏した",
+            detected_names=("すごい",),
+        )
+        # 呼び出し側は samples_text (mask 通過済の最終形) を渡す。team 名や top_lines は
+        # 渡さない。samples_text には raw「すごい」が無いので例外なし。
+        samples_text = "- 今月は<MEMBER>施策が功を奏した"
+        assert_no_raw_pii(samples_text, [mr])  # 例外なし
+
+        # 仮に呼び出し側が誤って prompt 全体 (team 名「すごいシステムつくり隊」を含む)
+        # を渡すと false positive する。本テストは「正しい呼び出し方をする限り false
+        # positive しない」ことを担保するため samples_text 経路のみ検証。
+
+
+# ==============================
+# load_member_names (既存維持)
+# ==============================
 
 
 class TestLoadMemberNames:
@@ -305,7 +518,7 @@ class TestLoadMemberNames:
         assert "太郎" in names
         assert "山田太郎" in names
         assert "山田 太郎" in names
-        assert "山田　太郎" in names  # 全角スペース版
+        assert "山田　太郎" in names
         assert "やまちゃん" in names
 
     def test_excludes_single_char_names(self):
@@ -313,11 +526,9 @@ class TestLoadMemberNames:
             {"last_name": "李", "first_name": "健", "nickname": "K"},
         ])
         names = load_member_names(client)
-        # 1 文字単独はマスキング対象外（誤検知防止）
         assert "李" not in names
         assert "健" not in names
         assert "K" not in names
-        # 連結フルネームは 2 文字以上なので残る
         assert "李健" in names
 
     def test_handles_none_values(self):
@@ -342,19 +553,15 @@ class TestLoadMemberNames:
         assert names == set()
 
     def test_returns_empty_on_bq_error(self):
-        """BQ transient エラーで例外を伝播させずに空 set を返す
-        (バッチ全体が落ちるのを避ける)"""
         client = MagicMock()
         client.query.side_effect = RuntimeError("503 transient")
         assert load_member_names(client) == set()
 
     def test_splits_full_name_in_last_name(self):
-        """last_name 列にフルネームが入っているケース（旧データ救済）"""
         client = self._mock_bq_client([
             {"last_name": "山田 太郎", "first_name": None, "nickname": None},
         ])
         names = load_member_names(client)
-        # 元の値も保持されつつ、分割した個別名も取得される
         assert "山田 太郎" in names
         assert "山田" in names
         assert "太郎" in names

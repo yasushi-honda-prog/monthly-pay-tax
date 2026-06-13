@@ -513,26 +513,61 @@ def compute_current_hashes(year, month, teams): ...
 - 60-80% or 120-150% → 「達成率に注意が必要なレンジ。乖離の主要因仮説と改善観点を。」
 - <60% or >150% → 「達成率の乖離が大きい。要因仮説と推奨アクションを優先度高く。」
 
-### 7.3 PII マスキング
+### 7.3 PII マスキング (R5 + taint tracking 設計、2026-06-13 改訂)
 
 新規モジュール `cloud-run/pii_masker.py`:
 
 ```python
-def mask_pii(text: str, member_names: Iterable[str]) -> str:
-    """description から PII をマスク"""
-    for name in sorted({n for n in member_names if n and len(n) >= 2},
-                       key=len, reverse=True):
-        text = text.replace(name, "<MEMBER>")
-    text = EMAIL_RE.sub("<EMAIL>", text)
-    text = PHONE_RE.sub("<PHONE>", text)
-    return text
+@dataclass(frozen=True)
+class MaskResult:
+    masked_text: str
+    detected_names: tuple[str, ...] = ()
+    detected_email: tuple[str, ...] = ()
+    detected_phone: tuple[str, ...] = ()
+
+def mask_pii(text: str, member_names: Iterable[str]) -> MaskResult:
+    """description から PII を <MEMBER>/<EMAIL>/<PHONE> に置換し MaskResult を返す。
+
+    実際に何を mask したか (detected_*) を taint として返し、後段の assert_no_raw_pii
+    で prompt 完成後の二重検証に使う。"""
+    ...
 
 def load_member_names(bq_client) -> set[str]:
     """member_master から full_name / nickname / 苗字 を取得"""
     ...
+
+def assert_no_raw_pii(masked_output: str, mask_results: Iterable[MaskResult]) -> None:
+    """mask 通過済テキスト (samples_text 等) に raw PII が残っていないことを assert。
+    実装バグ検知用 fail-safe (mask_pii の完全性は property-based test で別途担保)。
+
+    重要: 呼び出し側は build_user_prompt の prompt 全体ではなく samples_text を渡す。
+    prompt 全体には team 名・top_categories の raw 文字列が意図的に埋め込まれており、
+    member_master 由来 name と偶然一致して false positive raise する (W7 後追い修正、
+    R5 設計の本質に戻す対応、evaluator HIGH 1 指摘対応)。"""
+    ...
 ```
 
-メンバー名リストは TTL キャッシュ（バッチ起動時に 1 回取得）。
+メンバー名リストは TTL キャッシュ (バッチ起動時に 1 回取得)。
+
+#### silent PII bypass 防止 (evaluator HIGH 2 指摘対応)
+
+`load_member_names` が BQ transient エラー等で空 set を返すと、`mask_pii` が no-op に
+なり raw 名前を含む description が Gemini に送信される silent PII bypass が発生する。
+`process_teams` の冒頭で `if not member_names: raise RuntimeError(...)` で abort し、
+Cloud Run は HTTP 500 を返す。main.py の既存 chat_notifier がエンドポイント例外を
+catch して通知するため、本層では追加通知をしない (R5 設計責務分離)。
+
+#### 連鎖障害履歴と R5 設計採択の背景 (2026-06-13)
+
+旧仕様 (`mask_pii` 戻り値 = str、`validate_ai_comment` が member_names 全件辞書照合) は
+2026-06-12 〜 06-13 で連鎖障害 5 件 (PR #233 #236 #238 #239 #241) を引き起こした。最終的に
+**Gemini hallucination で普通名詞 (例: nickname「クニ」が「クニ (国家)」として生成)**
+が member_master nickname と偶然一致して全リトライ NG する構造問題と判明。
+
+Codex セカンドオピニオン (2026-06-13) で「mask_pii と validate_ai_comment は対称では
+なく、後者は **PII 検出器ではなく member_master 辞書による禁止語フィルタ**」と指摘され、
+**R5 (入口マスキング一本化 + 出口辞書照合撤廃 + taint tracking)** を採択。
+本 §7.3 / §7.6 はその採択に伴う改訂版。
 
 ### 7.4 Generation Config
 
@@ -591,23 +626,44 @@ SELECT
   (SELECT descriptions FROM samples) AS sample_descriptions
 ```
 
-### 7.6 生成後検証 + 再生成
+### 7.6 生成後検証 + 再生成 (R5 設計、2026-06-13 改訂)
 
 ```python
-def validate_ai_comment(comment: str, member_names: set[str]) -> tuple[bool, str]:
+def validate_ai_comment(comment: str) -> tuple[bool, str]:
+    """Gemini 生成コメントの出口検証 (R5)。
+
+    reject 対象: 空 / 行数 (2-6 範囲外) / 文字数 (100-400 範囲外) /
+    email / phone / URL / <MEMBER>/<EMAIL>/<PHONE> placeholder 流出。
+
+    撤廃 (旧): member_names 全件辞書照合と exclude_substrings。PII 対策の主戦場は
+    入口 mask_pii に一本化したため、本関数は連絡先 PII と表示品質のみを担う。"""
     if not comment: return False, "empty"
     lines = [l for l in comment.split("\n") if l.strip()]
     if not (2 <= len(lines) <= 6): return False, f"行数不正:{len(lines)}"
     if not (100 <= len(comment) <= 400): return False, f"文字数不正:{len(comment)}"
-    for name in member_names:
-        if name and len(name) >= 2 and name in comment:
-            return False, "PIIリーク:名前"
     if EMAIL_RE.search(comment): return False, "PIIリーク:メール"
     if PHONE_RE.search(comment): return False, "PIIリーク:電話"
+    if URL_RE.search(comment): return False, "PIIリーク:URL"
+    if PLACEHOLDER_RE.search(comment): return False, "プレースホルダー流出"
     return True, ""
 
-MAX_REGEN_ATTEMPTS = 2  # 最大 3 回試行（初回 + 再生成 2 回）
+MAX_REGEN_ATTEMPTS = 2  # 最大 3 回試行 (初回 + 再生成 2 回)
 ```
+
+#### Acceptance Criteria (R5 採択時に追加)
+
+- AC1: nickname と普通名詞 (例: 「クニ」が国家・場所の意で生成) の偶然一致を reject しない
+- AC2: raw description に member 名 / email / phone があっても、prompt に raw 値は残らない
+- AC3: email / phone が AI 応答に出たら reject (継続)
+- AC4: 隊名・業務分類・普通名詞に member nickname が部分一致しても reject しない
+- AC5: validate_ai_comment は全件辞書照合ではなく、入力由来 taint または高信頼 PII (email/phone/URL/placeholder) のみ判定
+- AC6: <MEMBER>/<EMAIL>/<PHONE> placeholder が AI 応答に流出したら reject (表示品質)
+- AC7: URL が AI 応答に含まれたら reject
+
+検証: `cloud-run/tests/test_pii_masker.py::TestValidateAiCommentAcceptanceCriteria`,
+`test_vertex_evaluator.py::TestBuildSamplesText::test_ac2_raw_pii_not_in_samples_text`,
+`test_team_eval_endpoint.py::TestProcessOneTeam::test_ac2_assert_no_raw_pii_invoked_before_gemini_call`,
+および `TestMaskPiiCompleteness` (mask_pii の完全性 property-based test)。
 
 ### 7.7 SDK 初期化
 

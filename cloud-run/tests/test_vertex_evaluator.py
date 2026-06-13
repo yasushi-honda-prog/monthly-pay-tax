@@ -92,23 +92,51 @@ class TestBuildUserPrompt:
 
 
 class TestBuildSamplesText:
+    """R5 新仕様: 戻り値が tuple[str, list[MaskResult]]"""
+
     def test_masks_member_names_in_samples(self):
-        masked = build_samples_text(
+        text, mask_results = build_samples_text(
             ["山田さんと訪問", "次回 03-1234-5678 に電話"],
             {"山田"},
         )
-        assert "<MEMBER>" in masked
-        assert "<PHONE>" in masked
-        assert "山田" not in masked
-        assert "03-1234-5678" not in masked
+        assert "<MEMBER>" in text
+        assert "<PHONE>" in text
+        assert "山田" not in text
+        assert "03-1234-5678" not in text
+        # 2 description ぶんの MaskResult が返る
+        assert len(mask_results) == 2
+        # detected_* に raw 値が記録される (taint tracking)
+        assert "山田" in mask_results[0].detected_names
+        assert "03-1234-5678" in mask_results[1].detected_phone
 
     def test_empty_list_returns_empty(self):
-        assert build_samples_text([], set()) == ""
+        text, mask_results = build_samples_text([], set())
+        assert text == ""
+        assert mask_results == []
 
     def test_filters_empty_descriptions(self):
-        text = build_samples_text(["有効", "", None, "有効2"], set())  # type: ignore[list-item]
+        text, mask_results = build_samples_text(
+            ["有効", "", None, "有効2"], set()  # type: ignore[list-item]
+        )
         assert text.count("\n") == 1  # 2 行 = 改行 1 つ
         assert "有効" in text
+        assert len(mask_results) == 2  # 空・None は弾かれる
+
+    def test_ac2_raw_pii_not_in_samples_text(self):
+        """AC2: raw description に member name / email / phone があっても、
+        samples_text (prompt 投入文字列) に raw 値は残らない。"""
+        text, mask_results = build_samples_text(
+            ["山田太郎さんから taro@x.com で連絡、090-1234-5678 にも"],
+            {"山田太郎"},
+        )
+        assert "山田太郎" not in text
+        assert "taro@x.com" not in text
+        assert "090-1234-5678" not in text
+        # MaskResult に raw 値が taint として記録され、後段の assert_no_raw_pii で
+        # prompt 全体の二重検証に使われる
+        assert "山田太郎" in mask_results[0].detected_names
+        assert "taro@x.com" in mask_results[0].detected_email
+        assert "090-1234-5678" in mask_results[0].detected_phone
 
 
 class TestGenerateComment:
@@ -128,7 +156,7 @@ class TestGenerateComment:
 
     def test_returns_first_valid(self):
         client = self._mock_client([self._mock_response(VALID_COMMENT)])
-        text, usage = generate_comment(client, "prompt", set(), sleep_fn=lambda _: None)
+        text, usage = generate_comment(client, "prompt", sleep_fn=lambda _: None)
         assert text == VALID_COMMENT
         assert usage["attempts"] == 1
         assert usage["prompt_tokens"] == 200
@@ -141,7 +169,7 @@ class TestGenerateComment:
             self._mock_response("短い"),  # 文字数不正
             self._mock_response(VALID_COMMENT),
         ])
-        text, usage = generate_comment(client, "prompt", set(), sleep_fn=lambda _: None)
+        text, usage = generate_comment(client, "prompt", sleep_fn=lambda _: None)
         assert text == VALID_COMMENT
         assert usage["attempts"] == 2
         assert client.models.generate_content.call_count == 2
@@ -154,7 +182,7 @@ class TestGenerateComment:
             self._mock_response("また短い"),
         ])
         with pytest.raises(EvaluationValidationError) as excinfo:
-            generate_comment(client, "prompt", set(), sleep_fn=lambda _: None)
+            generate_comment(client, "prompt", sleep_fn=lambda _: None)
         assert "文字数不正" in str(excinfo.value) or "行数不正" in str(excinfo.value)
         assert client.models.generate_content.call_count == 3
 
@@ -163,7 +191,7 @@ class TestGenerateComment:
         client = MagicMock()
         client.models.generate_content.side_effect = RuntimeError("network down")
         with pytest.raises(GeminiCallError):
-            generate_comment(client, "prompt", set(), sleep_fn=lambda _: None)
+            generate_comment(client, "prompt", sleep_fn=lambda _: None)
         # 初回 + 再生成 2 回 = 計 3 回試行
         assert client.models.generate_content.call_count == 3
 
@@ -174,7 +202,7 @@ class TestGenerateComment:
             RuntimeError("503 transient"),
             self._mock_response(VALID_COMMENT),
         ]
-        text, usage = generate_comment(client, "prompt", set(), sleep_fn=lambda _: None)
+        text, usage = generate_comment(client, "prompt", sleep_fn=lambda _: None)
         assert text == VALID_COMMENT
         assert usage["attempts"] == 2
         assert client.models.generate_content.call_count == 2
@@ -188,26 +216,41 @@ class TestGenerateComment:
             RuntimeError("503"),
             self._mock_response(VALID_COMMENT),
         ]
-        generate_comment(client, "prompt", set(), sleep_fn=lambda s: slept.append(s))
+        generate_comment(client, "prompt", sleep_fn=lambda s: slept.append(s))
         # 1 回目 fail → 0.5s, 2 回目 fail → 1.0s, 3 回目 success → no sleep
         assert slept == [0.5, 1.0]
 
-    def test_validates_against_pii(self):
-        """PII リークコメントは検証 NG → 再生成"""
+    def test_validates_against_email_pii(self):
+        """R5: email リークコメントは検証 NG → 再生成。member_names 引数はもう取らない。"""
         leak = (
             "達成率は適正範囲内で推移しており、予算策定時の想定とほぼ一致しています。\n"
-            "今月は山田太郎さんの活動が顕著で、補助活動も伸びている状況が見られます。\n"
+            "詳細は info@example.com まで連絡が必要、と案内された案件もありました。\n"
             "来月以降も予算進捗の中間モニタリングを継続し、早期の乖離検知を推奨します。"
         )
         client = self._mock_client([
             self._mock_response(leak),
             self._mock_response(VALID_COMMENT),
         ])
-        text, usage = generate_comment(
-            client, "prompt", {"山田太郎"}, sleep_fn=lambda _: None
-        )
+        text, usage = generate_comment(client, "prompt", sleep_fn=lambda _: None)
         assert text == VALID_COMMENT
         assert usage["attempts"] == 2
+
+    def test_validates_against_member_master_name_no_longer_rejects(self):
+        """R5 重要: 旧仕様で「山田太郎」がコメントに出ると reject されていたが、
+        新仕様では validate が member_names を参照しないため reject されない。
+        この test は連鎖障害 (PR #233-#241) の構造的 false reject 解消を担保する。"""
+        # 「山田太郎」を含むコメントを Gemini が返した想定 (普通名詞ではないが、
+        # 例えば description 由来でない hallucination の可能性)
+        text_with_name = (
+            "達成率は適正範囲内で推移しており、予算策定時の想定とほぼ一致しています。\n"
+            "今月は山田太郎さんの活動が顕著で、補助活動も伸びている状況が見られます。\n"
+            "来月以降も予算進捗の中間モニタリングを継続し、早期の乖離検知を推奨します。"
+        )
+        client = self._mock_client([self._mock_response(text_with_name)])
+        # R5: validate は通る (PII 対策は入口 mask_pii に一本化されているため)
+        text, usage = generate_comment(client, "prompt", sleep_fn=lambda _: None)
+        assert text == text_with_name
+        assert usage["attempts"] == 1
 
     def test_sleeps_between_attempts(self):
         slept = []
@@ -215,7 +258,7 @@ class TestGenerateComment:
             self._mock_response("短い"),
             self._mock_response(VALID_COMMENT),
         ])
-        generate_comment(client, "prompt", set(), sleep_fn=lambda s: slept.append(s))
+        generate_comment(client, "prompt", sleep_fn=lambda s: slept.append(s))
         # 1 回目失敗後に sleep が入る
         assert slept == [0.5]
 

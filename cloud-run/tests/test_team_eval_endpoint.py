@@ -246,12 +246,54 @@ class TestProcessOneTeam:
         assert result["status"] == "failed"
         assert result["error"] == "RuntimeError"
 
+    @patch("team_eval_service.bq_loader.upsert_team_monthly_eval", return_value=True)
+    @patch("team_eval_service.bq_loader.load_existing_eval", return_value=None)
+    @patch("team_eval_service.bq_loader.release_team_eval_claim")
+    @patch("team_eval_service.bq_loader.claim_team_eval_row", return_value=True)
+    @patch("team_eval_service.vertex_evaluator.generate_comment",
+           return_value=(VALID_COMMENT, {"prompt_tokens": 200, "output_tokens": 80, "attempts": 1}))
+    @patch("team_eval_service.vertex_evaluator.compute_actual_data_hash", return_value="hash-1")
+    @patch("team_eval_service.load_team_aggregate")
+    @patch("team_eval_service.pii_masker.assert_no_raw_pii")
+    @patch("team_eval_service.vertex_evaluator.load_team_samples")
+    def test_ac2_assert_no_raw_pii_invoked_before_gemini_call(
+        self, mock_load_samples, mock_assert, mock_agg, *_
+    ):
+        """AC2: process_one_team が Gemini 呼び出し直前に assert_no_raw_pii を呼ぶ。
+        build_samples_text から返った MaskResult 一覧を二重検証する fail-safe が
+        実行経路に組み込まれていることを保証する。"""
+        mock_load_samples.return_value = (
+            [{"work_category": "訪問", "cnt": 3, "total_amount": 90000}],
+            ["山田さんと taro@example.com で確認"],
+        )
+        mock_agg.return_value = {
+            "budget_amount": 500000.0, "actual_amount": 480000.0,
+            "achievement_rate": 96.0, "diff_amount": -20000.0,
+            "has_budget": True, "has_actual": True,
+        }
+        result = team_eval_service.process_one_team(
+            bq_client=_make_bq_client(), genai_client=MagicMock(),
+            year=2026, month=5, team="X", force=False,
+            job_id="job", actor="a", member_names={"山田"},
+        )
+        assert result["status"] == "generated"
+        # assert_no_raw_pii が呼ばれた
+        mock_assert.assert_called_once()
+        prompt_arg, mask_results_arg = mock_assert.call_args.args
+        assert isinstance(prompt_arg, str)
+        # MaskResult 一覧が渡される (空 description フィルタ後の 1 件)
+        assert len(mask_results_arg) == 1
+        # 山田 が detected_names に taint として記録されている
+        assert "山田" in mask_results_arg[0].detected_names
+        # email も detected_email に taint
+        assert "taro@example.com" in mask_results_arg[0].detected_email
+
 
 # -------- process_teams (オーケストレーション) --------
 
 
 class TestProcessTeams:
-    @patch("team_eval_service.pii_masker.load_member_names", return_value=set())
+    @patch("team_eval_service.pii_masker.load_member_names", return_value={"dummy"})
     @patch("team_eval_service.process_one_team")
     @patch("team_eval_service.list_active_teams", return_value=["A", "B"])
     def test_auto_lists_active_teams_when_none(self, mock_list, mock_proc, _names):
@@ -265,7 +307,7 @@ class TestProcessTeams:
         assert result["summary"]["total"] == 2
         assert result["summary"]["generated"] == 2
 
-    @patch("team_eval_service.pii_masker.load_member_names", return_value=set())
+    @patch("team_eval_service.pii_masker.load_member_names", return_value={"dummy"})
     @patch("team_eval_service.process_one_team")
     def test_summary_categorizes_statuses(self, mock_proc, _names):
         mock_proc.side_effect = [
@@ -284,6 +326,18 @@ class TestProcessTeams:
             "total": 4, "generated": 1, "skipped_hash_match": 1,
             "skipped_claim": 0, "failed": 1, "no_actual": 1,
         }
+
+    @patch("team_eval_service.pii_masker.load_member_names", return_value=set())
+    def test_raises_when_member_names_empty(self, _mock):
+        """silent PII bypass 防止: load_member_names が空 set を返したら
+        process_teams は RuntimeError を raise し、評価を全件 abort する。
+        Cloud Run は HTTP 500 を返し、main.py の既存 chat_notifier が通知する。"""
+        with pytest.raises(RuntimeError, match="member_names is empty"):
+            team_eval_service.process_teams(
+                year=2026, month=5, teams=["A"], force=False,
+                actor="a", job_id="job",
+                bq_client=MagicMock(), genai_client=MagicMock(),
+            )
 
 
 # -------- HTTP endpoint --------
