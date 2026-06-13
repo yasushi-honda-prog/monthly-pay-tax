@@ -179,7 +179,11 @@ class TestValidateAiComment:
         )
         ok, reason = validate_ai_comment(text, {"山田太郎"})
         assert ok is False
-        assert reason == "PIIリーク:名前"
+        assert reason.startswith("PIIリーク:名前:")
+        # W7: 切り分け用に hit name の長さ + SHA256 prefix を reason に含める
+        # (個人特定不可、member_master と同じ計算で照合可能)
+        assert ":len=4:" in reason  # 「山田太郎」は 4 文字
+        assert ":hash=" in reason
 
     def test_ng_email_leak(self):
         text = (
@@ -237,7 +241,7 @@ class TestValidateAiComment:
             text, {"田中"}, exclude_substrings=(team_name,),
         )
         assert ok is False
-        assert reason == "PIIリーク:名前"
+        assert reason.startswith("PIIリーク:名前:")
 
     def test_exclude_substrings_empty_string_ignored(self):
         """W6: 空文字や None が exclude_substrings に混入しても無視 (堅牢性)。"""
@@ -247,7 +251,7 @@ class TestValidateAiComment:
             text, {"田中"}, exclude_substrings=("", None),
         )
         assert ok is False
-        assert reason == "PIIリーク:名前"
+        assert reason.startswith("PIIリーク:名前:")
 
     def test_no_exclude_substrings_defaults_to_strict(self):
         """W6: exclude_substrings 未指定時は従来通り厳格判定 (後方互換)。"""
@@ -257,7 +261,27 @@ class TestValidateAiComment:
         )
         ok, reason = validate_ai_comment(text, {"すごい"})
         assert ok is False
-        assert reason == "PIIリーク:名前"
+        assert reason.startswith("PIIリーク:名前:")
+
+    def test_name_fingerprint_deterministic_and_no_raw_name(self):
+        """W7: hit name の reason に長さと SHA256 prefix が含まれ、
+        生の name 文字列は含まれない (個人特定不可)。"""
+        text = (
+            "達成率は適正範囲内で推移しており、予算策定時の想定とほぼ一致しています。\n"
+            "今月は鈴木一郎さんの活動が顕著で、補助活動も伸びている状況が見られます。\n"
+            "来月以降も予算進捗の中間モニタリングを継続し、早期の乖離検知を推奨します。"
+        )
+        ok, reason = validate_ai_comment(text, {"鈴木一郎"})
+        assert ok is False
+        # 形式: "PIIリーク:名前:len=4:hash=<8桁hex>"
+        assert reason.startswith("PIIリーク:名前:len=4:hash=")
+        # SHA256 prefix が 8 文字 hex で含まれる
+        hash_part = reason.split(":hash=", 1)[1]
+        assert len(hash_part) == 8
+        assert all(c in "0123456789abcdef" for c in hash_part)
+        # 生 name はログに残らない
+        assert "鈴木一郎" not in reason
+        assert "鈴木" not in reason
 
 
 class TestLoadMemberNames:
