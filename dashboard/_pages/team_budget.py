@@ -238,13 +238,16 @@ def _render_team_budget_editor(
     overflow_key = f"{edit_key}_overflow"
     delete_key = f"{edit_key}_delete"
 
-    # code-review MEDIUM: int() cast すると Decimal 小数部 (1500.50 等) を切り捨てるため float で保持
+    # Issue #248 確定方針「円単位 int 統一」(Codex R9 反映、CAST(ROUND(...) AS INT64))
+    # に合わせて int 化。float 表示だと UX 上 0.00 / 643729.00 となり違和感、
+    # 円単位の予算管理に小数点は不要 (本田様実機検証フィードバック 2026-06-14)。
     initial_amount = (
-        float(current_row.budget_amount) if current_row else 0.0
+        int(round(float(current_row.budget_amount))) if current_row else 0
     )
     new_amount = st.number_input(
         "予算金額",
-        min_value=0.0, step=10000.0, value=initial_amount,
+        min_value=0, step=10000, value=initial_amount,
+        format="%d",
         key=f"{edit_key}_amount",
     )
     new_memo = st.text_input(
@@ -785,24 +788,24 @@ with tab_drilldown:
                         user_email=email,
                     )
 
-                # 業務報告詳細 (Issue #254 + #245 統合: render_gyomu_list_view 呼出に置換)
-                st.markdown("### 業務報告詳細")
-                _drill_name_map = _drill_load_name_map()
-                _drill_df_gyomu = _drill_load_normalized_gyomu(_drill_name_map)
-                _drill_all_members = _drill_load_all_members()
-                # safe-refactor HIGH #1 反映: key_prefix に team を含めることで
-                # 隊切替時の widget key 衝突 (StreamlitAPIException) を防ぐ。
-                # team_slug は team 名 (日本語含む) をそのまま使用、Streamlit の
-                # widget key は str であれば日本語可
-                render_gyomu_list_view(
-                    df_gyomu_all=_drill_df_gyomu,
-                    name_map=_drill_name_map,
-                    all_members=_drill_all_members,
-                    selected_members=[],
-                    selected_year=year,
-                    selected_month=f"{month}月",
-                    key_prefix=f"drilldown_{team}",
-                    fixed_activity_category=team,
-                    compact=True,
-                    empty_message=f"{year}年{month}月 「{team}」の業務報告はありません",
-                )
+            # 業務報告詳細 (Issue #254 + #245 統合: render_gyomu_list_view 呼出に置換)
+            # 本田様実機 FB (2026-06-14): 2 カラム右側に置くと列幅不足で見づらいため
+            # 2 カラムの外 (下段) にフル幅で配置、compact=False で URL/隊分類列も表示
+            st.markdown("### 業務報告詳細")
+            _drill_name_map = _drill_load_name_map()
+            _drill_df_gyomu = _drill_load_normalized_gyomu(_drill_name_map)
+            _drill_all_members = _drill_load_all_members()
+            # safe-refactor HIGH #1 反映: key_prefix に team を含めることで
+            # 隊切替時の widget key 衝突 (StreamlitAPIException) を防ぐ
+            render_gyomu_list_view(
+                df_gyomu_all=_drill_df_gyomu,
+                name_map=_drill_name_map,
+                all_members=_drill_all_members,
+                selected_members=[],
+                selected_year=year,
+                selected_month=f"{month}月",
+                key_prefix=f"drilldown_{team}",
+                fixed_activity_category=team,
+                compact=False,
+                empty_message=f"{year}年{month}月 「{team}」の業務報告はありません",
+            )

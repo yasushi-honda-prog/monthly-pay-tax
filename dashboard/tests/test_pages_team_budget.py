@@ -481,8 +481,11 @@ class TestRenderTeamBudgetEditor:
         info_msg = str(st_mock.info.call_args)
         assert "再生成" in info_msg
 
-    def test_initial_amount_preserves_decimal_precision(self):
-        """code-review MEDIUM: 既存 row の Decimal 値 (1500.50) を切り捨てない"""
+    def test_initial_amount_rounds_to_int(self):
+        """本田様実機 FB (2026-06-14): 予算金額は円単位 int で表示 (0.00 → 0)。
+        既存 row の Decimal 値 (1500.50) は int(round(...)) で整数化される
+        (Issue #248 確定方針「円単位 int 統一」と整合)。
+        """
         from lib.team_budget_repo import TeamBudgetRow
         from datetime import datetime, timezone
         existing = TeamBudgetRow(
@@ -503,5 +506,8 @@ class TestRenderTeamBudgetEditor:
                 user_email="admin@example.com",
             )
         call_kwargs = st_mock.number_input.call_args.kwargs
-        assert call_kwargs["value"] == 1500.50
-        assert isinstance(call_kwargs["step"], float)
+        # 1500.50 → round → 1500 (int) で表示
+        assert call_kwargs["value"] == 1500
+        assert isinstance(call_kwargs["value"], int)
+        assert call_kwargs["format"] == "%d"
+        assert isinstance(call_kwargs["step"], int)
