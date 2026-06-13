@@ -146,8 +146,11 @@ def build_matrix_df(actuals: pd.DataFrame, value: str = "achievement_rate") -> p
 _MONTHLY_TREND_COLUMNS = ("month", "actual_amount", "budget_amount")
 
 
-def build_monthly_trend(actuals: pd.DataFrame) -> pd.DataFrame:
-    """v_team_budget_actuals → 月別 (実額, 予算) 合計 DataFrame (PR-Q2M follow-up)。
+def build_monthly_trend(
+    actuals: pd.DataFrame,
+    leader_yearly_monthly_budgets: Optional[dict[int, float]] = None,
+) -> pd.DataFrame:
+    """v_team_budget_actuals → 月別 (実額, 予算) 合計 DataFrame (PR-Q2M follow-up + hotfix 2026-06-13)。
 
     BQ NUMERIC 列が pandas で Decimal になるため、altair / vega-lite に渡す前に
     float 化する。Decimal のまま渡すと vega-lite が文字列解釈してしまい、
@@ -155,6 +158,10 @@ def build_monthly_trend(actuals: pd.DataFrame) -> pd.DataFrame:
 
     Args:
         actuals: month / actual_amount / budget_amount 列を持つ DataFrame
+        leader_yearly_monthly_budgets: 全体タブ用、{month: monthly_budget} 形式の
+            統括隊月予算合計。指定時は actuals の budget_amount (= team_budgets
+            隊×月予算合計) を本 dict で上書き。本田様要望「全体タブは統括隊
+            レベル集約」に対応。None なら従来通り actuals 由来。
     Returns:
         columns: month (int), actual_amount (float), budget_amount (float)
         month 昇順でソート、empty 入力は schema 付き空 DataFrame で返す
@@ -173,6 +180,11 @@ def build_monthly_trend(actuals: pd.DataFrame) -> pd.DataFrame:
     # Decimal を vega-lite に渡すと桁が壊れるため float に正規化
     trend["actual_amount"] = trend["actual_amount"].astype(float)
     trend["budget_amount"] = trend["budget_amount"].astype(float)
+    # hotfix 2026-06-13: 全体タブで統括隊予算 override
+    if leader_yearly_monthly_budgets is not None:
+        trend["budget_amount"] = trend["month"].map(
+            lambda m: float(leader_yearly_monthly_budgets.get(int(m), 0.0))
+        )
     return trend
 
 

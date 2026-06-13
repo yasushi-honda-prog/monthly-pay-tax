@@ -23,6 +23,7 @@ from lib.bq_client import (
     load_active_leader_teams,
     load_active_teams,
     load_leader_team_monthly_budgets,
+    load_leader_team_yearly_monthly_budgets,
     load_team_budget_actuals,
     load_team_monthly_eval,
 )
@@ -352,8 +353,12 @@ with tab_overall:
         st.info(f"{year}年のデータがありません。")
     else:
         # 月次推移 (実額 vs 予算、年内全月)
+        # hotfix 2026-06-13: 全体タブは統括隊レベル集約のため、予算は
+        # team_budgets_quarterly (統括隊月予算) から取得し
+        # build_monthly_trend に override 渡す
         st.subheader(f"{year}年 月次推移 (実額 vs 予算)")
-        monthly_trend = build_monthly_trend(actuals_year)
+        _leader_yearly_budgets = load_leader_team_yearly_monthly_budgets(year)
+        monthly_trend = build_monthly_trend(actuals_year, _leader_yearly_budgets)
         trend_long = monthly_trend.melt(
             id_vars="month",
             value_vars=["actual_amount", "budget_amount"],

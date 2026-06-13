@@ -344,6 +344,44 @@ class TestBuildMonthlyTrend:
         result = tbv.build_monthly_trend(df)
         assert list(result["month"]) == [5, 8, 12]
 
+    def test_leader_yearly_budgets_overrides_budget(self):
+        """hotfix 2026-06-13: 全体タブで leader_yearly_monthly_budgets override 動作"""
+        df = pd.DataFrame({
+            "month": [5, 6],
+            "actual_amount": [100.0, 200.0],
+            "budget_amount": [0.0, 0.0],  # team_budgets 空 (今までの ¥0 状態)
+        })
+        leader_yearly = {5: 7819148.0, 6: 7819148.0}
+        result = tbv.build_monthly_trend(df, leader_yearly)
+        m5 = result[result["month"] == 5].iloc[0]
+        m6 = result[result["month"] == 6].iloc[0]
+        assert m5["budget_amount"] == 7819148.0
+        assert m6["budget_amount"] == 7819148.0
+
+    def test_leader_yearly_budgets_missing_month_falls_back_to_zero(self):
+        """leader_yearly_monthly_budgets に該当月がない時は 0 (例: 四半期データなし)"""
+        df = pd.DataFrame({
+            "month": [5, 11],
+            "actual_amount": [100.0, 200.0],
+            "budget_amount": [0.0, 0.0],
+        })
+        leader_yearly = {5: 1000000.0}  # 11 月の予算なし
+        result = tbv.build_monthly_trend(df, leader_yearly)
+        m5 = result[result["month"] == 5].iloc[0]
+        m11 = result[result["month"] == 11].iloc[0]
+        assert m5["budget_amount"] == 1000000.0
+        assert m11["budget_amount"] == 0.0
+
+    def test_none_leader_budgets_keeps_actuals_budget(self):
+        """leader_yearly_monthly_budgets=None なら従来通り actuals 由来"""
+        df = pd.DataFrame({
+            "month": [5],
+            "actual_amount": [100.0],
+            "budget_amount": [300.0],
+        })
+        result = tbv.build_monthly_trend(df, None)
+        assert result.iloc[0]["budget_amount"] == 300.0
+
 
 class TestBuildLeaderTeamMatrixDf:
     """PR-A: 統括隊×月マトリクス関数のテスト"""

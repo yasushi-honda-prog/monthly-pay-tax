@@ -136,6 +136,52 @@ def load_active_teams(
 
 
 @st.cache_data(ttl=600)
+def load_leader_team_yearly_monthly_budgets(year: int) -> dict[int, float]:
+    """指定 year の 12 ヶ月分の統括隊月予算合計を返す (hotfix 2026-06-13)。
+
+    全体タブの月次推移グラフ用。各月について
+    `team_budgets_quarterly` から fiscal_quarter UDF 経由で四半期予算を引き、
+    SUM(全統括隊×全カテゴリ予算) / 3 を月予算とする。
+
+    本田様要望: 全体タブは「統括隊レベル集約」、隊×月予算 (team_budgets)
+    ではなく統括隊予算 (team_budgets_quarterly) を月次推移グラフに反映する。
+
+    Returns:
+        {month: monthly_budget}  (12 ヶ月、未投入月は 0.0)
+    """
+    client = get_bq_client()
+    sql = f"""
+    WITH months AS (
+      SELECT m AS month,
+             {FISCAL_QUARTER_UDF}(@year, m).fiscal_year AS fy,
+             {FISCAL_QUARTER_UDF}(@year, m).fiscal_quarter AS fq
+      FROM UNNEST(GENERATE_ARRAY(1, 12)) AS m
+    ),
+    quarterly_totals AS (
+      SELECT fiscal_year, fiscal_quarter,
+             SUM(budget_amount) AS total_quarterly
+      FROM `{TEAM_BUDGETS_QUARTERLY_TABLE}`
+      GROUP BY fiscal_year, fiscal_quarter
+    )
+    SELECT m.month,
+           IFNULL(SAFE_DIVIDE(q.total_quarterly, 3), 0) AS monthly_budget
+    FROM months m
+    LEFT JOIN quarterly_totals q
+      ON m.fy = q.fiscal_year AND m.fq = q.fiscal_quarter
+    ORDER BY m.month
+    """
+    job_config = bigquery.QueryJobConfig(
+        query_parameters=[
+            bigquery.ScalarQueryParameter("year", "INT64", year),
+        ]
+    )
+    return {
+        int(row["month"]): float(row["monthly_budget"])
+        for row in client.query(sql, job_config=job_config).result()
+    }
+
+
+@st.cache_data(ttl=600)
 def load_leader_team_monthly_budgets(year: int, month: int) -> pd.DataFrame:
     """指定 (year, month) の統括隊別 月予算を team_budgets_quarterly から算出 (PR-Q2M)。
 
