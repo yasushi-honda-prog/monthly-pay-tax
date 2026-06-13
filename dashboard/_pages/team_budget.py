@@ -516,20 +516,26 @@ with tab_matrix:
             st.info(f"統括隊「{filter_leader}」配下の隊にデータがありません。")
         else:
             # Issue #253: セル値は差額 (実額 - 予算)、セル色は達成率レンジで判定。
-            # diff_matrix と rate_matrix は同じ filtered から生成しており
-            # index/columns が一致 (build_matrix_df は team × month で pivot)
+            # diff_matrix と rate_matrix は同じ filtered から pivot 生成するが、
+            # pivot_table(aggfunc="first") は全 NaN 行/列を結果から落とす仕様のため
+            # 非対称になりうる (例: budget=0 で achievement_rate が NaN、
+            # diff_amount は actual_amount をそのまま持つケース)。
+            # → rate_matrix で参照不能なセルは achievement_color(None) で灰色
+            # にフォールバックし、凡例「灰=データなし」と一貫させる。
             diff_matrix = build_matrix_df(filtered, value="diff_amount")
             rate_matrix = build_matrix_df(filtered, value="achievement_rate")
+            _no_data_bg = f"background-color: {achievement_color(None)}"
 
             def _color_col_by_rate(col):
                 """列ごとに、対応する達成率 (rate_matrix の同じ team/month セル)
-                でセル背景色を決定する (Issue #253)"""
+                でセル背景色を決定する。rate_matrix に該当セルが無ければ
+                灰色 (データなし) で表示 (Issue #253)"""
                 if col.name not in rate_matrix.columns:
-                    return ["" for _ in col.index]
+                    return [_no_data_bg for _ in col.index]
                 return [
                     f"background-color: {achievement_color(rate_matrix.loc[idx, col.name])}"
                     if idx in rate_matrix.index
-                    else ""
+                    else _no_data_bg
                     for idx in col.index
                 ]
 
