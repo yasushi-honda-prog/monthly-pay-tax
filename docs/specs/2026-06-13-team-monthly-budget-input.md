@@ -126,11 +126,23 @@ CLUSTER BY year, month, team;
 
 ### 4.2 actual_data_hash 変更 (cloud-run + dashboard)
 
+**実装上の前提（Step 0 grep で判明、当初案を訂正）**: 既存の `compute_actual_data_hash` / `compute_current_hashes` は **BQ SQL 内で hash 計算が完結**しており、Python 側は SQL を発行して結果を受け取るだけ。当初案の「Python で `json.dumps({...budget...})`」アプローチは実装と乖離するため不採用。
+
+**修正後の方針**: 既存 SQL は touch せず、**Python 側で composite hash を合成**する形に変更。
+
 | 場所 | 変更内容 |
 |---|---|
-| `cloud-run/vertex_evaluator.py:compute_actual_data_hash()` | 引数に `budget_amount`, `prompt_version` 追加、hash_input dict に含める |
-| `cloud-run/team_eval_service.py` | hash 計算呼び出し時に `budget_amount` を渡す |
-| `dashboard/lib/bq_client.py:compute_current_hashes()` | 同等のロジックで budget_amount, prompt_version を hash 入力に追加 |
+| `cloud-run/vertex_evaluator.py:compute_actual_data_hash()` | シグネチャ不変 `(bq_client, year, month, team) -> str`。内部で既存 BQ hash を取得後、team_budgets から budget を SELECT、共通 helper `compose_actual_data_hash(bq_hash, budget, prompt_version)` で合成して返す |
+| `cloud-run/team_eval_service.py` | hash 計算経路は既存呼び出しのまま、戻り値 hash の意味が「actual + budget + prompt_version」に変わる |
+| `dashboard/lib/bq_client.py:compute_current_hashes()` | シグネチャ不変 `(year, month, teams) -> dict`。内部で既存 BQ hash dict 取得後、各 team の budget を別 SELECT、共通 helper で合成 |
+| `lib/team_budget_hash.py` (新規) | 共通 helper `compose_actual_data_hash(bq_hash, budget_amount, prompt_version) -> str`。cloud-run と dashboard 両方で同一実装、contract test 共有で同期検証 |
+
+**Decimal/NUMERIC 正規化** (Codex 指摘 j): budget_amount は `str(Decimal(value))` で正規化、`None` は文字列 `"null"` に統一。合成方式: `SHA256(f"{bq_hash}|{budget_norm}|{prompt_version}")` を hex 化。
+
+**利点**:
+- 既存 SQL を touch しないため `test_vertex_evaluator` の 5 件と `test_lib_bq_client_team_budget` の hash 値 assert 6 件が破壊されない
+- Python composite が pure function なため unit test しやすい
+- 両側 (cloud-run / dashboard) で同じ helper を物理的に共有はできないが、contract test fixture (`tests/fixtures/hash_contract.py`) を両側で import して同入力同出力を検証
 
 **マイグレーション戦略**: 既存 team_monthly_eval の actual_data_hash は変更しない。新ロジックで計算した hash が既存 hash と一致しなくなるため、既存隊は全て「outdated」バッジが付く。本田様が順次「更新」ボタンを押して再生成する運用 (β / α 案を兼ねる)。
 
@@ -233,7 +245,62 @@ if is_admin:
     _render_delete_dialog_if_pending(...)
 ```
 
-### 5.3 cache invalidation 集約関数
+### 5.3 共通 hash 合成 helper (新規、cloud-run + dashboard 双方に配置)
+
+```python
+# 配置候補: cloud-run/team_budget_hash.py + dashboard/lib/team_budget_hash.py
+# (両側に同一実装を置き、contract test fixture を tests/fixtures/hash_contract.py で共有)
+
+import hashlib
+from decimal import Decimal
+from typing import Optional, Union
+
+def compose_actual_data_hash(
+    bq_hash: str,
+    budget_amount: Optional[Union[Decimal, float, int]],
+    prompt_version: str,
+) -> str:
+    """既存 BQ hash と budget + prompt_version を合成して outdated 判定 hash を生成。
+
+    BQ SQL 側の hash 計算 (gyomu_reports 集計) は touch せず、Python 側で
+    budget と prompt_version を追加して composite hash を作る。
+
+    Args:
+        bq_hash: 既存 compute_actual_data_hash の SQL 戻り値 (空文字許容、
+                 IFNULL(..., '') で "データなし" を表現)
+        budget_amount: team_budgets.budget_amount。None は "null" 文字列に正規化、
+                       Decimal/float/int は str(Decimal(value)) で正規化
+        prompt_version: vertex_evaluator.PROMPT_VERSION 等
+
+    Returns:
+        hex digest (64 文字)
+    """
+    if budget_amount is None:
+        budget_norm = "null"
+    else:
+        budget_norm = str(Decimal(str(budget_amount)))
+    composite = f"{bq_hash}|{budget_norm}|{prompt_version}"
+    return hashlib.sha256(composite.encode("utf-8")).hexdigest()
+```
+
+Contract test fixture (両側で import):
+
+```python
+# tests/fixtures/hash_contract.py
+HASH_CONTRACT_CASES = [
+    # (bq_hash, budget_amount, prompt_version, expected_hex)
+    ("", None, "v1", "..."),                    # データなし + 予算なし
+    ("abc123", None, "v1", "..."),              # 実額あり + 予算なし
+    ("abc123", Decimal("1000"), "v1", "..."),   # 実額あり + 予算 (Decimal)
+    ("abc123", 1000.0, "v1", "..."),            # float 入力でも同 hash
+    ("abc123", 1000, "v1", "..."),              # int 入力でも同 hash
+    ("abc123", Decimal("1000"), "v2", "..."),   # prompt_version 違いで異 hash
+]
+```
+
+両側の compose_actual_data_hash がこの fixture を通すことで cross-side consistency を保証する (Codex 指摘 a / g 反映)。
+
+### 5.4 cache invalidation 集約関数
 
 ```python
 def invalidate_team_budget_caches():
