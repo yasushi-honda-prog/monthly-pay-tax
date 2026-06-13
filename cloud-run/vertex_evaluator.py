@@ -234,6 +234,7 @@ def generate_comment(
     member_names: set[str],
     *,
     sleep_fn=time.sleep,
+    validation_context: Iterable[str] = (),
 ) -> tuple[str, dict]:
     """Gemini を呼び出し、検証 OK のコメントを返す。
 
@@ -242,6 +243,11 @@ def generate_comment(
     - Gemini 呼び出し自体の transient failure (429/503/timeout 等) は同ループ内で
       最大 MAX_REGEN_ATTEMPTS 回まで指数バックオフでリトライ
     - 全試行で例外続きなら GeminiCallError、検証 NG 続きなら EvaluationValidationError
+
+    Args:
+        validation_context: PII リーク誤検知防止用の文脈文字列 (隊名・統括隊名等)。
+            validate_ai_comment の exclude_substrings に渡して、これら文字列に
+            内包される member_names を判定除外する。
 
     Returns:
         (comment, usage_dict) where usage_dict = {prompt_tokens, output_tokens, attempts, last_reason}
@@ -271,7 +277,9 @@ def generate_comment(
             raise GeminiCallError(str(exc)) from exc
 
         text = (getattr(response, "text", "") or "").strip()
-        ok, reason = validate_ai_comment(text, member_names)
+        ok, reason = validate_ai_comment(
+            text, member_names, exclude_substrings=validation_context,
+        )
         usage = getattr(response, "usage_metadata", None)
         usage_dict = {
             "prompt_tokens": getattr(usage, "prompt_token_count", 0) or 0,

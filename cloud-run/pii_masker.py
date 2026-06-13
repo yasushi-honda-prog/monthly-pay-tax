@@ -159,8 +159,23 @@ def load_member_names(bq_client) -> set[str]:
     return {n for n in names if n and len(n) >= _MIN_NAME_LEN}
 
 
-def validate_ai_comment(comment: str, member_names: set[str]) -> tuple[bool, str]:
+def validate_ai_comment(
+    comment: str,
+    member_names: set[str],
+    *,
+    exclude_substrings: Iterable[str] = (),
+) -> tuple[bool, str]:
     """Gemini が生成したコメントを検証する（spec §7.6）。
+
+    Args:
+        exclude_substrings: 隊名・統括隊名等の文脈で許容する文字列。これらの
+            内部に含まれる member_names エントリは PII リーク判定から除外する。
+
+            例: 隊名「すごいシステムつくり隊」を渡せば、nickname「すごい」が
+            member_master に登録されていても、隊名内に内包されているため
+            応答コメント内の「すごい」出現は PII リーク扱いしない。
+            隊名は組織情報 (公開) なので除外対象として安全。本物の人名
+            (例: 隊名と無関係の苗字「田中」が応答に漏れた場合) は引き続き検出。
 
     Returns:
         (True, "") なら検証 OK。
@@ -175,8 +190,14 @@ def validate_ai_comment(comment: str, member_names: set[str]) -> tuple[bool, str
     if not (100 <= len(comment) <= 400):
         return False, f"文字数不正:{len(comment)}"
 
+    # 隊名等の context 内に内包される名前は誤検知扱いとする (false positive 防止)
+    context_strings = tuple(s for s in exclude_substrings if s)
     for name in member_names:
-        if name and len(name) >= _MIN_NAME_LEN and name in comment:
+        if not name or len(name) < _MIN_NAME_LEN:
+            continue
+        if any(name in ctx for ctx in context_strings):
+            continue
+        if name in comment:
             return False, "PIIリーク:名前"
     if EMAIL_RE.search(comment):
         return False, "PIIリーク:メール"

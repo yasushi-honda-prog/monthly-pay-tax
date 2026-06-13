@@ -206,6 +206,59 @@ class TestValidateAiComment:
         ok, _ = validate_ai_comment(self._valid_comment(), {"健"})
         assert ok is True
 
+    def test_exclude_substrings_skips_name_in_team_name(self):
+        """W6: 隊名内に内包される nickname は PII リーク扱いしない (false positive 防止)。
+
+        本番障害: 隊「すごいシステムつくり隊」の評価で、nickname「すごい」が
+        member_master に登録されているため、応答コメント内で隊名を言及すると
+        validate が PII リーク判定。隊名は公開情報なので除外する。
+        """
+        team_name = "すごいシステムつくり隊"
+        text = (
+            "達成率は適正範囲内で推移しており、予算策定時の想定と概ね一致しています。\n"
+            f"{team_name}の活動は安定的で、業務分類のバランスも保たれています。\n"
+            "来月以降は予算進捗の中間モニタリングを実施し、早期の乖離検知を推奨します。"
+        )
+        ok, reason = validate_ai_comment(
+            text, {"すごい"}, exclude_substrings=(team_name,),
+        )
+        assert ok is True, f"context exclude が機能せず: reason={reason}"
+        assert reason == ""
+
+    def test_exclude_substrings_does_not_skip_unrelated_name(self):
+        """W6: 隊名と無関係の本物の人名は引き続き検出される (PII 漏れ防止)。"""
+        team_name = "すごいシステムつくり隊"
+        text = (
+            "達成率は適正範囲内で推移しており、予算策定時の想定と概ね一致しています。\n"
+            "今月は田中さんの活動が顕著で、補助活動も伸びている状況が見られます。\n"
+            "来月以降は予算進捗の中間モニタリングを実施し、早期の乖離検知を推奨します。"
+        )
+        ok, reason = validate_ai_comment(
+            text, {"田中"}, exclude_substrings=(team_name,),
+        )
+        assert ok is False
+        assert reason == "PIIリーク:名前"
+
+    def test_exclude_substrings_empty_string_ignored(self):
+        """W6: 空文字や None が exclude_substrings に混入しても無視 (堅牢性)。"""
+        text = self._valid_comment() + "\n田中"
+        # 空文字を含んでも、田中 が空文字に内包されているとは判定しない
+        ok, reason = validate_ai_comment(
+            text, {"田中"}, exclude_substrings=("", None),
+        )
+        assert ok is False
+        assert reason == "PIIリーク:名前"
+
+    def test_no_exclude_substrings_defaults_to_strict(self):
+        """W6: exclude_substrings 未指定時は従来通り厳格判定 (後方互換)。"""
+        text = self._valid_comment().replace(
+            "業務の偏りも見られず",
+            "すごい施策で偏りも見られず",
+        )
+        ok, reason = validate_ai_comment(text, {"すごい"})
+        assert ok is False
+        assert reason == "PIIリーク:名前"
+
 
 class TestLoadMemberNames:
     def _mock_bq_client(self, rows: list[dict]) -> MagicMock:
