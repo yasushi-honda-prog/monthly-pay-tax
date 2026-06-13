@@ -86,6 +86,25 @@ def format_diff(diff: Optional[float]) -> str:
         return "—"
 
 
+def format_diff_yen(diff: Optional[float]) -> str:
+    """差額 (円付き) → '¥+1,234,567' / '¥-5,678' / '—' (Issue #253 マトリクスセル用)
+
+    既存 format_diff (¥ なし) は metric delta 引数として利用継続。
+    本ヘルパは隊マトリクスのセル値表示専用。
+    """
+    if diff is None:
+        return "—"
+    try:
+        if pd.isna(diff):
+            return "—"
+    except (TypeError, ValueError):
+        pass
+    try:
+        return f"¥{int(diff):+,}"
+    except (TypeError, ValueError):
+        return "—"
+
+
 def is_outdated(stored_hash: Optional[str], current_hash: Optional[str]) -> bool:
     """評価レコードの hash と現在の hash を比較し outdated か判定する。
 
