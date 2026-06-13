@@ -382,6 +382,101 @@ class TestBuildMonthlyTrend:
         result = tbv.build_monthly_trend(df, None)
         assert result.iloc[0]["budget_amount"] == 300.0
 
+    def test_issue_248_same_quarter_months_have_different_budgets(self):
+        """Issue #248 AC4: 同四半期内 3 ヶ月 (Q3=5,6,7) が別値で描画されること。
+
+        PR #247 hotfix (quarterly÷3) では同四半期内 3 ヶ月が同値だったが、
+        新規 leader_team_monthly_budgets テーブルでは月別予算が独立した値を持つため、
+        本田様が月毎に手調整した結果が推移グラフで「変化する線」として可視化される。
+        """
+        df = pd.DataFrame({
+            "month": [5, 6, 7],
+            "actual_amount": [1000000.0, 1500000.0, 2000000.0],
+            "budget_amount": [0.0, 0.0, 0.0],  # actuals 由来は空
+        })
+        # 同四半期 (Q3) の 3 ヶ月でそれぞれ別値の月別予算
+        leader_yearly = {
+            5: 5000000,  # 5月
+            6: 7000000,  # 6月 (本田様が手調整で増額)
+            7: 6000000,  # 7月
+        }
+        result = tbv.build_monthly_trend(df, leader_yearly)
+        m5 = result[result["month"] == 5].iloc[0]
+        m6 = result[result["month"] == 6].iloc[0]
+        m7 = result[result["month"] == 7].iloc[0]
+        # 同四半期内でも 3 ヶ月別値であること (PR #247 で同値だった問題の解消)
+        assert m5["budget_amount"] != m6["budget_amount"]
+        assert m6["budget_amount"] != m7["budget_amount"]
+        assert m5["budget_amount"] == 5000000.0
+        assert m6["budget_amount"] == 7000000.0
+        assert m7["budget_amount"] == 6000000.0
+
+    def test_issue_248_int_values_from_new_table_accepted(self):
+        """Issue #248: leader_team_monthly_budgets テーブルは int (円整数) で値を持つ。
+
+        Codex L1: budget_amount は int 統一。build_monthly_trend は int 値も受け取り
+        正しく float 化 (altair 互換) する。
+        """
+        df = pd.DataFrame({
+            "month": [11, 12, 1],  # FY Q1
+            "actual_amount": [100.0, 200.0, 300.0],
+            "budget_amount": [0.0, 0.0, 0.0],
+        })
+        # int 値で渡す (新テーブルは int 統一)
+        leader_yearly = {11: 1000000, 12: 1100000, 1: 1200000}
+        result = tbv.build_monthly_trend(df, leader_yearly)
+        # 3 ヶ月とも別値
+        m11 = result[result["month"] == 11].iloc[0]
+        m12 = result[result["month"] == 12].iloc[0]
+        m1 = result[result["month"] == 1].iloc[0]
+        assert m11["budget_amount"] == 1000000.0
+        assert m12["budget_amount"] == 1100000.0
+        assert m1["budget_amount"] == 1200000.0
+
+    def test_issue_248_fy_full_range_11_to_10(self):
+        """Issue #248: FY 12 ヶ月 (11-12-1-...-10) で月次推移を表示できる。
+
+        従来 (PR #247) は year_start=year_end=year で 1-12 月のみ。
+        新規 FY 範囲取得 (load_team_budget_actuals fiscal_year=) で
+        actuals に 11 月 (前暦年) と 1-10 月 (当暦年) が混在する。
+        """
+        df = pd.DataFrame({
+            "month": [11, 12, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+            "actual_amount": [100.0] * 12,
+            "budget_amount": [0.0] * 12,
+        })
+        leader_yearly = {m: m * 100000 for m in range(1, 13)}
+        result = tbv.build_monthly_trend(df, leader_yearly)
+        assert len(result) == 12
+        # FY 順 (11, 12, 1, ..., 10) ではなく、build_monthly_trend は month ASC ソート
+        # (1, 2, ..., 12)。altair で表示時に列順を制御。
+        assert list(result["month"]) == sorted(range(1, 13))
+
+    def test_codex_cm2_fiscal_month_order_column_added(self):
+        """Codex review C-M2 反映: fiscal_month_order 列で FY 順を altair sort に渡す。
+
+        順序: 11=0, 12=1, 1=2, 2=3, ..., 10=11 (FY 順 → 0-based index)。
+        """
+        df = pd.DataFrame({
+            "month": [1, 5, 11, 12],
+            "actual_amount": [100.0, 200.0, 50.0, 75.0],
+            "budget_amount": [0.0, 0.0, 0.0, 0.0],
+        })
+        result = tbv.build_monthly_trend(df)
+        assert "fiscal_month_order" in result.columns
+        # 各月の fiscal_month_order 値
+        order_map = dict(zip(result["month"], result["fiscal_month_order"]))
+        assert order_map[11] == 0  # FY Q1 1月目
+        assert order_map[12] == 1  # FY Q1 2月目
+        assert order_map[1] == 2   # FY Q1 3月目
+        assert order_map[5] == 6   # FY Q3 1月目 (11,12,1,2,3,4,5)
+
+    def test_codex_cm2_empty_dataframe_includes_order_column(self):
+        """empty 入力でも schema として fiscal_month_order 列が含まれる。"""
+        result = tbv.build_monthly_trend(pd.DataFrame())
+        assert result.empty
+        assert "fiscal_month_order" in result.columns
+
 
 class TestBuildLeaderTeamMatrixDf:
     """PR-A: 統括隊×月マトリクス関数のテスト"""

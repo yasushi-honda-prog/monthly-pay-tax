@@ -167,7 +167,9 @@ def build_monthly_trend(
         month 昇順でソート、empty 入力は schema 付き空 DataFrame で返す
     """
     if actuals.empty:
-        return pd.DataFrame(columns=list(_MONTHLY_TREND_COLUMNS))
+        return pd.DataFrame(
+            columns=list(_MONTHLY_TREND_COLUMNS) + ["fiscal_month_order"]
+        )
     trend = (
         actuals.groupby("month", as_index=False)
         .agg(
@@ -185,6 +187,13 @@ def build_monthly_trend(
         trend["budget_amount"] = trend["month"].map(
             lambda m: float(leader_yearly_monthly_budgets.get(int(m), 0.0))
         )
+    # Issue #248 (Codex review C-M2 反映): FY 順 (11,12,1,2,...,10) 表示用 sort key 列追加。
+    # altair で x=alt.X("month:O", sort=field="fiscal_month_order") で順序固定可能。
+    _FY_ORDER = [11, 12, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+    _ORDER_MAP = {m: i for i, m in enumerate(_FY_ORDER)}
+    trend["fiscal_month_order"] = trend["month"].map(
+        lambda m: _ORDER_MAP.get(int(m), 99)
+    )
     return trend
 
 

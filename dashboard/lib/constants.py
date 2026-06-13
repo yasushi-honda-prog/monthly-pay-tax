@@ -26,6 +26,8 @@ GYOMU_REPORTS_TABLE = f"{PROJECT_ID}.{DATASET}.gyomu_reports"
 TEAM_HIERARCHY_TABLE = f"{PROJECT_ID}.{DATASET}.team_hierarchy"
 TEAM_HIERARCHY_COVERAGE_VIEW = f"{PROJECT_ID}.{DATASET}.v_team_hierarchy_coverage"
 TEAM_BUDGETS_QUARTERLY_TABLE = f"{PROJECT_ID}.{DATASET}.team_budgets_quarterly"
+# 統括隊×月予算 (Issue #248)
+LEADER_TEAM_MONTHLY_BUDGETS_TABLE = f"{PROJECT_ID}.{DATASET}.leader_team_monthly_budgets"
 FISCAL_QUARTER_UDF = f"`{PROJECT_ID}.{DATASET}`.fiscal_quarter"
 LEADER_TEAM_TYPES: tuple[str, ...] = ("operating", "common")
 # actual_data_hash composite に使う prompt version。cloud-run/config.PROMPT_VERSION と
