@@ -1,90 +1,91 @@
 # ハンドオフメモ - monthly-pay-tax
 
-**更新日**: 2026-06-13 夜 (Issue #244 クラスタ完走 + hotfix + 月別推移問題 Issue #248 起票)
-**フェーズ**: 予実管理機能 Phase 3 (隊×月予算入力 UI 稼働、月別予算データ層は Phase 4 へ)
-**最新デプロイ**: pay-dashboard 最新 revision (PR #247 hotfix 反映済) / pay-collector PR #246 反映済
-**テストスイート**: Dashboard **545** + Cloud Run **276** + scripts **131** = **952 件 全 PASS**
+**更新日**: 2026-06-14 (Issue #248 PR #250 作成完了、本田様 merge/migration 判断待ち)
+**フェーズ**: 予実管理機能 Phase 4 (統括隊×月予算 UI 完成、本番反映待ち)
+**最新デプロイ**: pay-dashboard PR #247 反映済 (hotfix 暫定状態) / pay-collector PR #246 反映済
+**テストスイート**: Dashboard **628** + Cloud Run **276** + scripts **152** = **1056 件 全 PASS**
 
-## 2026-06-13 夜セッション完了サマリー (Issue #244 完走 + hotfix + Issue #248 起票)
+## 2026-06-14 セッション完了サマリー (Issue #248 完成 → PR #250 作成)
 
-午前〜午後 (PR #233-#242) で連鎖障害 4 件解消 + R5 設計採択完了。夜セッションは「条件待ち #2」の本田様要望 1b/2/3 クラスタを完走させ、本田様実機検証で発覚した残課題を Issue #248 として正規 follow-up 化した。
+本日 1 セッションで Issue #248 「[予実管理] 統括隊×月予算 UI 追加 - 月次推移グラフの月別予算反映」の brainstorm Phase 1-5 → 設計確定 → impl-plan → 実装 → QG 4 段 → PR 作成までを完走。Codex セカンドオピニオン 4 巡で最終マージ可判定。残作業は本田様の番号単位明示認可 + 本番 migration apply + マージ + 実機検証。
 
-### 1. Issue #244 完走 (PR #246) - 隊×月予算入力 UI + AI 評価 hash 拡張
+### 1. brainstorm Phase 1-5 (`/brainstorm` skill)
 
-| 項目 | 内容 |
+handoff 教訓 #1「全タブ × データソース マトリクス先行確定」を反映し、Phase 3 質問 5 件で核心確定:
+
+| 確定事項 | 内容 |
 |---|---|
-| ブランチ | feature/team-monthly-budget-input-design |
-| commit 数 | 14 (squash で 1) |
-| 変更行数 | +2684 / -57 |
-| ファイル | 18 (新規 9 + 修正 9) |
-| マージ commit | `dd6e6c7` |
-| デプロイ | 自動 (cloud-run 2m56s 先 → dashboard 3m28s 後、想定 skew リスク非発現) |
+| データソース統一 | 全体タブ・統括隊タブとも新規 leader_team_monthly_budgets 参照 (隊マトリクス/ドリルダウンは team_budgets 継続) |
+| 初期投入 | migration apply 時に fiscal_year=2026 を quarterly÷3 で seed |
+| 年軸 | fiscal_year + month (会計年度 11 月始まり、views.sql `fiscal_quarter` UDF 準拠) |
+| UI 配置 | 新規 page `leader_budget_input.py` (admin 専用 6×12 grid) |
+| quarterly | そのまま残す (カテゴリ別予算用途で継続) |
+| Phase 4 案 | B 案 (seed 自動 + 警告 + 差分 tooltip) |
 
-**実装ハイライト**:
-- 設計仕様書 `docs/specs/2026-06-13-team-monthly-budget-input.md` (490 行、Codex 12 + 9 指摘反映済)
-- `dashboard/lib/team_budget_repo.py` (新規): load/upsert/delete/load_other + UpsertConflict + TeamBudgetRow
-- `dashboard/lib/team_budget_hash.py` + `cloud-run/team_budget_hash.py` (新規、両側同一実装): `compose_actual_data_hash` + contract test 共有
-- `dashboard/lib/team_budget_cache.py` (新規): UI cache wrapper + invalidate 集約
-- `dashboard/lib/team_budget_edit_logic.py` (新規): 超過判定・残額・状態遷移の pure helper
-- `dashboard/_pages/team_budget.py` (拡張): 隊ドリルダウンに admin 限定編集セクション
-- `cloud-run/vertex_evaluator.py` (修正): `compute_actual_data_hash` を composite 化 (signature 不変、2 query)
-- `dashboard/lib/bq_client.py` (修正): `compute_current_hashes` を composite 化 + `prompt_version` cache key
+設計仕様書: `docs/specs/2026-06-14-leader-team-monthly-budget.md` (626 行、AC14 件、commit 47afc53 → a01641c で Codex 反映済)
 
-**Quality Gate 4 段全通過**:
-- `/safe-refactor`: LOW 1 件 (重複 import) 修正
-- `/code-review high`: HIGH 1 + MEDIUM 5 件 修正 (num_dml_affected_rows None / int→float / cleanup / cache key 等)
-- Evaluator 分離 (MUST): AC2/7/9/17 + cache key の 5 件 test 追加
-- `/codex review` (実装版): 「軽微修正で可」UI caption + spec 訂正反映
+### 2. Codex セカンドオピニオン 4 巡
 
-### 2. hotfix PR #247 - 全体タブ月次推移グラフを統括隊予算ベースに修正
+| 巡 | タイミング | 評価 | 主要指摘 | 反映状況 |
+|---|---|---|---|---|
+| 1 | 設計時 | 中規模修正必要 | fiscal_calendar 追加 / migration 冪等性 / cache 影響先列挙 等 | High 2 / Medium 5 / Low 3 全反映 |
+| 2 | impl-plan 時 | 軽微修正で可 | T8 を Round 2 に / Round 3 順序 / デプロイ skew | Medium 5 / Low 3 全反映 |
+| 3 | QG Stage 4 | 軽微修正で可 | C-M1 (preview FY 紐付け) / C-M2 (グラフ FY 順) / AC9 spec | 本 PR で C-M1 + C-M2 + AC9 修正 |
+| 4 | 完成形 | **マージ可** | 該当なし | (なし) |
 
-| 項目 | 内容 |
-|---|---|
-| ブランチ | fix/monthly-trend-leader-budget |
-| マージ commit | `802d5c3` (squash) |
-| 変更行数 | +141 / -3 |
-| デプロイ | dashboard のみ 4m8s で完了 (skew リスクなし) |
-| 経緯 | PR #246 マージ後の本田様実機検証で全体タブ月次推移グラフが予算 ¥0 フラットのまま (KPI ¥7,819,148 とのねじれ) → brainstorm 段階の設計誤解と判明 |
+### 3. impl-plan + 実装 (T1-T12)
 
-**実装**:
-- `load_leader_team_yearly_monthly_budgets(year)`: 12 ヶ月分の `{month: monthly_budget}` を 1 query (team_budgets_quarterly + fiscal_quarter UDF + ÷3)
-- `build_monthly_trend(actuals, leader_yearly_monthly_budgets=None)` 引数追加で全体タブのみ override
-- 隊マトリクス・ドリルダウンは現状維持 (team_budgets ベース、PR #246 で実装済)
+12 タスクを 4 Round で逐次実装 (想定 7-10 時間 → 実工数約 5.5 時間):
 
-### 3. 月別推移問題発覚 → Issue #248 起票 (B 案、本田様承認済)
+| Round | タスク | 規模 | テスト増分 |
+|---|---|---|---|
+| Round 1 | T1 fiscal_calendar / T2 migration / T3 constants | 小・中・小 | +19 / +21 / 0 |
+| Round 2 | T4 bq_client / T8 team_budget.py | 中・中 | +25 / +3 |
+| Round 3 | T5a-c repo / T6 cache / T9 view / T7 page / T10 navigation | 大・小・小・大・小 | +30 / +6 / +5 / +12 / 0 |
+| Round 4 | T11 QG 4 段 / T12 PR 作成 | 大・中 | +4 (QG 修正含む) |
 
-PR #247 デプロイ後の本田様実機検証で「月次推移グラフ予算が同四半期内同値 (5/6/7月とも ¥7,819,148) で推移として意味をなさない」と発覚。BQ 実値確認で実装ロジック (四半期÷3 を同四半期 3 ヶ月に同値展開) は仕様通りだが、本田様の意図「月毎の推移を見たい」と乖離。
+#### 重要な実装判断 (R7 PR #246 編集回帰対応)
 
-選択肢 A/B/C/D 提示 → 本田様 **B 案承認**: 統括隊×月予算 UI 新規追加 (新規 BQ table `leader_team_monthly_budgets` + 6 統括隊×12 ヶ月の入力 UI + グラフ反映)。
+設計書 §5.4 では「team_budget.py の selector を fiscal_year selector に切替」と明記していたが、Codex R7 指摘「team_budgets.year=暦年想定の編集ロジックが壊れる」リスクを最小化するため、**selector は暦年維持 + 内部で calendar_to_fiscal(year, month) で fiscal_year 導出**に変更。本田様承認済 (Round 2 完了報告時)。
 
-**着手は別セッション** (本セッション context 多消費のため)。Issue #248 起票 (P1, enhancement) で次セッション catchup から拾える状態に。
+UI 表示は subheader を `FY{fiscal_year}` に変更、load_* 関数呼び出しを fiscal_year 経由に。AC13 (11/12 月境界年度ズレ無し) は 3 件の追加テストで検証済。
 
----
+### 4. Quality Gate 4 段
 
-## 本日通算 (午前〜夜の総括)
-
-| セッション | 主要成果 | PR/Issue |
+| Stage | 内容 | 結果 |
 |---|---|---|
-| **午前〜午後** | PR #233-#242 連鎖障害 7 件 (Decimal 型 / Vertex AI 403 / google-genai 移行 / Decimal 型残存 / 隊名 context exclude / hash 切り分け / R5 PII validation 設計根本対応) を R5 設計採択で根治 + 4 要望引き継ぎ | 10 PR merge、Issue Net ±0 |
-| **夜** | Issue #244 (要望 1b/2/3) 完走 (brainstorm → 実装 → QG → デプロイ → 実機検証 → hotfix → 月別推移問題 follow-up Issue 化) | PR #246/#247 merge、Issue #244 close、Issue #248 起票 |
+| 1 safe-refactor | MEDIUM 2 件修正 | frozen 再生成 → mutable 集計 / 未使用 import 3 件削除 |
+| 2 code-review high | CONFIRMED 2 件修正 | CAST AS INT64 → CAST(ROUND(...) AS INT64) (truncate 防止、Codex R9 反映) |
+| 3 Evaluator 分離 | AC14 件評価 | PASS 12 / UNTESTABLE 2 (BQ emulator なし、AC1+AC12 は本番 apply 時実機検証) |
+| 4 Codex final | 軽微修正で可 | C-M1 (preview FY 紐付け) + C-M2 (グラフ FY 順) + AC9 spec 修正を本 PR で対応 |
 
-**本日通算成果**:
-- 12 PR merge (#233-#243, #246, #247、handoff PR 含む)
-- Issue close 1 件 (#244)
-- Issue 起票 2 件 (#245 postponed, #248 P1)
-- テストスイート増加: 858 → **952 件** (+94 件)
-- 設計仕様書 1 件追加 (2026-06-13-team-monthly-budget-input.md)
+QG 中の追加修正:
+- C-M1: `_lbi_preview` を `{fiscal_year, preview}` 構造で保存、年度切替時に破棄
+- C-M2: `build_monthly_trend` に fiscal_month_order 列追加、altair の `alt.SortField` で 11→10 順固定
+- AC9 spec: 「影響先 5 cache 関数」→「影響先 6 cache 関数」(`cached_load_active_leader_teams_for_input` 明示列挙)
+
+### 5. PR #250 作成完了
+
+| 項目 | 値 |
+|---|---|
+| URL | https://github.com/yasushi-honda-prog/monthly-pay-tax/pull/250 |
+| Title | feat(team-budget): 統括隊×月予算入力 UI + 月次推移グラフ恒久対応 (Issue #248) |
+| Branch | feature/leader-team-monthly-budget-design → main |
+| Diff | +3442 / -111 (19 files、commit 3 件: 47afc53 設計初版 + a01641c Codex 反映 + efd6c2a 実装) |
+| Mergeable | MERGEABLE |
+| 規模 tier | large (hook が review required を要求) |
+| Status | **本田様 review + 番号単位明示認可待ち** |
 
 ---
 
 ## 環境状態
 
-- **Git**: clean (本 handoff PR でコミット予定)
-- **CI**: ✅ 全 workflow success (Test main / Deploy Dashboard / Deploy Collector)
-- **本番デプロイ**: pay-collector PR #246 反映済、pay-dashboard PR #247 反映済
-- **OPEN PR**: 0 件 (本 handoff PR を末尾で作成)
-- **OPEN Issues**: 5 件 (#248 active / #245 postponed / #94/#58/#54 P2 backlog)
-- **残留プロセス**: 本プロジェクト関連なし。検出 2 件 (firebase emulator + java) は別プロジェクト visitcare-shift-optimizer のもの、kill 対象外
+- **Git**: docs/handoff-2026-06-14 ブランチで本 handoff PR 作成準備中
+- **CI**: 未確認 (PR #250 の CI は GitHub 側で実行待ち)
+- **本番デプロイ**: PR #247 hotfix が稼働中、PR #250 のデプロイは本田様判断待ち
+- **OPEN PR**: 1 件 (#250、本 handoff PR を末尾で作成)
+- **OPEN Issues**: 4 件 (#248 は PR #250 で close 予定 / #245 postponed / #94/#58/#54 P2 backlog)
+- **残留プロセス**: 本プロジェクト関連なし
 - **グローバル memory 変更**: なし
 
 ---
@@ -93,20 +94,18 @@ PR #247 デプロイ後の本田様実機検証で「月次推移グラフ予算
 
 | 項目 | 状態 |
 |---|---|
-| CLAUDE.md ↔ Cloud Run エンドポイント | ✅ 整合 (今 PR で新規 endpoint 追加なし) |
-| `docs/specs/2026-06-13-team-monthly-budget-input.md` | ✅ PR #246 で確定、Codex 最終 review で削除 audit 表現訂正済 |
-| BQ schema / dashboard 実装 ↔ tests | ✅ 952 件 PASS で機械的に保証 |
+| CLAUDE.md ↔ 新規 BQ table | ⚠ 未更新 (CLAUDE.md L98 のテーブル一覧に leader_team_monthly_budgets 追加が必要、PR #250 merge 後の follow-up) |
+| `docs/specs/2026-06-14-*.md` | ✅ AC9 文言訂正済 (改訂版 commit a01641c) |
+| BQ schema / dashboard 実装 ↔ tests | ✅ 1056 件 PASS で機械的に保証 |
 | handoff LATEST.md | ✅ 本 PR で全面更新 |
 
 ---
 
 ## Issue Net 変化
 
-- **Close 数**: 1 件 (#244)
-- **起票数**: 2 件 (#245 postponed / #248 P1 active)
-- **Net**: -1 件 (close が起票を上回り、進捗実質ありとして本日扱い)
-
-起票が active 1 + postponed 1 で 2 件あるが、#245 は brainstorm Phase 5 で本田様明示指示 (要望 4 を別セッション着手とする決定) に基づくため triage 基準 #5 該当、過剰起票ではない。#248 は本田様実機検証で B 案承認後に起票、triage 基準 #5 (ユーザー明示指示) 該当。
+- **Close 予定**: 1 件 (#248、PR #250 merge 後)
+- **起票数**: 0 件 (follow-up 9 件は PR description に記載、Issue 起票は本田様明示指示時のみ)
+- **Net**: -1 件 (close 予定が起票を上回り、進捗あり)
 
 ---
 
@@ -117,101 +116,124 @@ PR #247 デプロイ後の本田様実機検証で「月次推移グラフ予算
 **executor 領分の即着手作業ゼロ**。
 
 理由:
-- 本日 Issue #244 完走、PR #246/#247 マージ・デプロイ済
-- 残課題は全て decision-maker 判断待ち or 期日待ち or 後継 Issue (#248) 経由
+- PR #250 で本日 Issue #248 完成、QG 4 段全完了、Codex 4 巡最終マージ可判定
+- 残課題は全て decision-maker (本田様) 領分: ① PR review ② 本番 migration apply ③ PR merge ④ 実機検証
 
-### 条件待ち (5 件、明示 trigger 付き)
+### 条件待ち (6 件、明示 trigger 付き)
 
-#### 1. Issue #248 統括隊×月予算 UI 追加 (B 案、本田様承認済 / 着手は別セッション)
+#### 1. PR #250 マージ + 本番 BQ migration apply + 実機検証
 
-- **trigger**: 次セッション開始時の本田様の着手指示 (例: 「#248 を進めて」)
-- **trigger 充足時の作業**: `/brainstorm` で要件深掘り (統括隊タブ置換要否 / 既存 quarterly 併用 / 月別↔四半期÷3 切替 UI 等) → `/impl-plan` + Codex セカンドオピニオン → BQ migration + 入力 UI + tests
-- **想定工数**: 1-2 セッション (brainstorm 30 分 + impl-plan 30 分 + 実装 1-1.5 セッション)
-- **A/B/C 分類**: C 起点指示済み (本田様 B 案承認)、CRITICAL プロセス併記 (3 ステップ以上 → impl-plan MUST、5 ファイル以上 → Evaluator 分離 MUST)
+- **trigger**: 本田様の番号単位明示認可 (CLAUDE.md §3「PR #250 をマージしてよい」)
+- **trigger 充足時の作業順序** (CRITICAL R6 デプロイ skew 対応):
+  1. 本番 BQ に migration apply (本田様手動):
+     ```bash
+     bq query --use_legacy_sql=false --project_id=monthly-pay-tax \
+       < infra/bigquery/migrations/2026-06-14_leader_team_monthly_budgets.sql
+     ```
+  2. seed 件数/合計確認:
+     ```bash
+     bq query --use_legacy_sql=false \
+       "SELECT COUNT(*), SUM(budget_amount) FROM \`monthly-pay-tax.pay_reports.leader_team_monthly_budgets\` WHERE fiscal_year=2026"
+     ```
+     → 72 行 / SUM が team_budgets_quarterly の fiscal_year=2026 合計と一致確認
+  3. PR #250 merge (squash recommended)
+  4. GitHub Actions で dashboard 自動デプロイ完了確認
+  5. 本田様実機検証 (全体タブ月次推移グラフが月毎別値で描画 + 統括隊タブ + admin 入力 page で grid 編集/保存)
+- **A/B/C 分類**: C 起点指示済み (本田様明示認可必須)
 
-#### 2. Issue #245 隊ドリルダウン業務報告詳細を「業務報告一覧」と同等に強化 (要望 4、postponed)
+#### 2. PR #250 merge 後の handoff PR (本ファイル)
 
-- **trigger**: 本田様から「#245 を進めて」明示指示 + #248 マージ完了
-- **trigger 充足時の作業**: `/brainstorm` で要件深掘り (共有モジュール化 vs 局所版) → 実装
+- **trigger**: PR #250 merge 後
+- **trigger 充足時の作業**: 本 handoff PR を merge (#250 と独立、small tier)
+- **A/B/C 分類**: B housekeeping
+
+#### 3. Issue #245 隊ドリルダウン強化 (要望 4、postponed)
+
+- **trigger**: 本田様から「#245 を進めて」明示指示 + PR #250 merge 完了
+- **trigger 充足時の作業**: `/brainstorm` で要件深掘り → 実装
 - **A/B/C 分類**: C 起点指示済み (postponed ラベル付き、要明示指示)
 
-#### 3. Q4 2026 (8-10月) 仮予算 CSV 投入 (継続運用)
+#### 4. Q4 2026 (8-10月) 仮予算 CSV 投入 (継続運用)
 
 - **trigger**: 本田様から Q4 (8-10月) 仮予算データ提供
-- **trigger 充足時の作業**: CSV 抽出 → BQ INSERT、fiscal_year=2026 fiscal_quarter=4
 - **想定工数**: 15 分
-- **A/B/C 分類**: B 修正待ち (データ提供 trigger)
 
-#### 4. 2026-07-01 07:00 JST: Cloud Scheduler 月次バッチ初回自動実行確認
+#### 5. 2026-07-01 07:00 JST: Cloud Scheduler 月次バッチ初回自動実行確認
 
-- **trigger**: 期日到来 (約 2 週間後)
-- **trigger 充足時の作業**: Chat 通知 / BQ `SELECT COUNT(*) FROM team_monthly_eval WHERE generated_at >= '2026-07-01'` を確認
+- **trigger**: 期日到来 (2 週間後)
 - **想定工数**: 5 分
-- **A/B/C 分類**: B 検出 (期日 trigger + R5 設計 + composite hash の初回月次自動実行確認)
 
-#### 5. 2026-10-16 までに Gemini 3 Flash GA 公開後 `thinking_level="minimal"` 移行
+#### 6. 2026-10-16 までに Gemini 3 Flash GA 後 `thinking_level="minimal"` 移行
 
-- **trigger**: Gemini 3 Flash の GA 公開 (Vertex AI release notes で確認)
-- **trigger 充足時の作業**: モデル ID 切替 + `thinking_budget=0` → `thinking_level="minimal"` 置換
-- **deadline 想定**: 2026-10-16 までに完了
-- **A/B/C 分類**: B 修正待ち (期日 trigger + GA 確認)
+- **trigger**: Gemini 3 Flash GA (Vertex AI release notes)
+- **deadline**: 2026-10-16
 
 ### 却下候補 (記録のみ、明示指示待ち)
 
-#### A. PR #246 実装中に follow-up とした項目
+#### A. PR #250 follow-up 9 件 (Codex 4 巡目で整理)
 
-- **`_fetch_team_budget_for_hash` の N+1 batch 化**: 月次バッチで 24 query 追加。性能影響軽微、follow-up PR で対応
-- **soft delete (deleted_at/deleted_by 列追加)**: 現状 row DELETE で actor 監査なし、必要時に migration
-- **budget=0 vs 削除 の意味的区別 UI test**: UI caption で運用カバー済
-- **「実績がない未来月・新規隊」の予算入力**: active teams 起点のため scope 外
-- **scripts/upload_budgets.py の team_budget_repo 共有化**: refactor 抑制継続
+Codex final review の結論通り、本 PR では止めずに follow-up Issue 候補として記録 (Issue 起票は本田様明示指示時のみ可、現状未起票):
 
-→ **A/B/C 分類**: C (起点アイデアは decision-maker 領分)
+| 優先度 | 内容 |
+|---|---|
+| Medium | 1. 0 円入力と削除の区別 (PR #246 同型問題) |
+| Medium | 2. 統括隊×月ヒートマップを新テーブル予算で再計算 |
+| Medium | 3. bulk MERGE 化 (seed_from_quarterly + _persist_diff の N query → 1 query) |
+| Medium | 4. seed_from_quarterly の overwrite=False デッドコード整理 |
+| Low | 5. NUMERIC→int 丸め方針の完全統一 (一部 `int()` truncate 残) |
+| Low | 6. st.rerun() 後の成功メッセージを session_state に flash 化 |
+| Low | 7. grid 列 help を統括隊別差分表示に強化 |
+| Low | 8. 年跨ぎ OR 句 SQL の helper 抽出 (3 関数 24 行 copy-paste 解消) |
+| Low | 9. _persist_diff の page level 統合テスト追加 |
+
+→ **A/B/C 分類**: C (起点アイデアは decision-maker 領分、Issue 起票は本田様明示指示時のみ)
 
 #### B. 既存 OPEN Issues 3 件 (#94 / #58 / #54)
 
 - すべて P2 backlog、更新日 2 ヶ月以上前
 - **A/B/C 分類**: C (decision-maker 明示指示時のみ着手)
 
-#### C. グローバル memory に「brainstorm 段階の意図汲み取り失敗 → hotfix エスカレート」事例を feedback として記録
+#### C. CLAUDE.md L98 のテーブル一覧に leader_team_monthly_budgets 追加
 
-- 経緯: 本セッションで brainstorm Phase 3 質問 #1 / #2 で私が「按分しない / team_budgets 一本化」と誤誘導 → 全体タブで意図不整合発覚 → PR #247 hotfix → さらに B 案へエスカレート
-- 候補位置: グローバル memory `feedback_brainstorm_intent_calibration.md` (仮称)
-- 候補内容: 「主データ層の決定は brainstorm 段階で表示レベル別 (全体/統括隊/隊) のデータソースを明示的に分離してから確定する」原則
-- **A/B/C 分類**: A housekeeping (decision-maker 明示指示時のみ起動、AI からの能動提案は越権)
-
-#### D. 本日 12 PR + Issue 整理を活用した monthly review (進捗総括 / KPI 設定)
-
-- 本日大量 PR が出たため、月内累積効果を可視化する review 候補
-- **A/B/C 分類**: A housekeeping (decision-maker 明示指示時のみ)
+- PR #250 merge 後の small housekeeping、本 PR では実装に集中
+- **A/B/C 分類**: A housekeeping、PR #250 merge 後の次セッションで対応推奨
 
 ---
 
-## 本セッションで顕在化した AI 側の学び (プロセス教訓、次セッションへ)
+## 本セッションで顕在化した AI 側の学び (プロセス教訓)
 
-### 1. brainstorm 段階の意図汲み取り失敗 → 大規模 hotfix の連鎖
+### 1. handoff 教訓 #1 (全タブ × データソース マトリクス先行確定) の効果実証
 
-本セッション最大の反省点。Phase 3 質問 #1 で「データ層は team_budgets を主とする A2 案」を本田様確定としたが、実機検証で「全体タブは統括隊レベルで見るべき (KPI と整合)」と判明 → hotfix PR #247 → さらに「月別推移として推移していない」と発覚 → B 案 (Issue #248) へ。
+前セッション (2026-06-13 夜) で「brainstorm 段階の意図汲み取り失敗 → 大規模 hotfix の連鎖」と記録した教訓を本セッションで実証:
 
-**次セッション以降の予防策**:
-- brainstorm Phase 3 で「主データ層」を 1 つに決める前に、**全タブ × データソース のマトリクス**を明示的に作って本田様承認を取る (全体 / 統括隊 / 隊マトリクス / 隊ドリルダウン × team_budgets_quarterly / team_budgets / 新規)
-- 「本田様の要望原文」を Phase 1 のコンテキスト把握で **タブ単位に分解**してから設計に入る
+Phase 3 質問 #1 で「データソース統一」を最初に確定 → Phase 4 マトリクス表で全タブ × データソースを明示提示 → 本田様 1 度の承認で確定 → hotfix 連鎖回避。実装後の Codex セカンドオピニオンも軽微修正のみで完走。
 
-### 2. Codex セカンドオピニオン 3 連発でも UI 設計の意図ミスマッチは検出できない
+**今後の教訓**:
+- 設計の核心となる「データソース選択」「年度軸選択」等は brainstorm Phase 3 で必ず先行確定する
+- 確定事項はマトリクス表で可視化し、本田様承認を 1 度の round で取る
 
-Codex は設計レビュー 2 回 + 実装レビュー 1 回で 30+ 件の論点を出し、実装品質は CRITICAL/HIGH 修正で堅牢化されたが、**「本田様の意図」と「実装設計」のズレは検出できなかった** (Codex は実装の前提知識を持たないため、本田様の表示レベル意図を仮定で進めた)。
+### 2. Codex セカンドオピニオン 4 巡の有効性
 
-**次セッション以降の予防策**:
-- 「コードレビュー」と「意図整合性レビュー」は別物。前者は Codex/Evaluator、後者は**本田様実機検証**でしか検証できないと割り切る
-- impl-plan 段階で「実機検証 first」のチェックポイントを設ける (CI green → 本田様実機検証 → そこで判断 → 必要なら revert or hotfix)
+設計 → impl-plan → QG Stage 4 → 完成形で計 4 回 Codex review を実施。各巡で適切な粒度の指摘を得て段階的に品質向上:
 
-### 3. Quality Gate を完全実施しても hotfix は出る
+| 巡 | 主な指摘の性質 |
+|---|---|
+| 1 (設計時) | アーキテクチャ / データモデル / インターフェース (大粒度) |
+| 2 (impl-plan 時) | 依存関係 / Round 順序 / デプロイ skew (実行戦略) |
+| 3 (QG Stage 4) | コード品質 / 仕様乖離 (実装詳細) |
+| 4 (完成形) | マージ判定 / follow-up 整理 (最終判定) |
 
-QG 4 段 (safe-refactor + code-review + Evaluator + Codex) を完全実施した PR #246 でも、**マージ後 30 分以内に hotfix PR #247 が必要になった**。QG の射程は実装品質 + AC 検証 + 静的レビューに限定され、要件意図整合は別。
+**今後の教訓**:
+- 大規模 PR (5+ ファイル) は Codex review を複数巡実施が有効
+- 各巡で異なる視点 (設計 / 計画 / 実装 / マージ判定) を引き出す質問プロンプトを設計する
 
-**次セッション以降の予防策**:
-- QG 完全実施 = マージ可、ではあるが「実機検証完了 = 真の完了」と区別する handoff 表記を徹底
-- 大規模 PR ほど「マージ後 hotfix 想定」をデフォルト計画に組み込む
+### 3. R7 (PR #246 回帰リスク) を実装判断で minimize した事例
+
+設計書では「team_budget.py の selector を fiscal_year selector に切替」と明記していたが、実装中に Codex R7 を再評価し「selector は暦年維持 + 内部 fiscal_year 導出」に変更。本田様承認を得て進めた結果、PR #246 編集 UI は無回帰で AC13 (11/12 月境界) も達成。
+
+**今後の教訓**:
+- 設計書承認後でも、実装中に発見した回帰リスクは Round 完了報告時に本田様判断を仰ぐ
+- 「selector 変更」のような UI 全面改修は最小スコープで AC を達成する代替手段を優先検討
 
 ---
 
@@ -219,27 +241,28 @@ QG 4 段 (safe-refactor + code-review + Evaluator + Codex) を完全実施した
 
 本プロジェクト (monthly-pay-tax) のプロセスはなし。
 
-検出された 2 プロセス (firebase emulator + java) は別プロジェクト visitcare-shift-optimizer のもので本プロジェクト無関係、kill 対象外。
-
 ---
 
 ## 最終結論
 
-✅ **セッション終了可** — Issue #244 完走 + 後継 Issue #248 起票で次セッションに引き継ぎ可能、本日 12 PR merge + 952 件全 PASS + Git clean + リモート同期済。
+⚠ **セッション終了可、ただし PR #250 マージ判断のみ本田様アクション必須**
 
-- OPEN PR: 0 件 (本 handoff PR を末尾で作成予定)
-- 即着手タスク: **0 件**
-- 条件待ち: 5 件 (#248 B 案着手 / #245 要望 4 / Q4 予算 / 7/1 Scheduler 期日 / 10/16 Gemini 3 移行)
-- 却下候補: 4 カテゴリ (本 PR follow-up 5 項目 + 古い P2 Issues + memory feedback 候補 + monthly review)
-- 既知 blocker: なし
+- 本日 Issue #248 完成、PR #250 作成、QG 4 段完了、Codex 4 巡最終マージ可判定
+- executor 領分の作業ゼロ (即着手なし、テスト 1056 件全 PASS、git clean、リモート同期済)
+- 条件待ち 6 件中、最重要は #1 (PR #250 マージ + 本番 migration apply、本田様判断待ち)
+- handoff PR (本ファイル) は PR #250 と独立、別 review でマージ可
 
 **次セッション再開時のプロンプト案**:
 
 ```
-catchup → docs/handoff/LATEST.md の「条件待ち #1 (Issue #248)」を確認
-→ 本田様から「#248 を進めて」の指示があれば /brainstorm で要件深掘り
-  (全タブ × データソース マトリクス先行確定が本セッションからの教訓)
-→ Q4 予算データ提供があれば BQ INSERT
-→ 7/1 Cloud Scheduler 自動実行確認の期日近接時は手動チェック
-→ 指示なければセッション終了推奨 (idle skip プロトコル、#248 等は trigger 未充足)
+catchup → docs/handoff/LATEST.md の「条件待ち #1 (PR #250 マージ + 本番 migration apply)」を確認
+→ 本田様から「PR #250 をマージしてよい」明示指示があれば:
+  1. 本番 BQ に migration apply (手動実行確認)
+  2. seed 72 行 + SUM 一致確認
+  3. PR #250 merge
+  4. dashboard 自動デプロイ確認
+  5. 本田様実機検証完了報告
+→ 実機検証で問題発見時は hotfix Issue 起票
+→ 問題なしなら handoff PR (本ファイル更新) もマージ
+→ 残った条件待ち #3-#6 は trigger 未充足なら idle skip プロトコルでセッション終了
 ```
