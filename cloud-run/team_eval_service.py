@@ -225,23 +225,24 @@ def process_one_team(
             })
             return result
 
-        # 5. Gemini 呼び出し
+        # 5. Gemini 呼び出し (R5 設計: PII 対策は入口 mask_pii に一本化)
         top_categories, samples_raw = vertex_evaluator.load_team_samples(
             bq_client, year, month, team,
         )
-        samples_text = vertex_evaluator.build_samples_text(samples_raw, member_names)
+        samples_text, mask_results = vertex_evaluator.build_samples_text(
+            samples_raw, member_names,
+        )
+        # R5 fail-safe: mask 通過済 samples_text に raw PII が残っていないか assert
+        # (実装バグ検知)。prompt 全体は team 名 / top_categories の raw 埋め込みで
+        # 偶然一致が起き false positive するので scan しない (設計判断)
+        pii_masker.assert_no_raw_pii(samples_text, mask_results)
         user_prompt = vertex_evaluator.build_user_prompt(
             year=year, month=month, team=team,
             budget=agg["budget_amount"], actual=agg["actual_amount"],
             achievement_rate=agg["achievement_rate"], diff=agg["diff_amount"],
             top_categories=top_categories, samples_text=samples_text,
         )
-        # 隊名は公開情報のため、応答内で言及されても PII リーク扱いしない
-        # (短い nickname と隊名の部分文字列が偶然マッチする false positive を防止)
-        comment, usage = vertex_evaluator.generate_comment(
-            genai_client, user_prompt, member_names,
-            validation_context=(team,),
-        )
+        comment, usage = vertex_evaluator.generate_comment(genai_client, user_prompt)
 
         # 6. upsert + claim release
         gen_cfg_json = json.dumps({
@@ -322,6 +323,17 @@ def process_teams(
     bq_client = bq_client or _bq.Client(project=config.GCP_PROJECT_ID)
     genai_client = genai_client or vertex_evaluator.build_genai_client()
     member_names = pii_masker.load_member_names(bq_client)
+    # silent PII bypass 防止: load_member_names が空 set を返すと mask_pii が no-op に
+    # なり raw 名前を含む description が Gemini に送られる。空のときは abort し、Cloud
+    # Run は HTTP 500 を返す。main.py の既存 chat_notifier がエンドポイント例外を catch
+    # して通知する (本層では追加通知しない)。
+    if not member_names:
+        raise RuntimeError(
+            "member_names is empty: load_member_names が空 set を返した "
+            "(BQ 取得失敗 / member_master が空 等)。"
+            "raw 名前マスキングが no-op になり Gemini に PII が漏れるため評価を abort。"
+            "BQ 状態を確認の上で再実行してください。"
+        )
 
     if teams is None:
         teams = list_active_teams(bq_client, year, month)

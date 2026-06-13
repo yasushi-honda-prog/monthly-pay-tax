@@ -20,7 +20,7 @@ from google import genai
 from google.genai import types
 
 import config
-from pii_masker import mask_pii, validate_ai_comment
+from pii_masker import MaskResult, mask_pii, validate_ai_comment
 
 logger = logging.getLogger(__name__)
 
@@ -231,23 +231,22 @@ def _describe_response_for_debug(response) -> dict:
 def generate_comment(
     genai_client,
     user_prompt: str,
-    member_names: set[str],
     *,
     sleep_fn=time.sleep,
-    validation_context: Iterable[str] = (),
 ) -> tuple[str, dict]:
-    """Gemini を呼び出し、検証 OK のコメントを返す。
+    """Gemini を呼び出し、検証 OK のコメントを返す (R5 新仕様)。
 
-    再生成ロジック（spec §5.2）:
+    R5 設計変更:
+    - `member_names` パラメータ撤廃: PII 対策は入口 mask_pii に一本化。
+      validate_ai_comment は member_master 辞書照合を行わない。
+    - `validation_context` パラメータ撤廃: 上記撤廃に伴い不要 (PR #239 で導入した
+      隊名 context exclude は本設計で意味を失う)。
+
+    再生成ロジック (spec §5.2):
     - 検証 NG の場合は最大 MAX_REGEN_ATTEMPTS 回まで再生成
     - Gemini 呼び出し自体の transient failure (429/503/timeout 等) は同ループ内で
       最大 MAX_REGEN_ATTEMPTS 回まで指数バックオフでリトライ
     - 全試行で例外続きなら GeminiCallError、検証 NG 続きなら EvaluationValidationError
-
-    Args:
-        validation_context: PII リーク誤検知防止用の文脈文字列 (隊名・統括隊名等)。
-            validate_ai_comment の exclude_substrings に渡して、これら文字列に
-            内包される member_names を判定除外する。
 
     Returns:
         (comment, usage_dict) where usage_dict = {prompt_tokens, output_tokens, attempts, last_reason}
@@ -271,15 +270,12 @@ def generate_comment(
                 attempt, total_attempts, type(exc).__name__,
             )
             if attempt < total_attempts:
-                # 指数バックオフ: 0.5s, 1.0s, 2.0s ...
                 sleep_fn(0.5 * (2 ** (attempt - 1)))
                 continue
             raise GeminiCallError(str(exc)) from exc
 
         text = (getattr(response, "text", "") or "").strip()
-        ok, reason = validate_ai_comment(
-            text, member_names, exclude_substrings=validation_context,
-        )
+        ok, reason = validate_ai_comment(text)
         usage = getattr(response, "usage_metadata", None)
         usage_dict = {
             "prompt_tokens": getattr(usage, "prompt_token_count", 0) or 0,
@@ -298,7 +294,6 @@ def generate_comment(
         if attempt < total_attempts:
             sleep_fn(0.5)
 
-    # ループを最後まで通過して return しなかった = 検証 NG 続き
     raise EvaluationValidationError(f"max regen reached: {last_reason}")
 
 
@@ -427,9 +422,16 @@ def load_team_samples(
     return top_categories, list(samples_raw)
 
 
-def build_samples_text(descriptions: Iterable[str], member_names: set[str]) -> str:
-    """description リストを PII マスクして 1〜10 行のテキストに整形する。"""
-    masked = [mask_pii(d, member_names) for d in descriptions if d]
-    if not masked:
-        return ""
-    return "\n".join(f"- {d}" for d in masked)
+def build_samples_text(
+    descriptions: Iterable[str], member_names: set[str]
+) -> tuple[str, list[MaskResult]]:
+    """description リストを PII マスクして (samples_text, MaskResult 一覧) を返す。
+
+    R5 新仕様: 戻り値が str → tuple[str, list[MaskResult]]。call site (team_eval_service)
+    は MaskResult 一覧を assert_no_raw_pii に渡して prompt 構築過程の二重検証を行う。
+    """
+    results: list[MaskResult] = [mask_pii(d, member_names) for d in descriptions if d]
+    if not results:
+        return "", []
+    samples_text = "\n".join(f"- {r.masked_text}" for r in results)
+    return samples_text, results
