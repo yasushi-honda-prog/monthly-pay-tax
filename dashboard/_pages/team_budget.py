@@ -29,6 +29,7 @@ from lib.bq_client import (
 )
 from lib.cloud_run_client import invoke_team_eval
 from lib.constants import DATASET, PROJECT_ID, PROMPT_VERSION
+from lib.fiscal_calendar import calendar_to_fiscal
 from lib.team_budget_cache import (
     invalidate_team_budget_caches,
     load_other_team_budgets_cached,
@@ -302,23 +303,28 @@ st.caption(
 )
 
 # --- サイドバー: 期間選択 ---
+# selector は暦年のまま (PR #246 隊×月予算編集が team_budgets.year=暦年で動作するため、
+# R7 回帰リスク回避)。内部で fiscal_year を導出し、全体タブ/統括隊タブの集計を
+# FY ベース (11月始まり) で行う (Issue #248、Codex H1、AC13)。
 year, month = render_sidebar_year_month(year_key="tb_year", month_key="tb_month")
+fiscal_year, _fq = calendar_to_fiscal(year, month)
 
 tab_overall, tab_leader, tab_matrix, tab_drilldown = st.tabs([
     "📊 全体", "🏢 統括隊", "🏷️ 隊マトリクス", "🔍 隊ドリルダウン",
 ])
 
-# 共通データ取得 (タブ間で共有)。BQ 取得は cache_data でラップされており重複呼出無害
-actuals_year = load_team_budget_actuals(year, year, 1, 12)
+# 共通データ取得 (タブ間で共有)。BQ 取得は cache_data でラップされており重複呼出無害。
+# Issue #248: 暦年 12 ヶ月でなく FY 12 ヶ月 (年跨ぎ) を取得する (Codex H1、AC13)。
+actuals_year = load_team_budget_actuals(0, 0, 0, 0, fiscal_year=fiscal_year)
 if not actuals_year.empty and "month" in actuals_year.columns:
     actuals_month = actuals_year[actuals_year["month"] == month]
 else:
     actuals_month = actuals_year
 
-# PR-Q2M: 統括隊別月予算 (team_budgets_quarterly の四半期予算 / 3)。
-# 空 DataFrame の場合 (データ未投入時) は dict 空で扱い、従来通り actuals
-# 由来の budget_amount にフォールバックする (隊×月予算 team_budgets は別系統)。
-_leader_budget_df = load_leader_team_monthly_budgets(year, month)
+# Issue #248: leader_team_monthly_budgets 新テーブル参照 (fiscal_year, month) で 1 ヶ月分取得。
+# 空 DataFrame の場合 (データ未投入時) は dict 空で扱い、従来通り actuals 由来の
+# budget_amount にフォールバックする (隊×月予算 team_budgets は別系統で継続)。
+_leader_budget_df = load_leader_team_monthly_budgets(fiscal_year, month)
 if _leader_budget_df.empty:
     leader_team_monthly_budgets: dict[str, float] = {}
 else:
@@ -350,17 +356,18 @@ with tab_overall:
     render_kpi_row(summary)
 
     if actuals_year.empty:
-        st.info(f"{year}年のデータがありません。")
+        st.info(f"FY{fiscal_year} のデータがありません。")
     else:
-        # 月次推移 (実額 vs 予算、年内全月)
-        # hotfix 2026-06-13: 全体タブは統括隊レベル集約のため、予算は
-        # team_budgets_quarterly (統括隊月予算) から取得し
-        # build_monthly_trend に override 渡す
-        st.subheader(f"{year}年 月次推移 (実額 vs 予算)")
-        _leader_yearly_budgets = load_leader_team_yearly_monthly_budgets(year)
+        # 月次推移 (実額 vs 予算、FY 内全月、Issue #248 で月別予算正規化)
+        # Issue #248: 全体タブは新規 leader_team_monthly_budgets テーブルから
+        # 月毎の予算合計を取得 (同四半期内 3 ヶ月別値、AC4)。
+        st.subheader(f"FY{fiscal_year} 月次推移 (実額 vs 予算)")
+        _leader_yearly_budgets = load_leader_team_yearly_monthly_budgets(fiscal_year)
         monthly_trend = build_monthly_trend(actuals_year, _leader_yearly_budgets)
+        # Issue #248 Codex review C-M2 反映: x 軸を FY 順 (11→12→1→...→10) で固定。
+        # build_monthly_trend が fiscal_month_order 列 (0-11) を付与済。
         trend_long = monthly_trend.melt(
-            id_vars="month",
+            id_vars=["month", "fiscal_month_order"],
             value_vars=["actual_amount", "budget_amount"],
             var_name="metric",
             value_name="amount",
@@ -373,7 +380,11 @@ with tab_overall:
             alt.Chart(trend_long)
             .mark_line(point=True)
             .encode(
-                x=alt.X("month:O", title="月"),
+                x=alt.X(
+                    "month:O",
+                    title="月 (FY 順: 11→10)",
+                    sort=alt.SortField(field="fiscal_month_order", order="ascending"),
+                ),
                 y=alt.Y("amount:Q", title="金額 (円)"),
                 color=alt.Color(
                     "metric_label:N",
@@ -414,10 +425,10 @@ with tab_leader:
             )
 
     if actuals_year.empty:
-        st.info(f"{year}年の統括隊データがありません。")
+        st.info(f"FY{fiscal_year} の統括隊データがありません。")
     else:
         # 統括隊×月 達成率ヒートマップ
-        st.subheader(f"{year}年 統括隊×月 達成率ヒートマップ")
+        st.subheader(f"FY{fiscal_year} 統括隊×月 達成率ヒートマップ")
         leader_rate_matrix = build_leader_team_matrix_df(
             actuals_year, value="achievement_rate"
         )
@@ -456,7 +467,7 @@ with tab_leader:
         # に投入された範囲でのみ意味を持つため、現状は actuals_year 由来の budget をそのまま
         # 使う (データ未投入時は ¥0 マーカーなし)。投入計画次第で本ロジックを年累計予算
         # 集計に拡張予定 (follow-up)。
-        st.subheader(f"{year}年 統括隊別累積実額ランキング")
+        st.subheader(f"FY{fiscal_year} 統括隊別累積実額ランキング")
         leader_ranking = summarize_by_leader_team(actuals_year)
         if not leader_ranking.empty:
             ranking_chart = (
@@ -484,12 +495,12 @@ with tab_leader:
 # ============ 🏷️ 隊マトリクス ============
 
 with tab_matrix:
-    st.subheader(f"{year}年 隊×月マトリクス (達成率%)")
+    st.subheader(f"FY{fiscal_year} 隊×月マトリクス (達成率%)")
     if actuals_year.empty:
-        st.info(f"{year}年のデータがありません。")
+        st.info(f"FY{fiscal_year} のデータがありません。")
     else:
-        # 統括隊フィルタ
-        leader_options = load_active_leader_teams(year, year, 1, 12)
+        # 統括隊フィルタ (Issue #248: FY 12 ヶ月範囲で active 統括隊取得)
+        leader_options = load_active_leader_teams(0, 0, 0, 0, fiscal_year=fiscal_year)
         filter_leader = st.selectbox(
             "統括隊で絞り込み",
             [_LEADER_TEAM_FILTER_ALL] + leader_options,

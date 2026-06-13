@@ -69,6 +69,8 @@ admin_pages = [
     st.Page("_pages/user_management.py", title="ユーザー管理", icon=":material/manage_accounts:"),
     st.Page("_pages/team_hierarchy_settings.py", title="予実階層設定",
             icon=":material/account_tree:"),
+    st.Page("_pages/leader_budget_input.py", title="統括隊月予算入力",
+            icon=":material/savings:"),
     st.Page("_pages/admin_settings.py", title="管理設定", icon=":material/settings:"),
 ]
 

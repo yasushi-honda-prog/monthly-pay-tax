@@ -115,7 +115,7 @@ class TestLoadActiveTeams:
 
 
 class TestLoadLeaderTeamMonthlyBudgets:
-    """PR-Q2M: team_budgets_quarterly から月予算を算出する関数のテスト"""
+    """Issue #248: leader_team_monthly_budgets 新テーブル参照に切替"""
 
     def test_returns_dataframe_with_leader_team_and_monthly_budget(self, mock_client):
         df = pd.DataFrame({
@@ -129,32 +129,35 @@ class TestLoadLeaderTeamMonthlyBudgets:
         assert "monthly_budget" in result.columns
 
     def test_returns_empty_when_table_empty(self, mock_client):
-        """team_budgets_quarterly が空 (= データ未投入) なら empty DataFrame"""
+        """leader_team_monthly_budgets が空なら empty DataFrame"""
         _to_dataframe_mock(mock_client, pd.DataFrame())
         result = bq_client.load_leader_team_monthly_budgets(2026, 5)
         assert result.empty
 
-    def test_sql_uses_fiscal_quarter_udf(self, mock_client):
-        """SQL に fiscal_quarter UDF と team_budgets_quarterly テーブル参照"""
+    def test_sql_uses_new_table_with_row_number(self, mock_client):
+        """新テーブル参照 + ROW_NUMBER で defensive (Codex H2)"""
         _to_dataframe_mock(mock_client, pd.DataFrame())
         bq_client.load_leader_team_monthly_budgets(2026, 5)
         sql = mock_client.query.call_args.args[0]
-        assert "fiscal_quarter" in sql
-        assert "team_budgets_quarterly" in sql
-        # 四半期予算 / 3 = 月予算
-        assert "/ 3" in sql or "SAFE_DIVIDE" in sql
+        assert "leader_team_monthly_budgets" in sql
+        # 旧 quarterly 参照は無いこと
+        assert "team_budgets_quarterly" not in sql
+        # defensive ROW_NUMBER
+        assert "ROW_NUMBER" in sql
+        assert "PARTITION BY fiscal_year, month, leader_team" in sql
 
-    def test_params_bound(self, mock_client):
+    def test_params_bound_as_fiscal_year(self, mock_client):
         _to_dataframe_mock(mock_client, pd.DataFrame())
         bq_client.load_leader_team_monthly_budgets(2026, 5)
         job_config = mock_client.query.call_args.kwargs["job_config"]
         params = {p.name: p.value for p in job_config.query_parameters}
-        assert params["year"] == 2026
+        # Issue #248 で意味変更: year 引数は fiscal_year として扱う
+        assert params["fiscal_year"] == 2026
         assert params["month"] == 5
 
 
 class TestLoadLeaderTeamYearlyMonthlyBudgets:
-    """hotfix 2026-06-13: 年内 12 ヶ月分の統括隊月予算合計"""
+    """Issue #248: leader_team_monthly_budgets 新テーブル参照、12 ヶ月分集計"""
 
     def test_returns_month_budget_dict(self, mock_client):
         from decimal import Decimal
@@ -167,27 +170,114 @@ class TestLoadLeaderTeamYearlyMonthlyBudgets:
         _result_mock(mock_client, rows)
         result = bq_client.load_leader_team_yearly_monthly_budgets(2026)
         assert len(result) == 12
-        assert result[5] == 1000000.0
-        assert result[1] == 0.0
+        # int 型 (Codex L1: 円整数運用)
+        assert result[5] == 1000000
+        assert result[1] == 0
+        assert isinstance(result[5], int)
 
-    def test_sql_uses_generate_array_and_fiscal_quarter(self, mock_client):
+    def test_sql_uses_new_table_with_generate_array(self, mock_client):
         bq_client.load_leader_team_yearly_monthly_budgets.clear()
         _result_mock(mock_client, [])
         bq_client.load_leader_team_yearly_monthly_budgets(2026)
         sql = mock_client.query.call_args.args[0]
         assert "GENERATE_ARRAY(1, 12)" in sql
-        assert "fiscal_quarter" in sql
-        assert "team_budgets_quarterly" in sql
-        assert "/ 3" in sql or "SAFE_DIVIDE" in sql
+        assert "leader_team_monthly_budgets" in sql
+        # 旧 quarterly 参照は無いこと
+        assert "team_budgets_quarterly" not in sql
+        # defensive ROW_NUMBER (Codex H2)
+        assert "ROW_NUMBER" in sql
 
-    def test_returns_empty_when_no_quarterly_data(self, mock_client):
-        """team_budgets_quarterly 未投入時は 12 ヶ月とも 0"""
+    def test_returns_12_months_when_table_empty(self, mock_client):
+        """leader_team_monthly_budgets 未投入時は LEFT JOIN + IFNULL で 12 ヶ月 0"""
         bq_client.load_leader_team_yearly_monthly_budgets.clear()
-        # SQL は LEFT JOIN + IFNULL なので 12 ヶ月分 monthly_budget=0 が返る
         rows = [{"month": i, "monthly_budget": 0} for i in range(1, 13)]
         _result_mock(mock_client, rows)
         result = bq_client.load_leader_team_yearly_monthly_budgets(2026)
-        assert all(v == 0.0 for v in result.values())
+        assert all(v == 0 for v in result.values())
+        assert len(result) == 12
+
+
+class TestLoadLeaderTeamQuarterlyBudgetsForSeed:
+    """Issue #248 新規: seed/差分表示用 quarterly÷3 month 展開"""
+
+    def test_returns_dataframe(self, mock_client):
+        from decimal import Decimal
+        df = pd.DataFrame({
+            "leader_team": ["L1", "L1", "L2"],
+            "month": [11, 12, 11],
+            "quarterly_div3": [Decimal("100000"), Decimal("100000"), Decimal("200000")],
+        })
+        _to_dataframe_mock(mock_client, df)
+        result = bq_client.load_leader_team_quarterly_budgets_for_seed(2026)
+        assert len(result) == 3
+        assert "leader_team" in result.columns
+        assert "month" in result.columns
+        assert "quarterly_div3" in result.columns
+
+    def test_sql_references_quarterly_with_month_expansion(self, mock_client):
+        _to_dataframe_mock(mock_client, pd.DataFrame())
+        bq_client.load_leader_team_quarterly_budgets_for_seed(2026)
+        sql = mock_client.query.call_args.args[0]
+        assert "team_budgets_quarterly" in sql
+        # Q1=[11,12,1] 展開
+        assert "WHEN 1 THEN [11, 12, 1]" in sql
+        assert "WHEN 4 THEN [8, 9, 10]" in sql
+        assert "SAFE_DIVIDE" in sql
+
+    def test_filter_fiscal_year(self, mock_client):
+        _to_dataframe_mock(mock_client, pd.DataFrame())
+        bq_client.load_leader_team_quarterly_budgets_for_seed(2027)
+        job_config = mock_client.query.call_args.kwargs["job_config"]
+        params = {p.name: p.value for p in job_config.query_parameters}
+        assert params["fiscal_year"] == 2027
+
+
+class TestLoadTeamBudgetActualsFiscalYear:
+    """Issue #248: fiscal_year keyword arg で年跨ぎ範囲取得 (Codex H1、AC13)"""
+
+    def test_fiscal_year_2026_uses_year_crossing_range(self, mock_client):
+        """FY2026 (2025/11-2026/10) を fiscal_year=2026 で渡したとき、年跨ぎ SQL を使う"""
+        df = pd.DataFrame({
+            "year": [2025], "month": [11], "team": ["A"], "leader_team": ["L"],
+            "actual_amount": [100.0], "actual_count": [1], "reporter_count": [1],
+            "budget_amount": [200.0], "achievement_rate": [50.0],
+            "diff_amount": [-100.0], "has_budget": [True], "has_actual": [True],
+        })
+        _to_dataframe_mock(mock_client, df)
+        # fiscal_year を指定 → 位置引数は無視
+        bq_client.load_team_budget_actuals.clear()
+        result = bq_client.load_team_budget_actuals(0, 0, 0, 0, fiscal_year=2026)
+        assert len(result) == 1
+        # job_config 検証
+        job_config = mock_client.query.call_args.kwargs["job_config"]
+        params = {p.name: p.value for p in job_config.query_parameters}
+        # fiscal_calendar.fiscal_year_month_range(2026) → (2025, 2026, 11, 10)
+        assert params["y_start"] == 2025
+        assert params["y_end"] == 2026
+        assert params["m_start"] == 11
+        assert params["m_end"] == 10
+
+    def test_sql_handles_month_start_greater_than_month_end(self, mock_client):
+        """m_start > m_end 用の年跨ぎ OR SQL が含まれる"""
+        _to_dataframe_mock(mock_client, pd.DataFrame())
+        bq_client.load_team_budget_actuals.clear()
+        bq_client.load_team_budget_actuals(0, 0, 0, 0, fiscal_year=2026)
+        sql = mock_client.query.call_args.args[0]
+        # m_start <= m_end / m_start > m_end の OR 分岐
+        assert "@m_start <= @m_end" in sql
+        assert "@m_start > @m_end" in sql
+
+    def test_backward_compat_without_fiscal_year(self, mock_client):
+        """fiscal_year 未指定なら位置引数をそのまま使う (後方互換)"""
+        _to_dataframe_mock(mock_client, pd.DataFrame())
+        bq_client.load_team_budget_actuals.clear()
+        bq_client.load_team_budget_actuals(2026, 2026, 5, 5)
+        job_config = mock_client.query.call_args.kwargs["job_config"]
+        params = {p.name: p.value for p in job_config.query_parameters}
+        assert params["y_start"] == 2026
+        assert params["y_end"] == 2026
+        assert params["m_start"] == 5
+        assert params["m_end"] == 5
 
 
 class TestLoadActiveLeaderTeams:

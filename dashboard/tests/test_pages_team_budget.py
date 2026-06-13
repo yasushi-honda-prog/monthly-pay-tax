@@ -160,6 +160,117 @@ class TestTeamBudgetPage:
             importlib.import_module("pages.team_budget")
 
 
+class TestFiscalYearLoading:
+    """Issue #248 AC13: 11/12 月境界の年度ズレ無し検証。
+
+    fiscal_year 経由で load_team_budget_actuals が呼ばれることを検証する。
+    selector で (year=2025, month=11) を選んだとき、内部で fiscal_year=2026 として
+    扱われ、load_team_budget_actuals が fiscal_year=2026 で呼ばれる。
+    """
+
+    @pytest.fixture
+    def reset_module_fy(self):
+        sys.modules.pop("pages.team_budget", None)
+        # selector を (2025, 11) で固定 → calendar_to_fiscal(2025,11) = (2026, 1)
+        with patch("lib.ui_helpers.render_sidebar_year_month", return_value=(2025, 11)):
+            yield
+        sys.modules.pop("pages.team_budget", None)
+
+    def test_load_team_budget_actuals_called_with_fiscal_year(self, reset_module_fy):
+        """selector (2025, 11) → fiscal_year=2026 で load_team_budget_actuals 呼出"""
+        import streamlit as st
+        st.session_state["user_email"] = "u@example.com"
+        st.session_state["user_role"] = "user"
+        empty_df = pd.DataFrame({
+            "year": [], "month": [], "team": [], "leader_team": [],
+            "actual_amount": [], "actual_count": [], "reporter_count": [],
+            "budget_amount": [], "achievement_rate": [], "diff_amount": [],
+            "has_budget": [], "has_actual": [],
+        })
+        with patch("lib.bq_client.load_team_budget_actuals", return_value=empty_df) as mock_load, \
+             patch("lib.bq_client.load_team_monthly_eval", return_value=pd.DataFrame()), \
+             patch("lib.bq_client.load_active_teams", return_value=[]), \
+             patch("lib.bq_client.load_active_leader_teams", return_value=[]), \
+             patch("lib.bq_client.load_leader_team_monthly_budgets", return_value=pd.DataFrame()), \
+             patch("lib.bq_client.load_leader_team_yearly_monthly_budgets", return_value={}), \
+             patch("lib.bq_client.compute_current_hashes", return_value={}), \
+             patch("lib.bq_client.get_bq_client"), \
+             patch("lib.auth.require_user"):
+            importlib.import_module("pages.team_budget")
+        # selector (2025, 11) → fiscal_year=2026 (calendar_to_fiscal で算出)
+        # load_team_budget_actuals が fiscal_year=2026 で呼ばれていること
+        assert mock_load.called
+        call_kwargs = mock_load.call_args.kwargs
+        assert call_kwargs.get("fiscal_year") == 2026, (
+            f"AC13: 2025/11 は FY2026 として扱われるべき。"
+            f"actual fiscal_year={call_kwargs.get('fiscal_year')}"
+        )
+
+    def test_load_active_leader_teams_called_with_fiscal_year_in_matrix(
+        self, reset_module_fy,
+    ):
+        """tab_matrix の load_active_leader_teams も fiscal_year= で呼ばれる"""
+        import streamlit as st
+        st.session_state["user_email"] = "u@example.com"
+        st.session_state["user_role"] = "user"
+        # actuals_year に 1 行入れて tab_matrix の if not empty 分岐に入る
+        actuals_with_data = pd.DataFrame({
+            "year": [2025], "month": [11], "team": ["A 隊"],
+            "leader_team": ["L1 統括隊"],
+            "actual_amount": [100.0], "actual_count": [1], "reporter_count": [1],
+            "budget_amount": [200.0], "achievement_rate": [50.0],
+            "diff_amount": [-100.0], "has_budget": [True], "has_actual": [True],
+        })
+        with patch("lib.bq_client.load_team_budget_actuals", return_value=actuals_with_data), \
+             patch("lib.bq_client.load_team_monthly_eval", return_value=pd.DataFrame()), \
+             patch("lib.bq_client.load_active_teams", return_value=["A 隊"]), \
+             patch("lib.bq_client.load_active_leader_teams",
+                   return_value=["L1 統括隊"]) as mock_aleader, \
+             patch("lib.bq_client.load_leader_team_monthly_budgets",
+                   return_value=pd.DataFrame()), \
+             patch("lib.bq_client.load_leader_team_yearly_monthly_budgets", return_value={}), \
+             patch("lib.bq_client.compute_current_hashes", return_value={"A 隊": ""}), \
+             patch("lib.bq_client.get_bq_client"), \
+             patch("lib.auth.require_user"):
+            importlib.import_module("pages.team_budget")
+        # tab_matrix の呼出 (fiscal_year=2026 kwarg) を検出
+        fy_calls = [
+            call for call in mock_aleader.call_args_list
+            if call.kwargs.get("fiscal_year") == 2026
+        ]
+        assert len(fy_calls) >= 1, (
+            f"AC13: tab_matrix で fiscal_year=2026 の呼出が必要。"
+            f"calls={mock_aleader.call_args_list}"
+        )
+
+    def test_load_leader_team_yearly_uses_fiscal_year(self, reset_module_fy):
+        """全体タブの月次推移グラフ予算ラインも fiscal_year で呼ばれる"""
+        import streamlit as st
+        st.session_state["user_email"] = "u@example.com"
+        st.session_state["user_role"] = "user"
+        actuals_with_data = pd.DataFrame({
+            "year": [2025], "month": [11], "team": ["A 隊"],
+            "leader_team": ["L1 統括隊"],
+            "actual_amount": [100.0], "actual_count": [1], "reporter_count": [1],
+            "budget_amount": [200.0], "achievement_rate": [50.0],
+            "diff_amount": [-100.0], "has_budget": [True], "has_actual": [True],
+        })
+        with patch("lib.bq_client.load_team_budget_actuals", return_value=actuals_with_data), \
+             patch("lib.bq_client.load_team_monthly_eval", return_value=pd.DataFrame()), \
+             patch("lib.bq_client.load_active_teams", return_value=["A 隊"]), \
+             patch("lib.bq_client.load_active_leader_teams", return_value=["L1 統括隊"]), \
+             patch("lib.bq_client.load_leader_team_monthly_budgets",
+                   return_value=pd.DataFrame()), \
+             patch("lib.bq_client.load_leader_team_yearly_monthly_budgets",
+                   return_value={i: 0 for i in range(1, 13)}) as mock_yearly, \
+             patch("lib.bq_client.compute_current_hashes", return_value={"A 隊": ""}), \
+             patch("lib.bq_client.get_bq_client"), \
+             patch("lib.auth.require_user"):
+            importlib.import_module("pages.team_budget")
+        # selector (2025, 11) → fiscal_year=2026 で呼出
+        mock_yearly.assert_called_with(2026)
+
+
 class TestRenderTeamBudgetEditor:
     """code-review MEDIUM: admin role の月予算編集セクション統合テスト。
 
