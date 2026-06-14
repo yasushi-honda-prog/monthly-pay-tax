@@ -492,6 +492,29 @@ else:
 # 月予算が 1 件でも入っているなら override で集計、空なら従来通り None で集計
 _lt_budget_override = leader_team_monthly_budgets if leader_team_monthly_budgets else None
 
+# Issue #257: 前月用の統括隊月予算 override も取得し、達成率前月比の分母を当月と
+# 揃える (code-review MEDIUM、evaluator 指摘の budget 基準不一致解消)。
+# FY 初月 (month=11) は前月比表示なしのため取得不要。
+_prev_month_for_override = month - 1 if month > 1 else 12
+if month == 11:
+    leader_team_monthly_budgets_prev: dict[str, float] = {}
+else:
+    _leader_budget_prev_df = load_leader_team_monthly_budgets(
+        fiscal_year, _prev_month_for_override
+    )
+    if _leader_budget_prev_df.empty:
+        leader_team_monthly_budgets_prev = {}
+    else:
+        leader_team_monthly_budgets_prev = {
+            str(row["leader_team"]): (
+                0.0 if pd.isna(row["monthly_budget"]) else float(row["monthly_budget"])
+            )
+            for _, row in _leader_budget_prev_df.iterrows()
+        }
+_lt_budget_override_prev = (
+    leader_team_monthly_budgets_prev if leader_team_monthly_budgets_prev else None
+)
+
 
 # ============ 📊 全体 ============
 
@@ -523,6 +546,16 @@ with tab_overall:
         actuals_prev_month = pd.DataFrame()
     if not actuals_prev_month.empty:
         summary_prev = summarize_actuals(actuals_prev_month)
+        # Issue #257: 前月達成率の分母を当月と揃える (code-review MEDIUM)。
+        # 前月用 _lt_budget_override_prev があれば total_budget を上書きし、
+        # 前月 overall_rate を再計算 (当月の override 適用と対称構造)。
+        if _lt_budget_override_prev:
+            total_lt_budget_prev = sum(leader_team_monthly_budgets_prev.values())
+            summary_prev["total_budget"] = total_lt_budget_prev
+            summary_prev["overall_rate"] = (
+                (summary_prev["total_actual"] / total_lt_budget_prev * 100)
+                if total_lt_budget_prev > 0 else None
+            )
         mom_overall = compute_mom_delta(
             current={
                 "actual_amount": summary["total_actual"],
@@ -605,9 +638,12 @@ with tab_leader:
                 _actuals_prev_for_leader = actuals_year[
                     actuals_year["month"] == _prev_month_calc
                 ]
+                # Issue #257: 前月集計には前月用 override を渡す (code-review MEDIUM)。
+                # 当月用 _lt_budget_override を使い回すと前月予算が当月値で上書きされ、
+                # 達成率前月比の分母が当月と異なり混乱の元となる。
                 _leader_summary_prev = (
                     summarize_by_leader_team(
-                        _actuals_prev_for_leader, _lt_budget_override
+                        _actuals_prev_for_leader, _lt_budget_override_prev
                     )
                     if not _actuals_prev_for_leader.empty
                     else None

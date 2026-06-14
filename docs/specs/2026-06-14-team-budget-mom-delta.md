@@ -38,7 +38,7 @@
 
 | ID | 要件 |
 |---|---|
-| NF1 | 追加 BQ 呼び出しなし。既存 `actuals_year = load_team_budget_actuals(fiscal_year=fiscal_year)` の取得結果 (FY 12 ヶ月分) を月フィルタで流用 |
+| NF1 | actuals は既存 `actuals_year = load_team_budget_actuals(fiscal_year=fiscal_year)` の取得結果 (FY 12 ヶ月分) を月フィルタで流用 (追加呼び出しなし)。統括隊月予算 override は前月分を `load_leader_team_monthly_budgets(fiscal_year, prev_month)` で 1 件追加取得 (達成率前月比の分母不一致解消、code-review MEDIUM 反映) |
 | NF2 | 純粋関数を `dashboard/lib/team_budget_view.py` に分離、Streamlit 非依存 (テスタブル) |
 | NF3 | 既存 UI の表示挙動は変えない (新規 metric 追加と delta 引数の置換のみ) |
 | NF4 | テスト: 純粋関数の単体テスト + UI 統合テスト (既存 `TestRenderTeamBudgetEditor` パターン流用) |
@@ -215,12 +215,12 @@ def format_mom_pt(delta: Optional[float]) -> Optional[str]:
 
 ### 7.3 Acceptance Criteria
 
-- [ ] AC1: 全体タブで実額・達成率の前月比が `st.metric` の delta で表示される
-- [ ] AC2: 統括隊タブの DataFrame に「実額前月比」「達成率前月比」列が追加される
-- [ ] AC3: 隊ドリルダウンの実額 metric に delta=前月比実額、達成率 metric に delta=前月比達成率
-- [ ] AC4: FY 初月 (11 月) では delta 省略 + caption「FY 初月のため前月比なし」表示
-- [ ] AC5: 新隊 / 予算未投入で前月データなしの場合、delta が省略される (None)
-- [ ] AC6: 既存テスト (651 件) 全 pass、回帰なし
+- [x] AC1: 全体タブで実額・達成率の前月比が `st.metric` の delta で表示される
+- [x] AC2: 統括隊タブの DataFrame に「実額前月比」「達成率前月比」列が追加される
+- [x] AC3: 隊ドリルダウンの実額 metric に delta=前月比実額、達成率 metric に delta=前月比達成率
+- [x] AC4: FY 初月 (11 月) では delta 省略 + caption「FY 初月のため前月比なし」表示
+- [x] AC5: 新隊 / 予算未投入で前月データなしの場合、delta が省略される (None)
+- [x] AC6: 既存テスト 651 件 + 新規 22 件 = **673 件全 pass**、回帰なし (本 PR で追加した新規テスト含む)
 - [ ] AC7: 本田様の実機検証 (デプロイ後)
 
 ---
