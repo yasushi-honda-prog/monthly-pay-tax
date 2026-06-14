@@ -769,52 +769,80 @@ with tab_matrix:
         if filtered.empty:
             st.info(f"統括隊「{filter_leader}」配下の隊にデータがありません。")
         else:
-            # Issue #253: セル値は差額 (実額 - 予算)、セル色は達成率レンジで判定。
-            # diff_matrix と rate_matrix は同じ filtered から pivot 生成するが、
-            # pivot_table(aggfunc="first") は全 NaN 行/列を結果から落とす仕様のため
-            # 非対称になりうる (例: budget=0 で achievement_rate が NaN、
-            # diff_amount は actual_amount をそのまま持つケース)。
-            # → rate_matrix で参照不能なセルは achievement_color(None) で灰色
-            # にフォールバックし、凡例「灰=データなし」と一貫させる。
-            diff_matrix = build_matrix_df(filtered, value="diff_amount")
-            rate_matrix = build_matrix_df(filtered, value="achievement_rate")
-            _no_data_bg = f"background-color: {achievement_color(None)}"
+            # 予算入力状況を集計: 各隊について FY 内のいずれかの月で予算が入っているか。
+            # has_budget=True が 1 件でもあれば「予算あり」、ゼロなら「未登録」とする。
+            # 全隊未登録だと pivot_table の dropna=True で diff_matrix が空テーブル
+            # ("team" index 名と "empty" だけが表示される無言バグ) になっていた。
+            budget_by_team = filtered.groupby("team")["has_budget"].any()
+            unbudgeted_teams = sorted(budget_by_team[~budget_by_team].index.tolist())
+            has_any_budget = bool(budget_by_team.any())
 
-            def _color_col_by_rate(col):
-                """列ごとに、対応する達成率 (rate_matrix の同じ team/month セル)
-                でセル背景色を決定する。rate_matrix に該当セルが無ければ
-                灰色 (データなし) で表示 (Issue #253)"""
-                if col.name not in rate_matrix.columns:
-                    return [_no_data_bg for _ in col.index]
-                return [
-                    f"background-color: {achievement_color(rate_matrix.loc[idx, col.name])}"
-                    if idx in rate_matrix.index
-                    else _no_data_bg
-                    for idx in col.index
-                ]
-
-            styled = (
-                diff_matrix.style
-                .apply(_color_col_by_rate, axis=0)
-                .format(lambda v: format_diff_yen(v) if pd.notna(v) else "⚠ 未設定")
-            )
-            st.dataframe(styled, use_container_width=True)
-            st.caption(
-                "セル値: 差額 = 実額 - 予算 / セル色: 達成率で判定 (緑=80-120% 適正 / "
-                "黄=60-80%・120-150% 注意 / 赤=<60%・>150% 乖離大 / 灰=データなし)"
-            )
-
-            # セルクリック相当の隊ジャンプ用
-            with st.expander("ドリルダウンへ移動 (隊選択)"):
-                selectable_teams = sorted(diff_matrix.index.tolist())
-                chosen = st.selectbox(
-                    "隊を選んでドリルダウンタブへ反映",
-                    [""] + selectable_teams,
-                    key="tb_matrix_jump_team",
+            if not has_any_budget:
+                unbudgeted_list = "\n".join(f"- {t}" for t in unbudgeted_teams)
+                st.warning(
+                    f"🚨 「{filter_leader}」配下 {len(unbudgeted_teams)} 隊すべてに"
+                    "月次予算が未登録です。\n\n"
+                    "隊マトリクスは隊単位の月次予算 (team_budgets) から"
+                    "達成率・差額を計算するため、予算が無いと表示できません。\n\n"
+                    "**入力場所:** 隊ドリルダウンタブ → 該当隊を選択 → 月予算編集\n\n"
+                    f"**未登録の隊:**\n{unbudgeted_list}"
                 )
-                if chosen:
-                    st.session_state["tb_selected_team"] = chosen
-                    st.success(f"「{chosen}」をドリルダウンタブで開けます。")
+            else:
+                if unbudgeted_teams:
+                    unbudgeted_list = "\n".join(f"- {t}" for t in unbudgeted_teams)
+                    st.info(
+                        f"💡 以下 {len(unbudgeted_teams)} 隊は月次予算未登録のため、"
+                        "達成率・差額が表示されません:\n"
+                        f"{unbudgeted_list}\n\n"
+                        "隊ドリルダウンタブから予算を入力してください。"
+                    )
+
+                # Issue #253: セル値は差額 (実額 - 予算)、セル色は達成率レンジで判定。
+                # diff_matrix と rate_matrix は同じ filtered から pivot 生成するが、
+                # pivot_table(aggfunc="first") は全 NaN 行/列を結果から落とす仕様のため
+                # 非対称になりうる (例: budget=0 で achievement_rate が NaN、
+                # diff_amount は actual_amount をそのまま持つケース)。
+                # → rate_matrix で参照不能なセルは achievement_color(None) で灰色
+                # にフォールバックし、凡例「灰=データなし」と一貫させる。
+                diff_matrix = build_matrix_df(filtered, value="diff_amount")
+                rate_matrix = build_matrix_df(filtered, value="achievement_rate")
+                _no_data_bg = f"background-color: {achievement_color(None)}"
+
+                def _color_col_by_rate(col):
+                    """列ごとに、対応する達成率 (rate_matrix の同じ team/month セル)
+                    でセル背景色を決定する。rate_matrix に該当セルが無ければ
+                    灰色 (データなし) で表示 (Issue #253)"""
+                    if col.name not in rate_matrix.columns:
+                        return [_no_data_bg for _ in col.index]
+                    return [
+                        f"background-color: {achievement_color(rate_matrix.loc[idx, col.name])}"
+                        if idx in rate_matrix.index
+                        else _no_data_bg
+                        for idx in col.index
+                    ]
+
+                styled = (
+                    diff_matrix.style
+                    .apply(_color_col_by_rate, axis=0)
+                    .format(lambda v: format_diff_yen(v) if pd.notna(v) else "⚠ 未設定")
+                )
+                st.dataframe(styled, use_container_width=True)
+                st.caption(
+                    "セル値: 差額 = 実額 - 予算 / セル色: 達成率で判定 (緑=80-120% 適正 / "
+                    "黄=60-80%・120-150% 注意 / 赤=<60%・>150% 乖離大 / 灰=データなし)"
+                )
+
+                # セルクリック相当の隊ジャンプ用
+                with st.expander("ドリルダウンへ移動 (隊選択)"):
+                    selectable_teams = sorted(diff_matrix.index.tolist())
+                    chosen = st.selectbox(
+                        "隊を選んでドリルダウンタブへ反映",
+                        [""] + selectable_teams,
+                        key="tb_matrix_jump_team",
+                    )
+                    if chosen:
+                        st.session_state["tb_selected_team"] = chosen
+                        st.success(f"「{chosen}」をドリルダウンタブで開けます。")
 
 
 # ============ 🔍 隊ドリルダウン ============
