@@ -105,6 +105,151 @@ def format_diff_yen(diff: Optional[float]) -> str:
         return "—"
 
 
+def format_mom_yen(delta: Optional[float]) -> Optional[str]:
+    """前月比実額を ±¥X,XXX 形式に整形 (Issue #257)。
+
+    None / NaN は None を返す → st.metric の delta=None で省略表示。
+    0 は ±¥0 (前月と同額の明示)。
+    """
+    if delta is None:
+        return None
+    try:
+        if pd.isna(delta):
+            return None
+    except (TypeError, ValueError):
+        pass
+    try:
+        v = int(delta)
+    except (TypeError, ValueError):
+        return None
+    if v == 0:
+        return "±¥0"
+    sign = "+" if v > 0 else "-"
+    return f"{sign}¥{abs(v):,}"
+
+
+def format_mom_pt(delta: Optional[float]) -> Optional[str]:
+    """前月比達成率を ±X.Xpt 形式に整形 (Issue #257)。
+
+    None / NaN は None を返す → st.metric の delta=None で省略表示。
+    0 は ±0.0pt。
+    """
+    if delta is None:
+        return None
+    try:
+        if pd.isna(delta):
+            return None
+    except (TypeError, ValueError):
+        pass
+    try:
+        v = float(delta)
+    except (TypeError, ValueError):
+        return None
+    if v == 0:
+        return "±0.0pt"
+    sign = "+" if v > 0 else "-"
+    return f"{sign}{abs(v):.1f}pt"
+
+
+def compute_mom_delta(
+    current: Optional[dict],
+    previous: Optional[dict],
+) -> dict:
+    """前月比 (MoM) delta を計算する純粋関数 (Issue #257)。
+
+    docs/specs/2026-06-14-team-budget-mom-delta.md §5.1 参照。
+
+    Args:
+        current: {"actual_amount": float, "achievement_rate": Optional[float]}
+        previous: 同上、None なら前月データなし
+
+    Returns:
+        {"actual_delta": Optional[float], "rate_delta": Optional[float]}
+        いずれかが計算不可なら対応する key は None で返す:
+        - previous=None / current=None
+        - current/previous の対応 key が None or NaN
+    """
+    result = {"actual_delta": None, "rate_delta": None}
+    if current is None or previous is None:
+        return result
+
+    def _safe_float(v) -> Optional[float]:
+        if v is None:
+            return None
+        try:
+            if pd.isna(v):
+                return None
+        except (TypeError, ValueError):
+            pass
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            return None
+
+    cur_actual = _safe_float(current.get("actual_amount"))
+    prev_actual = _safe_float(previous.get("actual_amount"))
+    if cur_actual is not None and prev_actual is not None:
+        result["actual_delta"] = cur_actual - prev_actual
+
+    cur_rate = _safe_float(current.get("achievement_rate"))
+    prev_rate = _safe_float(previous.get("achievement_rate"))
+    if cur_rate is not None and prev_rate is not None:
+        result["rate_delta"] = cur_rate - prev_rate
+
+    return result
+
+
+def attach_mom_columns(
+    current_summary: pd.DataFrame,
+    previous_summary: Optional[pd.DataFrame],
+    *,
+    key_col: str = "leader_team",
+) -> pd.DataFrame:
+    """current_summary に前月比 (actual_delta / rate_delta) 列を追加 (Issue #257)。
+
+    Args:
+        current_summary: actual_amount / achievement_rate 列を持つ DataFrame
+        previous_summary: 同形式の前月版、None または空なら全行 None で delta 列追加
+        key_col: 行識別キー (leader_team / team)
+
+    Returns:
+        current_summary + actual_delta / rate_delta 列 (Optional[float])
+        前月にないキーは delta=None (新規隊扱い)
+    """
+    result = current_summary.copy()
+    if previous_summary is None or previous_summary.empty:
+        result["actual_delta"] = None
+        result["rate_delta"] = None
+        return result
+    prev_map = previous_summary.set_index(key_col)[
+        ["actual_amount", "achievement_rate"]
+    ].to_dict("index")
+
+    def _row_delta(row):
+        prev = prev_map.get(row[key_col])
+        if prev is None:
+            return pd.Series({"actual_delta": None, "rate_delta": None})
+        mom = compute_mom_delta(
+            current={
+                "actual_amount": row["actual_amount"],
+                "achievement_rate": row["achievement_rate"],
+            },
+            previous={
+                "actual_amount": prev["actual_amount"],
+                "achievement_rate": prev["achievement_rate"],
+            },
+        )
+        return pd.Series({
+            "actual_delta": mom["actual_delta"],
+            "rate_delta": mom["rate_delta"],
+        })
+
+    deltas = result.apply(_row_delta, axis=1)
+    result["actual_delta"] = deltas["actual_delta"]
+    result["rate_delta"] = deltas["rate_delta"]
+    return result
+
+
 def is_outdated(stored_hash: Optional[str], current_hash: Optional[str]) -> bool:
     """評価レコードの hash と現在の hash を比較し outdated か判定する。
 
@@ -321,17 +466,26 @@ def build_leader_team_matrix_df(
 # ----- Streamlit レンダラ (副作用あり) -----
 
 
-def render_kpi_row(summary: dict) -> None:
-    """全体予算 / 実額 / 達成率 + 差額 の 3 列 KPI (spec §6.2)"""
+def render_kpi_row(summary: dict, mom: Optional[dict] = None) -> None:
+    """全体予算 / 実額 / 達成率 の 3 列 KPI (spec §6.2)。
+
+    Issue #257: `mom` 引数で前月比 delta を表示。
+    - mom=None (デフォルト) → delta なし (既存の予実差額 delta は本 PR で廃止)
+    - mom={"actual_delta": ..., "rate_delta": ...} → 実額・達成率の delta に MoM 値
+    """
     import streamlit as st
 
     col_b, col_a, col_r = st.columns(3)
     col_b.metric("全体予算", format_yen(summary["total_budget"]))
-    col_a.metric("全体実額", format_yen(summary["total_actual"]))
+    col_a.metric(
+        "全体実額",
+        format_yen(summary["total_actual"]),
+        delta=format_mom_yen(mom["actual_delta"]) if mom else None,
+    )
     col_r.metric(
         "全体達成率",
         format_rate(summary["overall_rate"]),
-        delta=format_diff(summary["overall_diff"]),
+        delta=format_mom_pt(mom["rate_delta"]) if mom else None,
     )
 
 

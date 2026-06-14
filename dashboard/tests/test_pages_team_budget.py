@@ -563,3 +563,114 @@ class TestRenderTeamBudgetEditor:
         assert isinstance(call_kwargs["value"], int)
         assert call_kwargs["format"] == "%d"
         assert isinstance(call_kwargs["step"], int)
+
+
+class TestRenderDrilldownSummary:
+    """Issue #257: tab_drilldown 集計セクションの MoM delta 表示テスト。
+
+    `_render_drilldown_summary` を直接呼んで st.metric の delta 引数を verify。
+    docs/specs/2026-06-14-team-budget-mom-delta.md §7.2 のテストケース。
+    """
+
+    @pytest.fixture(autouse=True)
+    def _import_render(self):
+        sys.modules.pop("pages.team_budget", None)
+        with patch("lib.ui_helpers.render_sidebar_year_month", return_value=(2026, 5)), \
+             patch("lib.bq_client.load_team_budget_actuals", return_value=pd.DataFrame()), \
+             patch("lib.bq_client.load_team_monthly_eval", return_value=pd.DataFrame()), \
+             patch("lib.bq_client.load_active_teams", return_value=[]), \
+             patch("lib.bq_client.load_active_leader_teams", return_value=[]), \
+             patch("lib.bq_client.load_leader_team_monthly_budgets", return_value=pd.DataFrame()), \
+             patch("lib.bq_client.compute_current_hashes", return_value={}), \
+             patch("lib.bq_client.get_bq_client"), \
+             patch("lib.auth.require_user"):
+            import streamlit as st
+            st.session_state["user_email"] = "u@example.com"
+            st.session_state["user_role"] = "user"
+            mod = importlib.import_module("pages.team_budget")
+            self._render_summary = mod._render_drilldown_summary
+            yield
+
+    @staticmethod
+    def _setup_st_mock(st_mock):
+        """st.columns(3) で 3 つの固定 mock を返す。
+        side_effect ではなく return_value 固定でテストから col mock を参照可能に。
+        """
+        st_mock.session_state = {}
+        cols = (MagicMock(), MagicMock(), MagicMock())
+        st_mock.columns.return_value = cols
+        return cols
+
+    def _row(self, actual=600000.0, budget=500000.0, rate=120.0):
+        return pd.DataFrame({
+            "actual_amount": [actual],
+            "budget_amount": [budget],
+            "achievement_rate": [rate],
+            "diff_amount": [actual - budget],
+        })
+
+    def test_mom_delta_passed_to_metrics(self):
+        """前月データありで MoM delta が st.metric の delta 引数に渡される"""
+        actuals_team = self._row(actual=600000.0, rate=120.0)
+        actuals_team_prev = self._row(actual=400000.0, rate=80.0)
+        with patch("pages.team_budget.st") as st_mock:
+            self._setup_st_mock(st_mock)
+            self._render_summary(
+                actuals_team=actuals_team,
+                actuals_team_prev=actuals_team_prev,
+                year=2026, month=5,
+            )
+            # st.columns(3) で 3 つの col mock が返る → col_a / col_r が metric を呼ぶ
+            cols = st_mock.columns.return_value
+            # metric の delta 引数を収集
+            metric_calls = []
+            for c in cols:
+                metric_calls.extend(c.metric.call_args_list)
+            deltas = [c.kwargs.get("delta") for c in metric_calls]
+            # 実額 delta: +¥200,000、達成率 delta: +40.0pt
+            assert "+¥200,000" in deltas, f"実額 MoM delta が見当たらない: {deltas}"
+            assert "+40.0pt" in deltas, f"達成率 MoM delta が見当たらない: {deltas}"
+
+    def test_fy_initial_month_no_delta_with_caption(self):
+        """FY 初月 (month=11) では delta=None + caption「FY 初月のため前月比なし」"""
+        actuals_team = self._row()
+        actuals_team_prev = self._row()  # データはあるが month=11 なので使われない
+        with patch("pages.team_budget.st") as st_mock:
+            self._setup_st_mock(st_mock)
+            self._render_summary(
+                actuals_team=actuals_team,
+                actuals_team_prev=actuals_team_prev,
+                year=2026, month=11,
+            )
+            cols = st_mock.columns.return_value
+            metric_calls = []
+            for c in cols:
+                metric_calls.extend(c.metric.call_args_list)
+            deltas = [c.kwargs.get("delta") for c in metric_calls]
+            # 全 delta が None
+            non_none = [d for d in deltas if d is not None]
+            assert non_none == [], f"FY 初月で delta が省略されていない: {non_none}"
+            # caption に「FY 初月」を含む呼び出しがある
+            caption_messages = [str(c.args[0]) for c in st_mock.caption.call_args_list if c.args]
+            assert any("FY 初月" in m for m in caption_messages), (
+                f"FY 初月 caption が表示されていない: {caption_messages}"
+            )
+
+    def test_prev_data_empty_delta_none(self):
+        """前月データ空 → delta=None で省略 (FY 初月以外でも前月なしなら None)"""
+        actuals_team = self._row()
+        actuals_team_prev = pd.DataFrame()
+        with patch("pages.team_budget.st") as st_mock:
+            self._setup_st_mock(st_mock)
+            self._render_summary(
+                actuals_team=actuals_team,
+                actuals_team_prev=actuals_team_prev,
+                year=2026, month=5,
+            )
+            cols = st_mock.columns.return_value
+            metric_calls = []
+            for c in cols:
+                metric_calls.extend(c.metric.call_args_list)
+            deltas = [c.kwargs.get("delta") for c in metric_calls]
+            non_none = [d for d in deltas if d is not None]
+            assert non_none == [], f"前月データなしで delta が省略されていない: {non_none}"
