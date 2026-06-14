@@ -25,6 +25,12 @@ def reset_module():
     sys.modules.pop("pages.team_budget", None)
     sys.modules.pop("pages.team_budget", None)
 
+    # 他テストファイル (test_lib_gyomu_list_view 等) が mock_st.selectbox を
+    # 別の MagicMock に差し替えて teardown しないため、ここで明示的に
+    # conftest の default ("viewer") に戻す。
+    import streamlit as st
+    st.selectbox = MagicMock(return_value="viewer")
+
     # render_sidebar_year_month が selectbox 経由で 'viewer' を返す問題を回避し、
     # 確定的に (2026, 5) を返すよう patch
     with patch("lib.ui_helpers.render_sidebar_year_month", return_value=(2026, 5)):
@@ -158,6 +164,94 @@ class TestTeamBudgetPage:
              patch("lib.bq_client.get_bq_client"), \
              patch("lib.auth.require_user"):
             importlib.import_module("pages.team_budget")
+
+    def test_matrix_warns_when_all_teams_unbudgeted(self, reset_module):
+        """全配下隊が予算未登録のとき、st.warning で親切な案内を表示する。
+
+        従来は pivot_table の dropna=True で全 NaN 列が落ち、UI 上は
+        "team" index 名と "empty" だけが表示される無言バグだった。
+        """
+        import streamlit as st
+        st.warning.reset_mock()
+        st.info.reset_mock()
+        st.session_state["user_email"] = "u@example.com"
+        st.session_state["user_role"] = "user"
+        # leader_team = "viewer" は conftest の selectbox return_value に合わせて
+        # 統括隊フィルタを通過させるための工夫 (filter_leader == "viewer" でマッチ)。
+        unbudgeted_actuals = pd.DataFrame({
+            "year": [2026, 2026, 2026],
+            "month": [5, 6, 7],
+            "team": ["α 隊", "β 隊", "γ 隊"],
+            "leader_team": ["viewer", "viewer", "viewer"],
+            "actual_amount": [100.0, 200.0, 300.0],
+            "actual_count": [1, 1, 1],
+            "reporter_count": [1, 1, 1],
+            "budget_amount": [None, None, None],
+            "achievement_rate": [None, None, None],
+            "diff_amount": [None, None, None],
+            "has_budget": [False, False, False],
+            "has_actual": [True, True, True],
+        })
+        with patch("lib.bq_client.load_team_budget_actuals", return_value=unbudgeted_actuals), \
+             patch("lib.bq_client.load_team_monthly_eval", return_value=pd.DataFrame()), \
+             patch("lib.bq_client.load_active_teams", return_value=["α 隊", "β 隊", "γ 隊"]), \
+             patch("lib.bq_client.load_active_leader_teams", return_value=["viewer"]), \
+             patch("lib.bq_client.load_leader_team_monthly_budgets", return_value=pd.DataFrame()), \
+             patch("lib.bq_client.load_leader_team_yearly_monthly_budgets", return_value={}), \
+             patch("lib.bq_client.compute_current_hashes",
+                   return_value={"α 隊": "", "β 隊": "", "γ 隊": ""}), \
+             patch("lib.bq_client.get_bq_client"), \
+             patch("lib.auth.require_user"):
+            importlib.import_module("pages.team_budget")
+
+        warning_texts = [str(c) for c in st.warning.call_args_list]
+        # 全隊未登録メッセージ + 隊名 3 件の列挙が含まれること
+        assert any("未登録" in t and "α 隊" in t and "β 隊" in t and "γ 隊" in t
+                   for t in warning_texts), (
+            f"全隊未登録時の warning が出ていない。warning calls={warning_texts}"
+        )
+
+    def test_matrix_infos_partial_unbudgeted_teams(self, reset_module):
+        """一部の隊だけ予算未登録のとき、st.info で未登録隊を案内した上で
+        マトリクス自体は描画する。"""
+        import streamlit as st
+        st.warning.reset_mock()
+        st.info.reset_mock()
+        st.session_state["user_email"] = "u@example.com"
+        st.session_state["user_role"] = "user"
+        mixed_actuals = pd.DataFrame({
+            "year": [2026, 2026, 2026],
+            "month": [5, 5, 5],
+            "team": ["α 隊", "β 隊", "γ 隊"],
+            "leader_team": ["viewer", "viewer", "viewer"],
+            "actual_amount": [100.0, 200.0, 300.0],
+            "actual_count": [1, 1, 1],
+            "reporter_count": [1, 1, 1],
+            # α 隊だけ予算あり、β/γ は未登録
+            "budget_amount": [120.0, None, None],
+            "achievement_rate": [83.3, None, None],
+            "diff_amount": [-20.0, None, None],
+            "has_budget": [True, False, False],
+            "has_actual": [True, True, True],
+        })
+        with patch("lib.bq_client.load_team_budget_actuals", return_value=mixed_actuals), \
+             patch("lib.bq_client.load_team_monthly_eval", return_value=pd.DataFrame()), \
+             patch("lib.bq_client.load_active_teams", return_value=["α 隊", "β 隊", "γ 隊"]), \
+             patch("lib.bq_client.load_active_leader_teams", return_value=["viewer"]), \
+             patch("lib.bq_client.load_leader_team_monthly_budgets", return_value=pd.DataFrame()), \
+             patch("lib.bq_client.load_leader_team_yearly_monthly_budgets", return_value={}), \
+             patch("lib.bq_client.compute_current_hashes",
+                   return_value={"α 隊": "", "β 隊": "", "γ 隊": ""}), \
+             patch("lib.bq_client.get_bq_client"), \
+             patch("lib.auth.require_user"):
+            importlib.import_module("pages.team_budget")
+
+        info_texts = [str(c) for c in st.info.call_args_list]
+        # β 隊・γ 隊だけが列挙され、α 隊は含まれない
+        assert any("未登録" in t and "β 隊" in t and "γ 隊" in t and "α 隊" not in t
+                   for t in info_texts), (
+            f"部分未登録時の info が期待通り出ていない。info calls={info_texts}"
+        )
 
 
 class TestFiscalYearLoading:
