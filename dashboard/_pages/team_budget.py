@@ -57,11 +57,15 @@ from lib.gyomu_list_view import render_gyomu_list_view
 from lib.team_budget_view import (
     achievement_color,
     build_leader_team_matrix_df,
+    attach_mom_columns,
     build_matrix_df,
     build_monthly_trend,
     classify_achievement,
+    compute_mom_delta,
     format_diff,
     format_diff_yen,
+    format_mom_pt,
+    format_mom_yen,
     format_rate,
     format_yen,
     is_outdated,
@@ -174,6 +178,58 @@ def _infer_leader_team(actuals_month: pd.DataFrame, team: str):
         return None
     val = rows.iloc[0]["leader_team"]
     return val if pd.notna(val) else None
+
+
+def _render_drilldown_summary(
+    *,
+    actuals_team: pd.DataFrame,
+    actuals_team_prev: pd.DataFrame,
+    year: int,
+    month: int,
+) -> None:
+    """隊ドリルダウン「集計」セクション (Issue #257 で MoM delta 対応)。
+
+    - 実額 / 達成率に前月比 delta を表示 (compute_mom_delta)
+    - FY 初月 (month=11) は前月比省略 + caption 「FY 初月のため前月比なし」
+    - 前月データなしも delta=None で省略 (st.metric が delta=None で省略表示)
+    - 達成率の delta は予実差額 → 前月比達成率 に置換 (PR #259 由来の delta=format_diff を廃止)
+    """
+    st.markdown("### 集計")
+    if actuals_team.empty:
+        st.warning("当月の集計データがありません。")
+        return
+    row = actuals_team.iloc[0]
+
+    # MoM 計算: FY 初月 (11 月) または前月データ空なら previous=None
+    prev_data = None
+    if month != 11 and not actuals_team_prev.empty:
+        prev = actuals_team_prev.iloc[0]
+        prev_data = {
+            "actual_amount": prev["actual_amount"],
+            "achievement_rate": prev["achievement_rate"],
+        }
+    mom = compute_mom_delta(
+        current={
+            "actual_amount": row["actual_amount"],
+            "achievement_rate": row["achievement_rate"],
+        },
+        previous=prev_data,
+    )
+
+    col_b, col_a, col_r = st.columns(3)
+    col_b.metric("予算", format_yen(row["budget_amount"]))
+    col_a.metric(
+        "実額",
+        format_yen(row["actual_amount"]),
+        delta=format_mom_yen(mom["actual_delta"]),
+    )
+    col_r.metric(
+        "達成率",
+        format_rate(row["achievement_rate"]),
+        delta=format_mom_pt(mom["rate_delta"]),
+    )
+    if month == 11:
+        st.caption("💡 FY 初月のため前月比なし")
 
 
 def _render_team_budget_editor(
@@ -451,7 +507,37 @@ with tab_overall:
             (summary["total_actual"] / total_lt_budget * 100)
             if total_lt_budget > 0 else None
         )
-    render_kpi_row(summary)
+
+    # Issue #257: 前月比 (MoM delta) 計算。
+    # FY 初月 (month=11) または前月データなしは mom=None で delta 省略。
+    # 達成率前月比は当月/前月の budget 構成が同じ前提で算出 (前月の統括隊月予算
+    # override は本 PR スコープ外、actuals_prev_month の素 budget で集計)。
+    prev_month_calc = month - 1 if month > 1 else 12
+    if (
+        month != 11
+        and not actuals_year.empty
+        and "month" in actuals_year.columns
+    ):
+        actuals_prev_month = actuals_year[actuals_year["month"] == prev_month_calc]
+    else:
+        actuals_prev_month = pd.DataFrame()
+    if not actuals_prev_month.empty:
+        summary_prev = summarize_actuals(actuals_prev_month)
+        mom_overall = compute_mom_delta(
+            current={
+                "actual_amount": summary["total_actual"],
+                "achievement_rate": summary["overall_rate"],
+            },
+            previous={
+                "actual_amount": summary_prev["total_actual"],
+                "achievement_rate": summary_prev["overall_rate"],
+            },
+        )
+    else:
+        mom_overall = None
+    render_kpi_row(summary, mom=mom_overall)
+    if month == 11:
+        st.caption("💡 FY 初月のため前月比なし")
 
     if actuals_year.empty:
         st.info(f"FY{fiscal_year} のデータがありません。")
@@ -508,19 +594,54 @@ with tab_leader:
         if leader_summary.empty:
             st.info("当月の統括隊データがありません。")
         else:
+            # Issue #257: 前月集計を取得して attach_mom_columns で delta 列追加。
+            # FY 初月 (11 月) は前月計算 skip (mom 列は None で省略表示)。
+            _prev_month_calc = month - 1 if month > 1 else 12
+            if (
+                month != 11
+                and not actuals_year.empty
+                and "month" in actuals_year.columns
+            ):
+                _actuals_prev_for_leader = actuals_year[
+                    actuals_year["month"] == _prev_month_calc
+                ]
+                _leader_summary_prev = (
+                    summarize_by_leader_team(
+                        _actuals_prev_for_leader, _lt_budget_override
+                    )
+                    if not _actuals_prev_for_leader.empty
+                    else None
+                )
+            else:
+                _leader_summary_prev = None
+            leader_summary_with_mom = attach_mom_columns(
+                leader_summary, _leader_summary_prev, key_col="leader_team",
+            )
+
             # 統括隊別 KPI table
-            display_df = leader_summary.copy()
+            display_df = leader_summary_with_mom.copy()
             display_df["予算"] = display_df["budget_amount"].apply(format_yen)
             display_df["実額"] = display_df["actual_amount"].apply(format_yen)
             display_df["達成率"] = display_df["achievement_rate"].apply(format_rate)
             display_df["差額"] = display_df["diff_amount"].apply(format_diff)
+            display_df["実額前月比"] = (
+                display_df["actual_delta"].apply(format_mom_yen).fillna("—")
+            )
+            display_df["達成率前月比"] = (
+                display_df["rate_delta"].apply(format_mom_pt).fillna("—")
+            )
             display_df["配下隊数"] = display_df["team_count"].astype(int)
             st.dataframe(
-                display_df[["leader_team", "予算", "実額", "達成率", "差額", "配下隊数"]]
+                display_df[[
+                    "leader_team", "予算", "実額", "達成率", "差額",
+                    "実額前月比", "達成率前月比", "配下隊数",
+                ]]
                 .rename(columns={"leader_team": "統括隊"}),
                 use_container_width=True,
                 hide_index=True,
             )
+            if month == 11:
+                st.caption("💡 FY 初月のため前月比なし")
 
     if actuals_year.empty:
         st.info(f"FY{fiscal_year} の統括隊データがありません。")
@@ -714,19 +835,28 @@ with tab_drilldown:
                 else:
                     actuals_team = actuals_month
 
-                st.markdown("### 集計")
-                if actuals_team.empty:
-                    st.warning("当月の集計データがありません。")
+                # Issue #257: 前月データ抽出 (actuals_year を月フィルタで流用、
+                # 追加 BQ 呼び出しなし)。FY 初月 (11 月) は _render_drilldown_summary
+                # 側で previous=None 扱いするので、ここでは prev_month を素直に算出。
+                prev_month_calc = month - 1 if month > 1 else 12
+                if (
+                    not actuals_year.empty
+                    and "month" in actuals_year.columns
+                    and "team" in actuals_year.columns
+                ):
+                    actuals_team_prev = actuals_year[
+                        (actuals_year["month"] == prev_month_calc)
+                        & (actuals_year["team"] == team)
+                    ]
                 else:
-                    row = actuals_team.iloc[0]
-                    col_b, col_a, col_r = st.columns(3)
-                    col_b.metric("予算", format_yen(row["budget_amount"]))
-                    col_a.metric("実額", format_yen(row["actual_amount"]))
-                    col_r.metric(
-                        "達成率",
-                        format_rate(row["achievement_rate"]),
-                        delta=format_diff(row["diff_amount"]),
-                    )
+                    actuals_team_prev = pd.DataFrame()
+
+                _render_drilldown_summary(
+                    actuals_team=actuals_team,
+                    actuals_team_prev=actuals_team_prev,
+                    year=year,
+                    month=month,
+                )
 
                 # AI 評価コメント
                 st.markdown("### AI 評価コメント")
